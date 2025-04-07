@@ -34,14 +34,22 @@ try:
         import psycopg
         
         print("\nTesting PostgreSQL connection...")
-        conn = psycopg.connect(
-            host=config['HOST'],
-            port=config['PORT'],
-            dbname=config['NAME'],
-            user=config['USER'],
-            password=config['PASSWORD'],
-            connect_timeout=10
-        )
+        # Connection parameters to improve stability
+        conn_params = {
+            'host': config['HOST'],
+            'port': config['PORT'],
+            'dbname': config['NAME'],
+            'user': config['USER'],
+            'password': config['PASSWORD'],
+            'connect_timeout': 10,
+            'keepalives': 1,
+            'keepalives_idle': 30,
+            'keepalives_interval': 10,
+            'keepalives_count': 5,
+            'sslmode': 'require'
+        }
+        
+        conn = psycopg.connect(**conn_params)
         
         with conn.cursor() as cur:
             cur.execute("SELECT version();")

@@ -20,5 +20,22 @@
       "mountPath": "/app/db_backups",
       "description": "Volume for database backups"
     }
-  ]
+  ],
+  "services": [
+    {
+      "id": "app",
+      "name": "parsing-app",
+      "description": "Main parser application"
+    },
+    {
+      "id": "postgres",
+      "name": "database",
+      "description": "PostgreSQL database",
+      "type": "postgres",
+      "plan": "free"
+    }
+  ],
+  "shared": {
+    "DATABASE_URL": "${postgres.DATABASE_URL}"
+  }
 } 

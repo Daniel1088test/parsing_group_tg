@@ -23,6 +23,36 @@ if [ -z "$DATABASE_URL" ]; then
     fi
 fi
 
+# Wait for PostgreSQL to be ready
+wait_for_postgres() {
+    echo "Waiting for PostgreSQL to be ready..."
+    
+    # Extract connection details from DATABASE_URL
+    PGUSER=$(echo $DATABASE_URL | awk -F '//' '{print $2}' | awk -F ':' '{print $1}')
+    PGPASSWORD=$(echo $DATABASE_URL | awk -F ':' '{print $3}' | awk -F '@' '{print $1}')
+    PGHOST=$(echo $DATABASE_URL | awk -F '@' '{print $2}' | awk -F ':' '{print $1}')
+    PGPORT=$(echo $DATABASE_URL | awk -F ':' '{print $4}' | awk -F '/' '{print $1}')
+    PGDATABASE=$(echo $DATABASE_URL | awk -F '/' '{print $4}' | awk -F '?' '{print $1}')
+    
+    export PGPASSWORD=$PGPASSWORD
+    
+    # Try to connect to PostgreSQL with a timeout
+    max_retries=30
+    retries=0
+    
+    until pg_isready -h $PGHOST -p $PGPORT -U $PGUSER -d $PGDATABASE; do
+        retries=$((retries+1))
+        if [ $retries -ge $max_retries ]; then
+            echo "ERROR: PostgreSQL not available after $max_retries attempts. Exiting."
+            exit 1
+        fi
+        echo "PostgreSQL not ready yet. Retrying in 2 seconds... (Attempt $retries/$max_retries)"
+        sleep 2
+    done
+    
+    echo "PostgreSQL is ready!"
+}
+
 # Set up web server host and port for Django
 export WEB_SERVER_HOST="0.0.0.0"  # Listen on all interfaces
 export WEB_SERVER_PORT="$PORT"
@@ -48,28 +78,8 @@ fi
 mkdir -p staticfiles
 mkdir -p media
 
-# Test database connection
-echo "Testing database connection..."
-python db_test.py || echo "Database connection test failed, but continuing..."
-
-# Output message
-echo "Starting application setup..."
-
-# Install dependencies
-python -m pip install --upgrade pip
-
-if [ -f requirements.txt ]; then
-    echo "Installing requirements..."
-    pip install -r requirements.txt
-fi
-
-# Setup environment variables if not using Railway
-if [ -z "$RAILWAY_ENVIRONMENT" ]; then
-    echo "Loading environment variables from .env file..."
-    if [ -f .env ]; then
-        export $(cat .env | grep -v '^#' | xargs)
-    fi
-fi
+# Wait for PostgreSQL to be ready
+wait_for_postgres
 
 # Database backup/restore handling for persistence
 if [ -n "$DATABASE_URL" ]; then

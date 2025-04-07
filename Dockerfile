@@ -13,6 +13,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libpq-dev \
     curl \
     postgresql-client \
+    postgresql-client-common \
     && rm -rf /var/lib/apt/lists/*
 
 # Create directory for database backups

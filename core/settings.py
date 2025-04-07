@@ -99,7 +99,6 @@ if DATABASE_URL:
         default=DATABASE_URL,
         conn_max_age=600,
         conn_health_checks=True,
-        ssl_require=True,
     )
     
     # Ensure we have proper SSL configuration for PostgreSQL
@@ -108,6 +107,12 @@ if DATABASE_URL:
     
     if db_config['ENGINE'] == 'django.db.backends.postgresql':
         db_config['OPTIONS']['sslmode'] = 'require'
+        # Add connection stability parameters
+        db_config['OPTIONS']['connect_timeout'] = 10
+        db_config['OPTIONS']['keepalives'] = 1
+        db_config['OPTIONS']['keepalives_idle'] = 30
+        db_config['OPTIONS']['keepalives_interval'] = 10
+        db_config['OPTIONS']['keepalives_count'] = 5
     
     DATABASES['default'] = db_config
 
