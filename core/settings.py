@@ -31,6 +31,15 @@ DEBUG = False
 
 ALLOWED_HOSTS = ['parsinggrouptg-production.up.railway.app', 'localhost', '127.0.0.1', 'healthcheck.railway.app']
 
+# CSRF and Security Settings
+CSRF_TRUSTED_ORIGINS = [
+    'https://parsinggrouptg-production.up.railway.app',
+    'https://healthcheck.railway.app'
+]
+CSRF_COOKIE_SECURE = True
+SESSION_COOKIE_SECURE = True
+SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+
 SESSION_ENGINE = 'django.contrib.sessions.backends.db'
 SESSION_COOKIE_AGE = 60 * 24 * 14
 # Application definition
@@ -126,15 +135,22 @@ USE_TZ = True
 
 STATIC_URL = '/static/'
 STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
-STATICFILES_DIRS = [
-    os.path.join(BASE_DIR, 'static'),
-]
+
+# Only include static directory if it exists
+if os.path.exists(os.path.join(BASE_DIR, 'static')):
+    STATICFILES_DIRS = [
+        os.path.join(BASE_DIR, 'static'),
+    ]
 
 # Whitenoise configuration
 STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
 WHITENOISE_USE_FINDERS = True
 WHITENOISE_MANIFEST_STRICT = False
 WHITENOISE_ALLOW_ALL_ORIGINS = True
+
+# Media files
+MEDIA_URL = '/media/'
+MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.0/ref/settings/#default-auto-field
@@ -144,7 +160,3 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 LOGIN_URL = 'login'
 LOGIN_REDIRECT_URL = 'admin-panel/'
 LOGOUT_REDIRECT_URL = 'login'
-
-# Settings for media files
-MEDIA_URL = '/media/'
-MEDIA_ROOT = os.path.join(BASE_DIR, 'media')

@@ -170,9 +170,16 @@ fi
 # Start background tasks (in this case the Telegram bot)
 echo "Starting Telegram bot..."
 
-# Kill any existing Python processes running the bot
+# Try to kill any existing Python processes running the bot
 echo "Checking for existing bot processes..."
-ps aux | grep "[p]ython.*run.py" | awk '{print $2}' | xargs -r kill -9 || true
+if [ -f ".bot.pid" ]; then
+    OLD_PID=$(cat .bot.pid)
+    if [ -n "$OLD_PID" ]; then
+        echo "Found old bot process (PID: $OLD_PID), attempting to terminate..."
+        kill -9 $OLD_PID 2>/dev/null || true
+    fi
+    rm -f .bot.pid
+fi
 sleep 5  # Give more time for process cleanup
 
 # Clear any existing session files that might cause conflicts
@@ -182,8 +189,9 @@ sleep 2
 
 # Start the bot with a fresh session
 echo "Starting fresh bot instance..."
-python run.py &
+python run.py & 
 TELEGRAM_PID=$!
+echo $TELEGRAM_PID > .bot.pid
 
 # Wait for all processes
 wait $GUNICORN_PID $TELEGRAM_PID 
