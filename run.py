@@ -11,6 +11,8 @@ import traceback
 import base64
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor
+import json
+import sqlite3
 
 # Configuration of logging for the entire project
 logging.basicConfig(
@@ -78,6 +80,53 @@ async def run_bot():
         logger.error(f"Error starting bot: {e}")
         logger.error(f"Traceback: {traceback.format_exc()}")
 
+def validate_telethon_session_file(session_file):
+    """Validate that a Telethon session file is properly formatted"""
+    try:
+        # Check if the file exists and has content
+        if not os.path.exists(session_file):
+            logger.error(f"Session file does not exist: {session_file}")
+            return False
+            
+        file_size = os.path.getsize(session_file)
+        if file_size == 0:
+            logger.error(f"Session file is empty: {session_file}")
+            return False
+            
+        # Telethon session files are SQLite databases, try to open and validate
+        try:
+            conn = sqlite3.connect(session_file)
+            cursor = conn.cursor()
+            
+            # Check if the expected tables exist
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table';")
+            tables = [row[0] for row in cursor.fetchall()]
+            
+            required_tables = ['sessions', 'entities']
+            missing_tables = [table for table in required_tables if table not in tables]
+            
+            if missing_tables:
+                logger.error(f"Session file is missing required tables: {', '.join(missing_tables)}")
+                return False
+                
+            # Check if there's a valid session in the file
+            cursor.execute("SELECT COUNT(*) FROM sessions;")
+            session_count = cursor.fetchone()[0]
+            
+            if session_count == 0:
+                logger.error(f"Session file has no sessions: {session_file}")
+                return False
+                
+            # Session file appears valid
+            logger.info(f"Session file validated: {session_file} (has {session_count} sessions)")
+            return True
+        except sqlite3.Error as e:
+            logger.error(f"Failed to validate session file {session_file}: {e}")
+            return False
+    except Exception as e:
+        logger.error(f"Unexpected error validating session file {session_file}: {e}")
+        return False
+
 def ensure_telethon_session():
     """Ensure Telethon session files exist and are valid"""
     logger.info("Checking for Telethon session...")
@@ -87,20 +136,60 @@ def ensure_telethon_session():
     if session_data:
         try:
             logger.info("Found Telethon session in environment variables. Using it.")
+            
+            # Validate the session data before trying to decode it
+            if not session_data.strip():
+                logger.error("TELETHON_SESSION environment variable is empty or whitespace only")
+                return False
+                
             # Fix padding for base64 if necessary
+            original_length = len(session_data)
             if len(session_data) % 4 != 0:
                 padding = 4 - (len(session_data) % 4)
                 session_data += "=" * padding
                 logger.info(f"Fixed base64 padding (added {padding} padding characters)")
             
+            # Try to decode to validate the base64 format
+            try:
+                decoded_data = base64.b64decode(session_data)
+                logger.info(f"Successfully decoded base64 session data ({len(decoded_data)} bytes)")
+            except Exception as e:
+                logger.error(f"Failed to decode base64 session data: {e}")
+                logger.error(f"Original length: {original_length}, After padding: {len(session_data)}")
+                return False
+            
             # Write session data to file
             with open('telethon_session.session', 'wb') as f:
-                f.write(base64.b64decode(session_data))
-            logger.info("Telethon session written from environment variable")
-            return True
+                f.write(decoded_data)
+                
+            # Verify the file was created and has content
+            if os.path.exists('telethon_session.session'):
+                file_size = os.path.getsize('telethon_session.session')
+                logger.info(f"Telethon session written to file: telethon_session.session ({file_size} bytes)")
+                
+                if file_size == 0:
+                    logger.error("Generated session file is empty! Session data may be corrupted.")
+                    return False
+                    
+                # Validate the created session file
+                if not validate_telethon_session_file('telethon_session.session'):
+                    logger.error("Created session file is invalid or corrupted")
+                    return False
+                    
+                return True
+            else:
+                logger.error("Failed to create session file")
+                return False
         except Exception as e:
             logger.error(f"Error writing Telethon session from environment: {e}")
             logger.error(f"Session data might be corrupted. Check your TELETHON_SESSION environment variable.")
+            
+            # Try to dump some diagnostic info without revealing sensitive data
+            if session_data:
+                logger.info(f"Session data first 10 chars: {session_data[:10]}...")
+                logger.info(f"Session data length: {len(session_data)}")
+                
+            return False
     
     # Check Django database for session data
     try:
@@ -122,47 +211,110 @@ def ensure_telethon_session():
             try:
                 # Decode and write to file
                 session_data = session.session_data
+                
+                # Validate the session data
+                if not session_data or not session_data.strip():
+                    logger.error(f"Session data for phone {session.phone} is empty or whitespace only")
+                    return False
+                
                 # Fix padding for base64 if necessary
+                original_length = len(session_data)
                 if len(session_data) % 4 != 0:
                     padding = 4 - (len(session_data) % 4)
                     session_data += "=" * padding
                     logger.info(f"Fixed base64 padding from database (added {padding} padding characters)")
                 
+                # Try to decode to validate the base64 format
+                try:
+                    decoded_data = base64.b64decode(session_data)
+                    logger.info(f"Successfully decoded base64 session data from database ({len(decoded_data)} bytes)")
+                except Exception as e:
+                    logger.error(f"Failed to decode base64 session data from database: {e}")
+                    logger.error(f"Original length: {original_length}, After padding: {len(session_data)}")
+                    return False
+                
+                # Write to file
                 with open('telethon_session.session', 'wb') as f:
-                    f.write(base64.b64decode(session_data))
-                logger.info("Telethon session written from database")
-                return True
+                    f.write(decoded_data)
+                
+                # Verify file was written and is valid
+                if os.path.exists('telethon_session.session'):
+                    file_size = os.path.getsize('telethon_session.session')
+                    logger.info(f"Telethon session written from database to file: telethon_session.session ({file_size} bytes)")
+                    
+                    if file_size == 0:
+                        logger.error(f"Generated session file from database is empty! Session data for phone {session.phone} may be corrupted.")
+                        return False
+                    
+                    # Validate the session file
+                    if not validate_telethon_session_file('telethon_session.session'):
+                        logger.error(f"Session file created from database for phone {session.phone} is invalid or corrupted")
+                        return False
+                        
+                    # Update session information if needed
+                    if not session.session_file:
+                        session.session_file = 'telethon_session'
+                        session.save()
+                        logger.info(f"Updated session information for phone {session.phone}")
+                        
+                    return True
+                else:
+                    logger.error("Failed to create session file from database data")
+                    return False
             except Exception as e:
                 logger.error(f"Error writing Telethon session from database: {e}")
+                import traceback
+                logger.error(f"Traceback: {traceback.format_exc()}")
+                return False
     except Exception as e:
         logger.error(f"Error checking database for sessions: {e}")
+        import traceback
+        logger.error(f"Traceback: {traceback.format_exc()}")
+        return False
     
     # Check if session files exist
     if os.path.exists('telethon_session.session'):
         logger.info("Found telethon_session.session file")
-        return True
+        # Validate the existing session file
+        if validate_telethon_session_file('telethon_session.session'):
+            return True
+        else:
+            logger.error("Existing telethon_session.session file is invalid or corrupted")
+            # Try backup or alternative sessions
     elif os.path.exists('telethon_user_session.session'):
         logger.info("Found telethon_user_session.session file")
         # Copy it to the standard name for consistency
         import shutil
         shutil.copy('telethon_user_session.session', 'telethon_session.session')
         logger.info("Copied telethon_user_session.session to telethon_session.session")
-        return True
+        # Validate the copied file
+        if validate_telethon_session_file('telethon_session.session'):
+            return True
+        else:
+            logger.error("Copied session file is invalid or corrupted")
     elif os.path.exists('test_session.session'):
         logger.info("Found test_session.session file")
         # Copy it to the standard name for consistency
         import shutil
         shutil.copy('test_session.session', 'telethon_session.session')
         logger.info("Copied test_session.session to telethon_session.session")
-        return True
+        # Validate the copied file
+        if validate_telethon_session_file('telethon_session.session'):
+            return True
+        else:
+            logger.error("Copied session file is invalid or corrupted")
     elif os.path.exists('telethon_session_backup.session'):
         logger.info("Found telethon_session_backup.session file, restoring from backup")
         import shutil
         shutil.copy('telethon_session_backup.session', 'telethon_session.session')
         logger.info("Restored from backup session file")
-        return True
+        # Validate the restored file
+        if validate_telethon_session_file('telethon_session.session'):
+            return True
+        else:
+            logger.error("Restored session file is invalid or corrupted")
         
-    logger.warning("No Telethon session files found!")
+    logger.warning("No valid Telethon session files found!")
     return False
 
 async def initialize_telethon_client(session_name):
@@ -170,28 +322,84 @@ async def initialize_telethon_client(session_name):
     from telethon import TelegramClient
     from tg_bot.config import API_ID, API_HASH
     
+    # Check if session file exists
+    if not os.path.exists(f"{session_name}.session"):
+        logger.warning(f"Session file {session_name}.session does not exist")
+        return None
+    
     # Initialize client with longer timeouts
     client = TelegramClient(session_name, API_ID, API_HASH, 
                            connection_retries=10, 
                            retry_delay=5)
     
     # Connect and test authorization
-    await client.connect()
-    
-    if not await client.is_user_authorized():
-        logger.error(f"Session {session_name} is not authorized")
-        await client.disconnect()
-        return None
-    
-    # Test with a simple call
     try:
+        logger.info(f"Attempting to connect with session: {session_name}")
+        await client.connect()
+        
+        if not await client.is_user_authorized():
+            logger.error(f"Session {session_name} is not authorized")
+            await client.disconnect()
+            return None
+        
+        # Test with a simple call
         me = await client.get_me()
         logger.info(f"Successfully authenticated as {me.first_name} (@{me.username})")
         return client
     except Exception as e:
         logger.error(f"Error testing client connection: {e}")
-        await client.disconnect()
+        import traceback
+        logger.error(f"Traceback: {traceback.format_exc()}")
+        
+        try:
+            await client.disconnect()
+        except:
+            pass
         return None
+
+async def create_fresh_telethon_session():
+    """
+    Creates a new Telethon session file using API credentials.
+    NOTE: This just creates a new session file, it doesn't perform phone auth
+    which would require user interaction. This is mainly useful for bots.
+    """
+    from telethon import TelegramClient
+    from tg_bot.config import API_ID, API_HASH
+    
+    session_name = "telethon_new_session"
+    
+    try:
+        logger.info(f"Creating new Telethon session: {session_name}")
+        client = TelegramClient(session_name, API_ID, API_HASH)
+        
+        # Just connect to create the session file
+        await client.connect()
+        
+        # Test connection
+        if client.is_connected():
+            logger.info(f"Successfully created new session file: {session_name}.session")
+            
+            # We're not authorized with this new session,
+            # but at least we have a valid session file structure
+            await client.disconnect()
+            
+            # Copy the new session to standard name
+            import shutil
+            try:
+                shutil.copy(f"{session_name}.session", "telethon_session.session")
+                logger.info("Copied new session to standard filename")
+            except Exception as e:
+                logger.error(f"Error copying session file: {e}")
+                
+            return True
+        else:
+            logger.error("Failed to connect with new session")
+            return False
+    except Exception as e:
+        logger.error(f"Error creating new Telethon session: {e}")
+        import traceback
+        logger.error(f"Traceback: {traceback.format_exc()}")
+        return False
 
 def run_telethon_parser(message_queue):
     """Start Telethon parser"""
@@ -199,11 +407,19 @@ def run_telethon_parser(message_queue):
     try:
         # Verify Telethon session exists
         if not ensure_telethon_session():
-            logger.warning("No Telethon session file found. Please authorize using the Telegram bot (🔐 Authorize Telethon) or run 'python -m tg_bot.auth_telethon'.")
-            logger.warning("IMPORTANT: You must use a regular user account, NOT a bot!")
-            logger.warning("Telethon parser will not be started.")
-            return
+            logger.warning("No valid Telethon session file found.")
             
+            # Try to create a fresh session file structure
+            logger.info("Attempting to create a fresh session file structure...")
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            success = loop.run_until_complete(create_fresh_telethon_session())
+            
+            if not success:
+                logger.warning("Failed to create fresh session. Please authorize using the Telegram bot (🔐 Authorize Telethon) or run 'python -m tg_bot.auth_telethon'.")
+                logger.warning("IMPORTANT: You must use a regular user account, NOT a bot!")
+                logger.warning("Telethon parser will not be started.")
+                return
         # Make sure Django is fully initialized before starting the parser
         # as it depends on Django ORM models
         import django

@@ -487,22 +487,42 @@ async def telethon_task(queue, pre_initialized_client=None):
     background task for parsing messages with Telethon.
     """
     try:
-        # If we have a pre-initialized client, use it
+        # If we have a pre-initialized client, try to use it (carefully)
         if pre_initialized_client:
             logger.info("Using pre-initialized client from run.py")
+            session_filename = None
+            
             try:
-                me = await pre_initialized_client.get_me()
-                telethon_clients['default'] = {
-                    'client': pre_initialized_client,
-                    'user': me,
-                    'session_id': None
-                }
-                logger.info(f"Using pre-initialized client as: {me.first_name} (@{me.username}) [ID: {me.id}]")
+                # Try to extract session information without making API calls
+                # that would require the event loop from the other process
+                if hasattr(pre_initialized_client, 'session'):
+                    session_filename = getattr(pre_initialized_client.session, 'filename', None)
+                    
+                if session_filename:
+                    logger.info(f"Extracted session filename from pre-initialized client: {session_filename}")
+                    
+                    # Initialize a NEW client with this session in our event loop
+                    # instead of trying to reuse the pre-initialized client
+                    client, me = await initialize_client(session_filename=session_filename)
+                    
+                    if client:
+                        telethon_clients['default'] = {
+                            'client': client, 
+                            'user': me,
+                            'session_id': None
+                        }
+                        logger.info(f"Successfully initialized new client with session {session_filename}: {me.first_name} (@{me.username}) [ID: {me.id}]")
+                    else:
+                        logger.error(f"Failed to initialize client with session {session_filename}, will try other sessions")
+                else:
+                    logger.warning("Could not extract session filename from pre-initialized client")
             except Exception as e:
-                logger.error(f"Error getting info for pre-initialized client: {e}")
+                logger.error(f"Error extracting session info from pre-initialized client: {e}")
+                import traceback
+                logger.error(f"Traceback: {traceback.format_exc()}")
                 # Continue below to try initializing from sessions
         
-        # If we don't have any clients yet (or pre-init failed), proceed with normal initialization
+        # If we don't have any clients yet (or pre-init processing failed), proceed with normal initialization
         if not telethon_clients:
             # Get all active sessions from the database
             sessions = await get_telegram_sessions()
