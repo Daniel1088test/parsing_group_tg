@@ -83,13 +83,96 @@ stop_event = False
 
 async def get_channel_messages(client, channel_identifier):
     """
-    Receive messages from channel
+    Receive messages from channel with better error handling for unauthorized sessions
     """
     try:
-        await client.get_dialogs()  # Update dialog cache
-        channel = await client.get_entity(channel_identifier)
-        messages = await client.get_messages(channel, 10)  # Get last 10 messages
-        return messages, channel
+        # Check if client is authorized
+        is_authorized = False
+        try:
+            is_authorized = await client.is_user_authorized()
+        except Exception as e:
+            logger.warning(f"Error checking authorization: {e}")
+        
+        # Extract the username or channel ID from the link
+        username = extract_username_from_link(channel_identifier)
+        
+        if not username:
+            logger.warning(f"Could not extract username from link: {channel_identifier}")
+            return [], None
+            
+        # Different approaches based on authorization status
+        if is_authorized:
+            # Authorized client can use more features
+            try:
+                # Update dialog cache (skip this for unauthorized sessions)
+                await client.get_dialogs()
+                
+                # Get the channel entity
+                channel = await client.get_entity(channel_identifier)
+                
+                # Get messages
+                messages = await client.get_messages(channel, 10)  # Get last 10 messages
+                return messages, channel
+            except Exception as e:
+                logger.error(f"Error with authorized approach: {e}")
+                # Fall back to public approach
+        
+        # For unauthorized clients or if authorized approach failed, try public approach
+        try:
+            # Try using the direct channel approach
+            if isinstance(username, str):
+                # Try to get entity directly with username
+                try:
+                    channel = await client.get_entity(username)
+                    messages = await client.get_messages(channel, 10)
+                    return messages, channel
+                except Exception as e:
+                    logger.warning(f"Could not get entity with username {username}: {e}")
+            
+            # Try using resolved channel ID if available
+            normalized_link = await normalize_channel_link(channel_identifier, client)
+            if normalized_link != channel_identifier:
+                try:
+                    # Try with the normalized link
+                    logger.info(f"Trying normalized link: {normalized_link}")
+                    if 'c/' in normalized_link:
+                        # Extract channel ID from the normalized link
+                        channel_id = int(re.search(r'c/(\d+)', normalized_link).group(1))
+                        from telethon.tl.types import PeerChannel
+                        peer = PeerChannel(channel_id)
+                        
+                        # Try to get messages with the peer
+                        messages = await client.get_messages(peer, 10)
+                        return messages, None  # We don't have full channel info but have messages
+                except Exception as e:
+                    logger.warning(f"Error with normalized approach: {e}")
+        
+            # If all else fails, try some common Telegram API approaches for public channels
+            logger.warning(f"Trying alternative approaches for channel: {channel_identifier}")
+            
+            # Fallback: Try fetching as a public resource
+            try:
+                from telethon.tl.functions.channels import GetFullChannelRequest
+                
+                if isinstance(username, str):
+                    result = await client(GetFullChannelRequest(channel=username))
+                    if result and hasattr(result, 'full_chat'):
+                        # We have some channel info, try to get messages now
+                        try:
+                            messages = await client.get_messages(username, 10)
+                            return messages, result.full_chat
+                        except:
+                            pass
+            except Exception as e:
+                logger.warning(f"Alternative approach failed: {e}")
+                
+            logger.error(f"All approaches failed for channel: {channel_identifier}")
+            return [], None
+                
+        except Exception as e:
+            logger.error(f"Public channel approach failed: {e}")
+            return [], None
+            
     except errors.ChannelInvalidError:
         logger.warning(f"Channel {channel_identifier} not found or unavailable.")
         return [], None
@@ -205,10 +288,53 @@ async def save_message_to_data(message, channel, queue, category_id=None, client
 
 def extract_username_from_link(link):
     """Extract username/channel from Telegram link"""
+    # Match standard t.me links
     username_match = re.search(r'https?://(?:t|telegram)\.me/([^/]+)', link)
     if username_match:
-        return username_match.group(1)
+        username = username_match.group(1)
+        # Remove any potential plus signs or joinchat prefixes
+        if username.startswith('joinchat/'):
+            return None  # Joinchat links require different handling
+        if username.startswith('+'):
+            username = username[1:]
+        return username
+    
+    # Match for channel URLs like https://t.me/c/12345678/123
+    channel_match = re.search(r'https?://(?:t|telegram)\.me/c/(\d+)', link)
+    if channel_match:
+        return int(channel_match.group(1))  # Return channel ID as integer
+        
     return None
+
+async def normalize_channel_link(url, client):
+    """Normalize channel link to ensure it works with Telethon"""
+    if not url:
+        return None
+        
+    # Handle invite links (joinchat)
+    if 'joinchat' in url:
+        # For private channel invites, we need auth so just return as is
+        return url
+        
+    # Extract username or channel ID
+    entity_id = extract_username_from_link(url)
+    
+    if entity_id:
+        if isinstance(entity_id, int):
+            # It's already a channel ID
+            return f"https://t.me/c/{entity_id}"
+        else:
+            # Try to get the channel ID if we can
+            try:
+                entity = await client.get_entity(entity_id)
+                if hasattr(entity, 'id'):
+                    return f"https://t.me/c/{entity.id}"
+            except:
+                # Fall back to username-based URL
+                return f"https://t.me/{entity_id}"
+    
+    # If all else fails, return original URL
+    return url
 
 async def telethon_task(queue):
     global stop_event, telethon_clients
@@ -391,8 +517,12 @@ async def telethon_task(queue):
                         # Use channel link
                         channel_link = channel_url
                         
-                        if not channel_link or not channel_link.startswith('https://t.me/'):
-                            logger.warning(f"Channel {channel_name} has no valid link.")
+                        # Validate channel URL
+                        if not channel_link or not await is_valid_channel_url(channel_link):
+                            logger.warning(f"Channel {channel_name} has invalid link: {channel_link}")
+                            failure_info['count'] += 1
+                            failure_info['last_attempt'] = datetime.now()
+                            channel_failures[channel_key] = failure_info
                             continue
                             
                         # Get a client to use - default to the first one if no specific one is set
@@ -405,21 +535,39 @@ async def telethon_task(queue):
                             continue
                             
                         client = telethon_clients[client_key]['client']
-                                
-                        # First try to join channel
+                        
+                        # Check if client is authorized - useful for warnings
+                        is_authorized = False
                         try:
-                            # Extract username from link
-                            username = extract_username_from_link(channel_link)
-                            if username:
-                                entity = await client.get_entity(username)
-                                await client(JoinChannelRequest(entity))
-                                logger.info(f"Successfully subscribed to channel: {username}")
-                            else:
-                                logger.warning(f"Failed to extract username from link: {channel_link}")
+                            is_authorized = await client.is_user_authorized()
+                            if not is_authorized:
+                                logger.warning(f"Processing channel {channel_name} with unauthorized session. Limited functionality expected.")
                         except Exception as e:
-                            logger.error(f"Error in subscribing to channel {channel_link}: {e}")
+                            logger.warning(f"Error checking client authorization: {e}")
+                                
+                        # First try to join channel if authorized
+                        if is_authorized:
+                            try:
+                                # Extract username from link
+                                username = extract_username_from_link(channel_link)
+                                if username and isinstance(username, str):
+                                    try:
+                                        entity = await client.get_entity(username)
+                                        await client(JoinChannelRequest(entity))
+                                        logger.info(f"Successfully subscribed to channel: {username}")
+                                    except Exception as e:
+                                        # If we can't join, still continue to get messages
+                                        logger.warning(f"Could not join channel {username}: {e}")
+                                elif username and isinstance(username, int):
+                                    logger.info(f"Direct channel ID provided ({username}), subscription not required")
+                                else:
+                                    logger.warning(f"Failed to extract valid username from link: {channel_link}")
+                            except Exception as e:
+                                logger.error(f"Error in subscribing to channel {channel_link}: {e}")
+                        else:
+                            logger.info(f"Skipping channel subscription for {channel_name} with unauthorized session")
 
-                        # Get messages from channel
+                        # Get messages from channel with more robust approach for unauthorized sessions
                         messages, tg_channel = await get_channel_messages(client, channel_link)
                         
                         if messages and tg_channel:
@@ -794,3 +942,22 @@ get_session_by_id = sync_to_async(_get_session_by_id)
 
 # Global variable to store Telethon clients
 telethon_clients = {}
+
+async def is_valid_channel_url(url):
+    """Check if a URL is a valid Telegram channel URL"""
+    if not url:
+        return False
+        
+    # Check for basic format
+    valid_formats = [
+        r'https?://(?:t|telegram)\.me/[a-zA-Z0-9_]+',             # Username format
+        r'https?://(?:t|telegram)\.me/\+[a-zA-Z0-9_]+',           # + prefix format
+        r'https?://(?:t|telegram)\.me/joinchat/[a-zA-Z0-9_-]+',   # Join chat format
+        r'https?://(?:t|telegram)\.me/c/\d+(?:/\d+)?',            # Channel ID format
+    ]
+    
+    for pattern in valid_formats:
+        if re.match(pattern, url):
+            return True
+            
+    return False
