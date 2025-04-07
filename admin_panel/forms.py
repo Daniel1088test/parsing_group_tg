@@ -1,24 +1,22 @@
 from django import forms
-from .models import Channel, Category, Message, TelegramSession
+from .models import Channel, Category, Message
 from django.contrib.auth.forms import UserCreationForm
 from django.contrib.auth.models import User
 
 class ChannelForm(forms.ModelForm):
     class Meta:
         model = Channel
-        fields = ['name', 'url', 'description', 'category', 'is_active', 'session']
+        fields = ['name', 'url', 'category', 'is_active', 'session']
         widgets = {
-            'name': forms.TextInput(attrs={'class': 'form-control'}),
-            'url': forms.TextInput(attrs={'class': 'form-control'}),
-            'description': forms.Textarea(attrs={'class': 'form-control', 'rows': 3}),
-            'category': forms.Select(attrs={'class': 'form-control'}),
+            'name': forms.TextInput(attrs={'class': 'form-control', 'required': True}),
+            'url': forms.TextInput(attrs={'class': 'form-control', 'required': True}),
+            'category': forms.Select(attrs={'class': 'form-control', 'required': True}),
+            'is_active': forms.CheckboxInput(attrs={'class': 'form-check-input'}),
             'session': forms.Select(attrs={'class': 'form-control'}),
-            'is_active': forms.CheckboxInput(attrs={'class': 'form-check-input'})
         }
         labels = {
             'name': 'Channel name',
             'url': 'Channel link',
-            'description': 'Description',
             'category': 'Category',
             'is_active': 'Status',
             'session': 'Telegram Session',
@@ -44,15 +42,13 @@ class ChannelForm(forms.ModelForm):
 class CategoryForm(forms.ModelForm):
     class Meta:
         model = Category
-        fields = ['name', 'description', 'session']
+        fields = ['name', 'session']
         widgets = {
-            'name': forms.TextInput(attrs={'class': 'form-control'}),
-            'description': forms.Textarea(attrs={'class': 'form-control', 'rows': 3}),
-            'session': forms.Select(attrs={'class': 'form-control'})
-        }
+            'name': forms.TextInput(attrs={'class': 'form-control', 'required': True}),
+            'session': forms.Select(attrs={'class': 'form-control'}),
+        }   
         labels = {
             'name': 'Category name',
-            'description': 'Description',
             'session': 'Telegram Session',
         }
         help_texts = {
@@ -69,25 +65,20 @@ class CategoryForm(forms.ModelForm):
 class MessageForm(forms.ModelForm):
     class Meta:
         model = Message
-        fields = ['text', 'channel', 'has_image', 'has_video', 'has_audio', 'has_document']
+        fields = ['text', 'media', 'channel']
         widgets = {
             'text': forms.Textarea(attrs={'class': 'form-control', 'rows': 3}),
+            'media': forms.FileInput(attrs={'class': 'form-control'}),
             'channel': forms.Select(attrs={'class': 'form-control'}),
-            'has_image': forms.CheckboxInput(attrs={'class': 'form-check-input'}),
-            'has_video': forms.CheckboxInput(attrs={'class': 'form-check-input'}),
-            'has_audio': forms.CheckboxInput(attrs={'class': 'form-check-input'}),
-            'has_document': forms.CheckboxInput(attrs={'class': 'form-check-input'})
         }
         labels = {
             'text': 'Message text',
+            'media': 'Media',   
             'channel': 'Channel',
-            'has_image': 'Has Image',
-            'has_video': 'Has Video',
-            'has_audio': 'Has Audio',
-            'has_document': 'Has Document',
         }
         help_texts = {
             'text': 'Enter the message text',
+            'media': 'Add media file',
             'channel': 'Select the channel',
         }   
         error_messages = {
@@ -125,11 +116,4 @@ class UserRegistrationForm(UserCreationForm):
         self.fields['password1'].help_text = ('Password must be at least 8 characters long and contain letters and numbers. ' 
                                             'Should not be similar to your login.')
         self.fields['password2'].help_text = 'Enter the same password for verification.'
-
-    def save(self, commit=True):
-        user = super().save(commit=False)
-        user.email = self.cleaned_data['email']
-        if commit:
-            user.save()
-        return user
 
