@@ -37,43 +37,97 @@ def _save_message_to_db(message_data):
     save message to db
     """
     try:
-        # Try to find channel by exact name
-        try:
-            channel = models.Channel.objects.get(name=message_data['channel_name'])
-        except models.Channel.DoesNotExist:
-            # Try to find channel by URL if available and contains a username
-            channel_username = None
-            if 'link' in message_data:
-                channel_username = extract_username_from_link(message_data['link'])
-            
-            if channel_username:
-                # Try to find by URL containing the username
-                channels = models.Channel.objects.filter(url__contains=channel_username)
-                if channels.exists():
-                    channel = channels.first()
-                else:
-                    # Create new channel with default category
-                    default_category, _ = models.Category.objects.get_or_create(name="Uncategorized")
-                    channel = models.Channel(
-                        name=message_data['channel_name'],
-                        url=f"https://t.me/{channel_username}",
-                        category=default_category,
-                        is_active=True
-                    )
-                    channel.save()
-                    logger.info(f"Created new channel: {channel.name}")
-            else:
-                # Create new channel as a last resort
-                default_category, _ = models.Category.objects.get_or_create(name="Uncategorized")
-                channel = models.Channel(
-                    name=message_data['channel_name'],
-                    url="",  # Empty URL since we don't have one
-                    category=default_category,
-                    is_active=True
-                )
-                channel.save()
-                logger.info(f"Created new channel: {channel.name}")
+        # Try to find channel by exact name first
+        channel = None
+        channel_name = message_data['channel_name']
+        channel_username = None
+        channel_id = message_data.get('channel_id')
         
+        # Extract username from link if available
+        if 'link' in message_data:
+            channel_username = extract_username_from_link(message_data['link'])
+        
+        # Спочатку шукаємо канал за Telegram channel_id
+        if channel_id:
+            matching_channels = list(models.Channel.objects.filter(
+                models.Q(url__contains=str(channel_id))
+            ))
+            if matching_channels:
+                channel = matching_channels[0]
+                logger.info(f"Found channel by Telegram ID: {channel.name} (ID: {channel.id})")
+        
+        # Якщо канал не знайдено за ID, шукаємо за username
+        if not channel and channel_username:
+            matching_channels = list(models.Channel.objects.filter(
+                models.Q(url__contains=channel_username)
+            ))
+            if matching_channels:
+                channel = matching_channels[0]
+                logger.info(f"Found channel by username: {channel.name} (ID: {channel.id})")
+        
+        # Якщо канал не знайдено, шукаємо за назвою
+        if not channel:
+            try:
+                # Перевіряємо різні варіанти написання назви каналу
+                channel = models.Channel.objects.get(name=channel_name)
+                logger.info(f"Found channel by exact name: {channel.name} (ID: {channel.id})")
+            except models.Channel.DoesNotExist:
+                logger.debug(f"Channel with exact name {channel_name} not found")
+                
+                # Спробуємо знайти за схожою назвою (відрізняється тільки суфіксом)
+                base_name = channel_name.split()[0]  # Беремо перше слово назви
+                matching_channels = list(models.Channel.objects.filter(
+                    models.Q(name__startswith=base_name)
+                ))
+                
+                if matching_channels:
+                    channel = matching_channels[0]
+                    logger.info(f"Found channel by similar name: {channel.name} (ID: {channel.id})")
+        
+        # Якщо канал не знайдено, створюємо новий
+        if not channel:
+            # Create new channel with default category
+            default_category, _ = models.Category.objects.get_or_create(name="Uncategorized")
+            
+            # Формуємо URL для каналу
+            channel_url = ""
+            if channel_username:
+                channel_url = f"https://t.me/{channel_username}"
+            elif channel_id:
+                channel_url = f"https://t.me/c/{channel_id}"
+                
+            # Створюємо канал
+            channel = models.Channel(
+                name=channel_name,
+                url=channel_url,
+                category=default_category,
+                is_active=True
+            )
+            
+            # Встановлюємо сесію, якщо її передано
+            if message_data.get('session_used'):
+                channel.session = message_data.get('session_used')
+                
+            channel.save()
+            logger.info(f"Created new channel: {channel.name} (ID: {channel.id})")
+        
+        # Оновлюємо поля каналу, якщо отримано нову інформацію
+        updated = False
+        if channel_username and not channel.url:
+            channel.url = f"https://t.me/{channel_username}"
+            updated = True
+        
+        # Якщо канал не має сесії, але ми маємо сесію, зберігаємо її
+        if not channel.session and message_data.get('session_used'):
+            channel.session = message_data.get('session_used')
+            updated = True
+            
+        # Зберігаємо зміни в каналі, якщо вони є
+        if updated:
+            channel.save()
+            logger.info(f"Updated channel information: {channel.name} (ID: {channel.id})")
+        
+        # Створюємо повідомлення
         message = models.Message(
             text=message_data['text'],
             media=message_data['media'],
@@ -86,6 +140,8 @@ def _save_message_to_db(message_data):
             session_used=message_data.get('session_used')
         )
         message.save()
+        
+        # Логуємо збереження повідомлення
         session_info = f" (via {message_data.get('session_used').phone})" if message_data.get('session_used') else ""
         logger.info(f"Saved message: channel '{channel.name}', message ID {message_data['message_id']}{session_info}")
         return message
@@ -164,14 +220,27 @@ async def download_media(client, message, media_dir):
     """
     try:
         if message.media:
+            # Переконуємося, що папка для медіа існує
             os.makedirs(media_dir, exist_ok=True)
+            
+            # Генеруємо унікальне ім'я файлу з timestamp та ID повідомлення
             timestamp = message.date.strftime("%Y%m%d_%H%M%S")
-            file_path = await message.download_media(
-                file=os.path.join(media_dir, f"{message.id}_{timestamp}")
-            )
-            if file_path:
-                logger.debug(f"Downloaded media: {os.path.basename(file_path)}")
-                return os.path.basename(file_path)
+            file_name = f"{message.id}_{timestamp}"
+            file_path = os.path.join(media_dir, file_name)
+            
+            # Завантажуємо медіа-файл
+            downloaded_path = await message.download_media(file=file_path)
+            
+            if downloaded_path:
+                # Перевіряємо, чи файл був успішно завантажений
+                if os.path.exists(downloaded_path):
+                    # Отримуємо лише ім'я файлу без шляху
+                    relative_path = os.path.relpath(downloaded_path, os.getcwd())
+                    logger.info(f"Downloaded media: {relative_path}")
+                    return relative_path
+                else:
+                    logger.warning(f"Downloaded path returned but file doesn't exist: {downloaded_path}")
+                    return None
             else:
                 logger.warning(f"Unable to download media for message {message.id}")
                 return None
@@ -214,7 +283,7 @@ async def save_message_to_data(message, channel, queue, category_id=None, client
         # save the message
         message_info = {
             'text': message.text,
-            'media': "media/messages/" + media_file if media_file else "",
+            'media': media_file if media_file else "",  # Використовуємо повний шлях, повернутий download_media
             'media_type': media_type if media_type else None,
             'message_id': message.id,
             'channel_id': message.peer_id.channel_id,
@@ -540,6 +609,53 @@ async def telethon_task(queue, pre_initialized_client=None):
                             try:
                                 await client(JoinChannelRequest(channel_entity))
                                 logger.info(f"Joined channel {getattr(channel_entity, 'title', identifier)}")
+                                
+                                # Update channel information in the database
+                                @sync_to_async
+                                def update_channel_info():
+                                    try:
+                                        # Get current channel from database
+                                        db_channel = models.Channel.objects.get(id=channel.id)
+                                        
+                                        # Update channel information
+                                        updated = False
+                                        
+                                        # Update title if different
+                                        if hasattr(channel_entity, 'title') and channel_entity.title:
+                                            if db_channel.title != channel_entity.title:
+                                                db_channel.title = channel_entity.title
+                                                updated = True
+                                                
+                                        # Update telegram_id if we have it
+                                        if hasattr(channel_entity, 'id') and channel_entity.id:
+                                            if not db_channel.telegram_id or db_channel.telegram_id != str(channel_entity.id):
+                                                db_channel.telegram_id = str(channel_entity.id)
+                                                updated = True
+                                                
+                                        # Update username if we have it
+                                        if hasattr(channel_entity, 'username') and channel_entity.username:
+                                            if not db_channel.telegram_username or db_channel.telegram_username != channel_entity.username:
+                                                db_channel.telegram_username = channel_entity.username
+                                                updated = True
+                                                
+                                                # Also update URL if username is available
+                                                if not db_channel.url or 't.me' not in db_channel.url:
+                                                    db_channel.url = f"https://t.me/{channel_entity.username}"
+                                                    updated = True
+                                        
+                                        # Save changes if any
+                                        if updated:
+                                            db_channel.save()
+                                            logger.info(f"Updated channel information in database: {db_channel.name} (ID: {db_channel.id})")
+                                        
+                                    except models.Channel.DoesNotExist:
+                                        logger.warning(f"Channel with ID {channel.id} not found in database")
+                                    except Exception as e:
+                                        logger.error(f"Error updating channel information: {e}")
+                                
+                                # Run the update function
+                                await update_channel_info()
+                                
                             except Exception as e:
                                 # Ignore errors here as we might already be in the channel
                                 if "USER_ALREADY_PARTICIPANT" not in str(e):
@@ -627,27 +743,17 @@ def telethon_worker_process(queue, pre_initialized_client=None):
         if pre_initialized_client:
             logger.info("Using pre-initialized client from run.py")
             try:
-                # We need to recreate a new client in this process
-                # because event loops can't be shared between processes
-                client_disconnected = False
-                try:
-                    # Try to disconnect the pre-initialized client gracefully
-                    loop.run_until_complete(pre_initialized_client.disconnect())
-                    client_disconnected = True
-                except Exception as e:
-                    logger.error(f"Error disconnecting pre-initialized client: {e}")
-                
-                # Extract session info from the pre-initialized client
+                # Отримуємо інформацію про сесію без спроби відключення клієнта
                 session_name = pre_initialized_client.session.filename
                 logger.info(f"Using session file: {session_name}")
-                
-                # Run the telethon task with no pre-initialized client
-                # it will create its own client with the correct event loop
-                loop.run_until_complete(telethon_task(queue, None))
             except Exception as e:
-                logger.error(f"Error getting info for pre-initialized client: {e}")
-                # Fallback - run without pre-initialized client
-                loop.run_until_complete(telethon_task(queue, None))
+                logger.error(f"Error extracting session info from pre-initialized client: {e}")
+                session_name = 'telethon_session'
+                logger.info(f"Falling back to default session file: {session_name}")
+            
+            # Запускаємо задачу без pre_initialized_client
+            # Це дозволить створити новий клієнт з правильним event loop
+            loop.run_until_complete(telethon_task(queue, None))
         else:
             # Run the telethon task normally
             loop.run_until_complete(telethon_task(queue, None))
