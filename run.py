@@ -37,7 +37,7 @@ def run_django():
     """Start Django server"""
     logger.info("Starting Django server...")
     try:
-        from tg_bot.config import WEB_SERVER_HOST, WEB_SERVER_PORT, ADMIN_IDS
+        from tg_bot.config import WEB_SERVER_HOST, WEB_SERVER_PORT, ADMIN_ID
         # Use 0.0.0.0 to listen on all interfaces in production
         host = WEB_SERVER_HOST
         port = WEB_SERVER_PORT
@@ -319,8 +319,8 @@ def run_telethon_parser(message_queue):
         asyncio.set_event_loop(loop)
         
         try:
-            # Run the telethon task
-            loop.run_until_complete(telethon_task())
+            # Run the telethon task with the message queue
+            loop.run_until_complete(telethon_task(message_queue))
         except KeyboardInterrupt:
             logger.info("Interrupted")
         except Exception as e:

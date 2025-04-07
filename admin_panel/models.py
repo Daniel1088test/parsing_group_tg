@@ -8,6 +8,7 @@ class TelegramSession(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     session_file = models.CharField(max_length=255, blank=True, null=True)
+    session_string = models.TextField(blank=True, null=True)  # For storing the serialized session
 
     def __str__(self):
         return f"{self.phone} - {'Active' if self.is_active else 'Inactive'}"
@@ -53,9 +54,9 @@ class Message(models.Model):
     text = models.TextField()
     media = models.FileField(upload_to='messages/', null=True, blank=True)
     media_type = models.CharField(max_length=255, null=True, blank=True)
-    telegram_message_id = models.CharField(max_length=255)
-    telegram_channel_id = models.CharField(max_length=255)
-    telegram_link = models.URLField(max_length=255)
+    telegram_message_id = models.CharField(max_length=255, null=True, blank=True)
+    telegram_channel_id = models.CharField(max_length=255, null=True, blank=True)
+    telegram_link = models.URLField(max_length=255, null=True, blank=True)
     channel = models.ForeignKey(Channel, on_delete=models.CASCADE)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

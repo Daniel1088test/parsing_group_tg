@@ -1,57 +1,62 @@
-import os
 import asyncio
-import base64
 from telethon import TelegramClient
-from telethon.sessions import StringSession
 from tg_bot.config import API_ID, API_HASH
+import os
+import django
+from asgiref.sync import sync_to_async
+
+# Set up Django
+os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'core.settings')
+django.setup()
+
+from admin_panel.models import TelegramSession
+
+@sync_to_async
+def get_active_session():
+    return TelegramSession.objects.filter(is_active=True).first()
+
+@sync_to_async
+def save_session_file(session, file_path):
+    session.session_file = file_path
+    session.save()
 
 async def create_session():
-    # Create client with StringSession
-    client = TelegramClient(StringSession(), API_ID, API_HASH)
+    # Get the first active session from database
+    session = await get_active_session()
+    if not session:
+        print("No active session found in database")
+        return
+    
+    print(f"Using session with phone: {session.phone}")
+    
+    # Create the client
+    client = TelegramClient('telethon_session', session.api_id, session.api_hash)
     
     try:
-        # Connect and sign in
-        await client.connect()
+        print("Starting client...")
+        await client.start()
         
-        if not await client.is_user_authorized():
-            # Ask for phone number
-            phone = input('Enter your phone number (with country code): ')
+        if await client.is_user_authorized():
+            print("Client is already authorized!")
+            me = await client.get_me()
+            print(f"Logged in as: {me.first_name} (@{me.username})")
+        else:
+            print("\nClient needs authorization.")
+            print(f"Please enter the code you received on {session.phone}")
+            await client.send_code_request(session.phone)
+            code = input("Enter the code: ")
+            await client.sign_in(session.phone, code)
             
-            # Send code request
-            await client.send_code_request(phone)
-            
-            # Ask for the code
-            code = input('Enter the code you received: ')
-            
-            # Sign in
-            await client.sign_in(phone, code)
-            
-            # If 2FA is enabled, ask for password
-            if await client.is_user_authorized():
-                print("Successfully signed in!")
-            else:
-                password = input('Enter your 2FA password: ')
-                await client.sign_in(password=password)
+            me = await client.get_me()
+            print(f"\nSuccessfully logged in as: {me.first_name} (@{me.username})")
         
-        # Get the session string
-        session_string = client.session.save()
-        
-        # Encode to base64
-        encoded_session = base64.b64encode(session_string.encode()).decode()
-        
-        print("\nSession created successfully!")
-        print("\nAdd this to your environment variables:")
-        print("Variable name: TELETHON_SESSION")
-        print(f"Value: {encoded_session}")
+        # Save the session file path
+        await save_session_file(session, 'telethon_session.session')
         
     except Exception as e:
-        print(f"Error creating session: {e}")
+        print(f"Error during authorization: {e}")
     finally:
         await client.disconnect()
 
 if __name__ == '__main__':
-    # Set up Django environment
-    os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'core.settings')
-    
-    # Run the async function
     asyncio.run(create_session()) 
