@@ -796,6 +796,6 @@ async def process_message(event, channel_db):
                 logger.error(f"Error saving message: {e}")
 
         await save_message()
-
+        
     except Exception as e:
         logger.error(f"Error processing message: {e}")
