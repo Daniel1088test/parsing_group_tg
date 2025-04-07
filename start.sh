@@ -158,11 +158,20 @@ fi
 
 # Start server
 echo "Starting server..."
-gunicorn core.asgi:application -k uvicorn.workers.UvicornWorker --bind 0.0.0.0:$PORT --timeout 120 --workers 2 &
-GUNICORN_PID=$!
+if command -v gunicorn &> /dev/null; then
+    gunicorn core.wsgi:application --bind 0.0.0.0:$PORT --timeout 120 --workers 2 &
+    GUNICORN_PID=$!
+else
+    echo "Gunicorn not found, using Django development server..."
+    python manage.py runserver 0.0.0.0:$PORT &
+    GUNICORN_PID=$!
+fi
 
 # Start background tasks (in this case the Telegram bot)
 echo "Starting Telegram bot..."
+# Check if another instance is running and kill it
+pkill -f "python run.py" || true
+sleep 2  # Wait for any existing process to fully terminate
 python run.py &
 TELEGRAM_PID=$!
 
