@@ -115,7 +115,7 @@ async def list_categories(message: Message):
 @router.message(F.text == "🌐 Go to the site")
 async def goto_website(message: Message):
     """Sends the link to the site"""
-    # Use HTTPS for Railway domains
+    # Use HTTPS for Railway domains for the clickable link
     website_url = f"https://{PUBLIC_HOST}"
     
     # create an inline keyboard with a button to go to the site
@@ -125,14 +125,14 @@ async def goto_website(message: Message):
     ])
     
     await message.answer(
-        f"The site is available at: {website_url}",
+        f"The site is available at: {PUBLIC_HOST}",
         reply_markup=keyboard
     )
 
 @router.callback_query(F.data == "get_qr_code")
 async def send_qr_code(callback_query):
     """Sends the QR code for the site"""
-    # Use HTTPS for Railway domains
+    # Use HTTPS for Railway domains for the QR code
     website_url = f"https://{PUBLIC_HOST}"
     
     try:
@@ -159,7 +159,7 @@ async def send_qr_code(callback_query):
                 file=bio.getvalue(), 
                 filename="qrcode.png"
             ),
-            caption=f"QR code for access to the site: {website_url}"
+            caption=f"QR code for access to the site: {PUBLIC_HOST}"
         )
         await callback_query.answer()
     except Exception as e:

@@ -45,14 +45,14 @@ async def command_start(message: Message):
 @router.callback_query(F.data == "add_channel")
 async def add_channel_callback(callback: CallbackQuery):
     """Handler for the 'Add channel' callback"""
-    # Use HTTPS for Railway domains
+    # Use HTTPS for Railway domains for the clickable link
     website_url = f"https://{PUBLIC_HOST}"
     
     message = (
         "📱 <b>Instruction for adding a channel:</b>\n\n"
         "1. Forward me any message from the channel you want to add\n"
         "2. Or use the button below to add via the web interface\n\n"
-        "📌 <b>I can only parse public channels!</b>"
+        f"📌 <b>Website: {PUBLIC_HOST}</b>"
     )
     
     await callback.message.edit_text(
@@ -64,7 +64,7 @@ async def add_channel_callback(callback: CallbackQuery):
 @router.callback_query(F.data == "auth_telethon")
 async def auth_telethon_callback(callback: CallbackQuery):
     """Handler for authorization of Telethon"""
-    # Use HTTPS for Railway domains
+    # Use HTTPS for Railway domains for the clickable link
     website_url = f"https://{PUBLIC_HOST}"
     
     await callback.message.edit_text(
@@ -72,6 +72,7 @@ async def auth_telethon_callback(callback: CallbackQuery):
         "For full functionality of the parser, we need to authorize your Telegram account.\n\n"
         "<b>⚠️ IMPORTANT:</b> you must use a <b>regular user account</b>, "
         "not a bot account! This is necessary to access the Telegram API.\n\n"
+        f"Website: {PUBLIC_HOST}\n\n"
         "Click the button below to start authorization:",
         reply_markup=get_auth_button(website_url),
         parse_mode="HTML"
@@ -97,7 +98,7 @@ async def cmd_start(message: types.Message):
 
 @router.message(F.text == "🌐 Go to the website")   
 async def website(message: types.Message):
-    # Use HTTPS for Railway domains
+    # Use HTTPS for Railway domains for the clickable link
     website_url = f"https://{PUBLIC_HOST}"
     
     # Create inline keyboard with button to go to the website
@@ -106,11 +107,11 @@ async def website(message: types.Message):
         [types.InlineKeyboardButton(text="Get QR code", callback_data="get_qr_code")]
     ])
     
-    await message.answer(f"The site is available at: {website_url}", reply_markup=keyboard)
+    await message.answer(f"The site is available at: {PUBLIC_HOST}", reply_markup=keyboard)
 
 @router.callback_query(F.data == "get_qr_code")
 async def send_qr_code(callback: types.CallbackQuery):
-    # Use HTTPS for Railway domains
+    # Use HTTPS for Railway domains for the QR code
     website_url = f"https://{PUBLIC_HOST}"
     
     try:
@@ -137,7 +138,7 @@ async def send_qr_code(callback: types.CallbackQuery):
                 file=bio.getvalue(), 
                 filename="qrcode.png"
             ),
-            caption=f"QR code for access to the website: {website_url}"
+            caption=f"QR code for access to the website: {PUBLIC_HOST}"
         )
         await callback.answer()
     except Exception as e:
