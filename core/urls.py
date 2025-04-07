@@ -19,10 +19,14 @@ from django.urls import path, include
 from django.conf import settings
 from django.conf.urls.static import static
 from django.http import HttpResponse
+import logging
+
+logger = logging.getLogger(__name__)
 
 # Health check view for Railway
 def health_check(request):
-    return HttpResponse("OK", content_type="text/plain")
+    logger.info(f"Health check requested by {request.META.get('REMOTE_ADDR')}")
+    return HttpResponse("OK")
 
 urlpatterns = [
     path('admin/', admin.site.urls),

@@ -26,7 +26,7 @@ mkdir -p media
 # Run migrations first (with error handling)
 echo "Running database migrations..."
 set +e  # Temporarily disable exit on error
-bash migrate.sh
+python manage.py migrate
 MIGRATE_EXIT_CODE=$?
 set -e  # Re-enable exit on error
 
@@ -43,29 +43,17 @@ export RAILWAY_ENVIRONMENT=${RAILWAY_ENVIRONMENT:-production}
 
 echo "Starting application in $RAILWAY_ENVIRONMENT mode on $WEB_SERVER_HOST:$PORT..."
 
-# In production, use gunicorn to serve Django and run the bot in a separate process
+# For Railway deployment, we need to use gunicorn as the main process
 if [ "$RAILWAY_ENVIRONMENT" = "production" ]; then
-    # Start the Django application with gunicorn in the background
-    # and ensure the health check endpoint is accessible
-    gunicorn core.wsgi:application --bind $WEB_SERVER_HOST:$PORT --workers 2 --threads 2 --timeout 120 --access-logfile - --error-logfile - &
-    GUNICORN_PID=$!
+    echo "Starting Django with gunicorn on $WEB_SERVER_HOST:$PORT..."
     
-    # Give gunicorn time to start up
-    echo "Waiting for gunicorn to start up..."
-    sleep 5
+    # Start the Telegram bot in the background
+    echo "Starting Telegram bot in background..."
+    python run.py &
     
-    # Try to access the health check endpoint 
-    echo "Testing health check endpoint..."
-    set +e  # Don't exit on error
-    curl -f http://localhost:$PORT/health/ || echo "Warning: Health check endpoint not responding but continuing startup"
-    set -e  # Re-enable exit on error
-    
-    # Run the bot script
-    echo "Starting Telegram bot..."
-    python run.py
-    
-    # If the bot script exits, keep the container running by waiting for the gunicorn process
-    wait $GUNICORN_PID
+    # Start gunicorn as the main process (not in background)
+    echo "Starting gunicorn as main process..."
+    exec gunicorn core.wsgi:application --bind $WEB_SERVER_HOST:$PORT --workers 2 --threads 2 --timeout 120 --access-logfile - --error-logfile -
 else
     # For development, just use the run.py script which starts everything
     python run.py 
