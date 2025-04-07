@@ -3,10 +3,13 @@ from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMar
 session_menu_keyboard = ReplyKeyboardMarkup(
     keyboard=[
         [
-            KeyboardButton(text="🔐 Authorize Telethon"),
+            KeyboardButton(text="➕ Add new session"),
         ],
         [
             KeyboardButton(text="📋 List of sessions"),
+        ],
+        [
+            KeyboardButton(text="🔐 Authorize Telethon"),
         ],
         [
             KeyboardButton(text="🔙 Back to main menu")
@@ -51,6 +54,10 @@ def get_session_actions_keyboard(session_id):
     """
     return InlineKeyboardMarkup(
         inline_keyboard=[
+            [
+                InlineKeyboardButton(text="✏️ Edit", callback_data=f"edit_session_{session_id}"),
+                InlineKeyboardButton(text="🗑 Delete", callback_data=f"delete_session_{session_id}")
+            ],
             [
                 InlineKeyboardButton(text="🔙 Back", callback_data="back_to_sessions_list")
             ]
