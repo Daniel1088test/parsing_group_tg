@@ -130,68 +130,80 @@ def validate_telethon_session_file(session_file):
 def ensure_telethon_session():
     """Ensure Telethon session files exist and are valid"""
     logger.info("Checking for Telethon session...")
-    
-    # Check for environment variable containing session data
-    session_data = os.getenv('TELETHON_SESSION')
-    if session_data:
+
+    # Спочатку перевіряємо існуючі файли сесій, які з більшою ймовірністю будуть дійсними
+    # Test session file
+    if os.path.exists('test_session.session'):
+        logger.info("Found test_session.session file")
+        # Copy it to the standard name for consistency
+        import shutil
         try:
-            logger.info("Found Telethon session in environment variables. Using it.")
-            
-            # Validate the session data before trying to decode it
-            if not session_data.strip():
-                logger.error("TELETHON_SESSION environment variable is empty or whitespace only")
-                return False
-                
-            # Fix padding for base64 if necessary
-            original_length = len(session_data)
-            if len(session_data) % 4 != 0:
-                padding = 4 - (len(session_data) % 4)
-                session_data += "=" * padding
-                logger.info(f"Fixed base64 padding (added {padding} padding characters)")
-            
-            # Try to decode to validate the base64 format
-            try:
-                decoded_data = base64.b64decode(session_data)
-                logger.info(f"Successfully decoded base64 session data ({len(decoded_data)} bytes)")
-            except Exception as e:
-                logger.error(f"Failed to decode base64 session data: {e}")
-                logger.error(f"Original length: {original_length}, After padding: {len(session_data)}")
-                return False
-            
-            # Write session data to file
-            with open('telethon_session.session', 'wb') as f:
-                f.write(decoded_data)
-                
-            # Verify the file was created and has content
-            if os.path.exists('telethon_session.session'):
-                file_size = os.path.getsize('telethon_session.session')
-                logger.info(f"Telethon session written to file: telethon_session.session ({file_size} bytes)")
-                
-                if file_size == 0:
-                    logger.error("Generated session file is empty! Session data may be corrupted.")
-                    return False
-                    
-                # Validate the created session file
-                if not validate_telethon_session_file('telethon_session.session'):
-                    logger.error("Created session file is invalid or corrupted")
-                    return False
-                    
+            # Перевіряємо чи дійсний файл сесії
+            if validate_telethon_session_file('test_session.session'):
+                logger.info("test_session.session is valid, copying to standard location")
+                shutil.copy('test_session.session', 'telethon_session.session')
+                logger.info("Copied test_session.session to telethon_session.session")
                 return True
             else:
-                logger.error("Failed to create session file")
-                return False
+                logger.warning("test_session.session exists but is not valid")
         except Exception as e:
-            logger.error(f"Error writing Telethon session from environment: {e}")
-            logger.error(f"Session data might be corrupted. Check your TELETHON_SESSION environment variable.")
-            
-            # Try to dump some diagnostic info without revealing sensitive data
-            if session_data:
-                logger.info(f"Session data first 10 chars: {session_data[:10]}...")
-                logger.info(f"Session data length: {len(session_data)}")
-                
-            return False
+            logger.error(f"Error validating or copying test_session.session: {e}")
     
-    # Check Django database for session data
+    # User session file
+    if os.path.exists('telethon_user_session.session'):
+        logger.info("Found telethon_user_session.session file")
+        # Copy it to the standard name for consistency
+        import shutil
+        try:
+            # Перевіряємо чи дійсний файл сесії
+            if validate_telethon_session_file('telethon_user_session.session'):
+                logger.info("telethon_user_session.session is valid, copying to standard location")
+                shutil.copy('telethon_user_session.session', 'telethon_session.session')
+                logger.info("Copied telethon_user_session.session to telethon_session.session")
+                return True
+            else:
+                logger.warning("telethon_user_session.session exists but is not valid")
+        except Exception as e:
+            logger.error(f"Error validating or copying telethon_user_session.session: {e}")
+    
+    # Session backup file
+    if os.path.exists('telethon_session_backup.session'):
+        logger.info("Found telethon_session_backup.session file")
+        # Copy it to the standard name for consistency
+        import shutil
+        try:
+            # Перевіряємо чи дійсний файл сесії
+            if validate_telethon_session_file('telethon_session_backup.session'):
+                logger.info("telethon_session_backup.session is valid, copying to standard location")
+                shutil.copy('telethon_session_backup.session', 'telethon_session.session')
+                logger.info("Copied telethon_session_backup.session to telethon_session.session")
+                return True
+            else:
+                logger.warning("telethon_session_backup.session exists but is not valid")
+        except Exception as e:
+            logger.error(f"Error validating or copying telethon_session_backup.session: {e}")
+    
+    # Default session file
+    if os.path.exists('telethon_session.session'):
+        logger.info("Found telethon_session.session file")
+        # Validate the file
+        try:
+            if validate_telethon_session_file('telethon_session.session'):
+                logger.info("telethon_session.session is valid")
+                return True
+            else:
+                logger.warning("telethon_session.session exists but is not valid")
+                # Видаляємо пошкоджений файл
+                import os
+                try:
+                    os.remove('telethon_session.session')
+                    logger.info("Removed corrupted telethon_session.session")
+                except Exception as e:
+                    logger.error(f"Error removing corrupted telethon_session.session: {e}")
+        except Exception as e:
+            logger.error(f"Error validating telethon_session.session: {e}")
+    
+    # Тепер переходимо до перевірки бази даних, тільки якщо не знайдено локальних файлів
     try:
         # Initialize Django
         import django
@@ -201,12 +213,34 @@ def ensure_telethon_session():
         # Import models
         from admin_panel.models import TelegramSession
         
-        # Look for session data in the database
-        sessions = TelegramSession.objects.filter(is_active=True, session_data__isnull=False).exclude(session_data='')
+        # Look for session files in the database
+        sessions = TelegramSession.objects.filter(is_active=True)
         
-        if sessions.exists():
-            session = sessions.first()
-            logger.info(f"Found Telethon session in database for phone {session.phone}")
+        # Спочатку шукаємо сесії з файлами
+        sessions_with_files = []
+        for session in sessions:
+            if session.session_file and session.session_file.strip():
+                session_file = f"{session.session_file}.session"
+                if os.path.exists(session_file):
+                    logger.info(f"Found session file in database reference: {session_file}")
+                    if validate_telethon_session_file(session_file):
+                        logger.info(f"Session file {session_file} is valid, copying to standard location")
+                        import shutil
+                        shutil.copy(session_file, 'telethon_session.session')
+                        logger.info(f"Copied {session_file} to telethon_session.session")
+                        return True
+                    else:
+                        logger.warning(f"Session file {session_file} exists but is not valid")
+        
+        # Якщо не знайдено валідних сесій з файлами, спробуємо сесії з даними
+        sessions_with_data = TelegramSession.objects.filter(
+            is_active=True, 
+            session_data__isnull=False
+        ).exclude(session_data='')
+        
+        if sessions_with_data.exists():
+            session = sessions_with_data.first()
+            logger.info(f"Found Telethon session data in database for phone {session.phone}")
             
             try:
                 # Decode and write to file
@@ -270,50 +304,65 @@ def ensure_telethon_session():
         logger.error(f"Error checking database for sessions: {e}")
         import traceback
         logger.error(f"Traceback: {traceback.format_exc()}")
-        return False
     
-    # Check if session files exist
-    if os.path.exists('telethon_session.session'):
-        logger.info("Found telethon_session.session file")
-        # Validate the existing session file
-        if validate_telethon_session_file('telethon_session.session'):
-            return True
-        else:
-            logger.error("Existing telethon_session.session file is invalid or corrupted")
-            # Try backup or alternative sessions
-    elif os.path.exists('telethon_user_session.session'):
-        logger.info("Found telethon_user_session.session file")
-        # Copy it to the standard name for consistency
-        import shutil
-        shutil.copy('telethon_user_session.session', 'telethon_session.session')
-        logger.info("Copied telethon_user_session.session to telethon_session.session")
-        # Validate the copied file
-        if validate_telethon_session_file('telethon_session.session'):
-            return True
-        else:
-            logger.error("Copied session file is invalid or corrupted")
-    elif os.path.exists('test_session.session'):
-        logger.info("Found test_session.session file")
-        # Copy it to the standard name for consistency
-        import shutil
-        shutil.copy('test_session.session', 'telethon_session.session')
-        logger.info("Copied test_session.session to telethon_session.session")
-        # Validate the copied file
-        if validate_telethon_session_file('telethon_session.session'):
-            return True
-        else:
-            logger.error("Copied session file is invalid or corrupted")
-    elif os.path.exists('telethon_session_backup.session'):
-        logger.info("Found telethon_session_backup.session file, restoring from backup")
-        import shutil
-        shutil.copy('telethon_session_backup.session', 'telethon_session.session')
-        logger.info("Restored from backup session file")
-        # Validate the restored file
-        if validate_telethon_session_file('telethon_session.session'):
-            return True
-        else:
-            logger.error("Restored session file is invalid or corrupted")
-        
+    # Останій крок - перевіряємо змінну оточення, але тільки якщо інші методи не спрацювали
+    session_data = os.getenv('TELETHON_SESSION')
+    if session_data:
+        try:
+            logger.info("Found Telethon session in environment variables. Using it.")
+            
+            # Validate the session data before trying to decode it
+            if not session_data.strip():
+                logger.error("TELETHON_SESSION environment variable is empty or whitespace only")
+                return False
+                
+            # Fix padding for base64 if necessary
+            original_length = len(session_data)
+            if len(session_data) % 4 != 0:
+                padding = 4 - (len(session_data) % 4)
+                session_data += "=" * padding
+                logger.info(f"Fixed base64 padding (added {padding} padding characters)")
+            
+            # Try to decode to validate the base64 format
+            try:
+                decoded_data = base64.b64decode(session_data)
+                logger.info(f"Successfully decoded base64 session data ({len(decoded_data)} bytes)")
+            except Exception as e:
+                logger.error(f"Failed to decode base64 session data: {e}")
+                logger.error(f"Original length: {original_length}, After padding: {len(session_data)}")
+                return False
+            
+            # Write session data to file
+            with open('telethon_session.session', 'wb') as f:
+                f.write(decoded_data)
+                
+            # Verify the file was created and has content
+            if os.path.exists('telethon_session.session'):
+                file_size = os.path.getsize('telethon_session.session')
+                logger.info(f"Telethon session written to file: telethon_session.session ({file_size} bytes)")
+                
+                if file_size == 0:
+                    logger.error("Generated session file is empty! Session data may be corrupted.")
+                    return False
+                    
+                # Validate the created session file
+                if not validate_telethon_session_file('telethon_session.session'):
+                    logger.error("Created session file is invalid or corrupted")
+                    return False
+                    
+                return True
+            else:
+                logger.error("Failed to create session file")
+                return False
+        except Exception as e:
+            logger.error(f"Error writing Telethon session from environment: {e}")
+            logger.error(f"Session data might be corrupted. Check your TELETHON_SESSION environment variable.")
+            
+            # Try to dump some diagnostic info without revealing sensitive data
+            if session_data:
+                logger.info(f"Session data first 10 chars: {session_data[:10]}...")
+                logger.info(f"Session data length: {len(session_data)}")
+    
     logger.warning("No valid Telethon session files found!")
     return False
 
@@ -401,25 +450,77 @@ async def create_fresh_telethon_session():
         logger.error(f"Traceback: {traceback.format_exc()}")
         return False
 
+async def auth_with_existing_session():
+    """
+    Створює нову сесію, ініціалізуючи її з існуючого файлу сесії (test_session.session)
+    """
+    import shutil
+    from telethon import TelegramClient
+    from tg_bot.config import API_ID, API_HASH
+    
+    # Перевіряємо наявність файлу test_session.session
+    if not os.path.exists('test_session.session'):
+        logger.error("test_session.session file not found")
+        return False
+    
+    # Копіюємо файл сесії
+    try:
+        shutil.copy('test_session.session', 'telethon_session.session')
+        logger.info("Copied test_session.session to telethon_session.session")
+    except Exception as e:
+        logger.error(f"Error copying test_session.session: {e}")
+        return False
+    
+    # Ініціалізуємо клієнт з новою сесією
+    client = TelegramClient('telethon_session', API_ID, API_HASH)
+    
+    try:
+        # Підключаємось
+        await client.connect()
+        
+        # Перевіряємо авторизацію
+        if not await client.is_user_authorized():
+            logger.error("Session was copied but is not authorized")
+            await client.disconnect()
+            return False
+        
+        # Отримуємо інформацію про користувача
+        me = await client.get_me()
+        logger.info(f"Successfully authenticated with test_session as: {me.first_name} (@{me.username})")
+        
+        # Від'єднуємось (клієнт буде повторно ініціалізований в основному процесі)
+        await client.disconnect()
+        
+        return True
+    except Exception as e:
+        logger.error(f"Error authenticating with test_session: {e}")
+        import traceback
+        logger.error(f"Traceback: {traceback.format_exc()}")
+        try:
+            await client.disconnect()
+        except:
+            pass
+        return False
+
 def run_telethon_parser(message_queue):
     """Start Telethon parser"""
     logger.info("Starting Telethon parser...")
     try:
         # Verify Telethon session exists
         if not ensure_telethon_session():
-            logger.warning("No valid Telethon session file found.")
+            logger.warning("No valid Telethon session file found through standard methods. Trying direct authentication...")
             
-            # Try to create a fresh session file structure
-            logger.info("Attempting to create a fresh session file structure...")
+            # Прямо спробуємо авторизуватись із test_session
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
-            success = loop.run_until_complete(create_fresh_telethon_session())
+            success = loop.run_until_complete(auth_with_existing_session())
             
             if not success:
-                logger.warning("Failed to create fresh session. Please authorize using the Telegram bot (🔐 Authorize Telethon) or run 'python -m tg_bot.auth_telethon'.")
+                logger.warning("No valid Telethon session found. Please authorize using the Telegram bot (🔐 Authorize Telethon) or run 'python -m tg_bot.auth_telethon'.")
                 logger.warning("IMPORTANT: You must use a regular user account, NOT a bot!")
                 logger.warning("Telethon parser will not be started.")
                 return
+            
         # Make sure Django is fully initialized before starting the parser
         # as it depends on Django ORM models
         import django
