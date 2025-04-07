@@ -65,7 +65,7 @@ class Channel(models.Model):
 class Message(models.Model):
     channel = models.ForeignKey(Channel, on_delete=models.CASCADE, related_name='messages')
     message_id = models.BigIntegerField()
-    date = models.DateTimeField()
+    date = models.DateTimeField(default=timezone.now)
     text = models.TextField(blank=True)
     has_image = models.BooleanField(default=False)
     has_video = models.BooleanField(default=False)
