@@ -27,10 +27,11 @@ Your project is already configured for Railway deployment with the following fil
 DATABASE_URL=postgresql://postgres:urCNhXdwvbqOvvEsJDffIiDUMcLhAvcs@switchback.proxy.rlwy.net:10052/railway
 DEBUG=False
 SECRET_KEY=your-secure-secret-key
-ALLOWED_HOSTS=.railway.app,your-app-name.up.railway.app
+ALLOWED_HOSTS=.railway.app,gondola.proxy.rlwy.net
 BOT_TOKEN=your_telegram_bot_token
 API_ID=your_telegram_api_id
 API_HASH=your_telegram_api_hash
+PUBLIC_HOST=gondola.proxy.rlwy.net:37023
 ```
 
 Replace the values with your actual values.
@@ -44,17 +45,19 @@ Replace the values with your actual values.
 2. Configure the service:
    - Railway should automatically detect your `railway.json` configuration
    - If not, make sure to set:
-     - Build command: `pip install -r requirements.txt`
+     - Build command: `pip install -r requirements.txt && python manage.py collectstatic --noinput`
      - Start command: `bash start.sh`
 
 3. Deploy your service
    - Click "Deploy" and wait for the build to complete
+   - Your application will be available at: `https://gondola.proxy.rlwy.net:37023`
 
 ## Step 5: Verify Deployment
 
 1. Check the logs in Railway dashboard
 2. Confirm that migrations ran successfully
-3. Access your application at the URL provided by Railway
+3. Access your application at `https://gondola.proxy.rlwy.net:37023`
+4. The health check endpoint is available at `https://gondola.proxy.rlwy.net:37023/health/`
 
 ## Troubleshooting
 

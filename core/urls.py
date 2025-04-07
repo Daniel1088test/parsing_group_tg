@@ -18,10 +18,23 @@ from django.contrib import admin
 from django.urls import path, include
 from django.conf import settings
 from django.conf.urls.static import static
+from django.http import HttpResponse
+
+# Simple health check view for Railway
+def health_check(request):
+    return HttpResponse("OK", content_type="text/plain")
 
 urlpatterns = [
     path('admin/', admin.site.urls),
     path('', include('admin_panel.urls')),
+    # Add health check endpoint
+    path('health/', health_check, name='health_check'),
 ]
+
+# Add static and media files routing
 if settings.DEBUG:
+    urlpatterns += static(settings.STATIC_URL, document_root=settings.STATIC_ROOT)
+    urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
+else:
+    # In production, still serve media files through Django
     urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
