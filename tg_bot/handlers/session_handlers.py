@@ -9,7 +9,6 @@ from asgiref.sync import sync_to_async
 import asyncio
 import os
 import base64
-import shutil
 from telethon import TelegramClient, errors
 from telethon.sessions import StringSession
 import logging
@@ -24,6 +23,7 @@ from admin_panel.models import TelegramSession
 from tg_bot.config import API_ID, API_HASH, ADMIN_IDS
 
 router = Router()
+logger = logging.getLogger(__name__)
 
 class AddSessionStates(StatesGroup):
     waiting_for_phone = State()
@@ -42,18 +42,9 @@ cancel_keyboard = ReplyKeyboardMarkup(
 # Dictionary to store temporary client data
 temp_clients = {}
 
-@router.message(F.text == "🔑 Add new session")
-async def show_session_menu(message: Message):
-    """Shows the session management menu"""
-    await message.answer(
-        "Select an action:",
-        reply_markup=session_menu_keyboard
-    )
-
 @router.message(F.text == "🔐 Authorize Telethon")
 async def start_telethon_auth(message: Message, state: FSMContext):
-    """Starts the Telethon authorization process"""
-    # Only admins can use this
+    """Start Telethon authorization process"""
     if str(message.from_user.id) not in ADMIN_IDS:
         await message.answer(
             "❌ This function is only available to administrators.",
@@ -123,6 +114,7 @@ async def process_phone(message: Message, state: FSMContext):
         )
         
     except Exception as e:
+        logger.error(f"Error during phone processing: {str(e)}")
         await message.answer(
             f"❌ Помилка підключення до Telegram: {str(e)}",
             reply_markup=session_menu_keyboard
@@ -156,8 +148,9 @@ async def process_code(message: Message, state: FSMContext):
         try:
             await client.sign_in(phone, code)
             
-            # Get session string
+            # Get session string and encode it to base64
             session_string = client.session.save()
+            session_string_encoded = base64.b64encode(session_string.encode()).decode()
             
             # Save to database
             @sync_to_async
@@ -166,7 +159,7 @@ async def process_code(message: Message, state: FSMContext):
                     phone=phone,
                     api_id=API_ID,
                     api_hash=API_HASH,
-                    session_data=session_string,
+                    session_data=session_string_encoded,
                     is_active=True
                 )
                 
@@ -200,11 +193,22 @@ async def process_code(message: Message, state: FSMContext):
         )
         
     except Exception as e:
+        logger.error(f"Error during code processing: {str(e)}")
         await message.answer(
             f"❌ Помилка під час авторизації: {str(e)}",
             reply_markup=session_menu_keyboard
         )
         await state.clear()
+    finally:
+        # Clean up only if we're done or had an error
+        current_state = await state.get_state()
+        if current_state != AddSessionStates.waiting_for_code and current_state != AddSessionStates.waiting_for_2fa:
+            if message.from_user.id in temp_clients:
+                try:
+                    await temp_clients[message.from_user.id]['client'].disconnect()
+                except:
+                    pass
+                del temp_clients[message.from_user.id]
 
 @router.message(AddSessionStates.waiting_for_2fa)
 async def process_2fa(message: Message, state: FSMContext):
@@ -232,8 +236,9 @@ async def process_2fa(message: Message, state: FSMContext):
         # Try to complete sign in with 2FA
         await client.sign_in(password=password)
         
-        # Get session string
+        # Get session string and encode it to base64
         session_string = client.session.save()
+        session_string_encoded = base64.b64encode(session_string.encode()).decode()
         
         # Save to database
         @sync_to_async
@@ -242,7 +247,7 @@ async def process_2fa(message: Message, state: FSMContext):
                 phone=phone,
                 api_id=API_ID,
                 api_hash=API_HASH,
-                session_data=session_string,
+                session_data=session_string_encoded,
                 is_active=True
             )
             
@@ -266,6 +271,7 @@ async def process_2fa(message: Message, state: FSMContext):
         )
         
     except Exception as e:
+        logger.error(f"Error during 2FA processing: {str(e)}")
         await message.answer(
             f"❌ Помилка під час авторизації: {str(e)}",
             reply_markup=session_menu_keyboard
@@ -300,7 +306,6 @@ async def cancel_action(message: Message, state: FSMContext):
 @router.message(F.text == "🔙 Back to main menu")
 async def back_to_main_menu(message: Message, state: FSMContext):
     """Returns to the main menu"""
-    # clear the FSM state
     await state.clear()
     await message.answer(
         "Main menu:",
@@ -310,7 +315,6 @@ async def back_to_main_menu(message: Message, state: FSMContext):
 @router.message(F.text == "📋 List of sessions")
 async def show_sessions_list(message: Message):
     """Displaying the list of all sessions"""
-    # get the sessions asynchronously
     @sync_to_async
     def get_all_sessions():
         return list(TelegramSession.objects.all())
@@ -333,7 +337,6 @@ async def show_session_actions(callback: CallbackQuery):
     """Displaying the actions for the selected session"""
     session_id = int(callback.data.split("_")[1])
     
-    # get the session asynchronously
     @sync_to_async
     def get_session_by_id(session_id):
         return TelegramSession.objects.get(id=session_id)

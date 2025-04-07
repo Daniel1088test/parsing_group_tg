@@ -1,14 +1,12 @@
 from aiogram import Router, types, F
-from aiogram.filters import CommandStart, Command
+from aiogram.filters import CommandStart
 from tg_bot.keyboards.main_menu import main_menu_keyboard
-from tg_bot.config import WEB_SERVER_PORT, ADMIN_ID, PUBLIC_URL
+from tg_bot.config import WEB_SERVER_PORT, ADMIN_ID
 from aiogram.utils.markdown import hlink
 import qrcode
 from io import BytesIO
 from tg_bot.keyboards.channels_menu import get_channels_keyboard, get_categories_keyboard
 from asgiref.sync import async_to_sync, sync_to_async
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-
 router = Router()
 
 def _get_categories():
@@ -22,76 +20,57 @@ def _get_channels():
 # create async functions
 get_categories = sync_to_async(_get_categories)
 get_channels = sync_to_async(_get_channels)
-
-@router.message(Command("start"))
+@router.message(CommandStart())
 async def cmd_start(message: types.Message):
-    """
-    Command handler for /start
-    """
-    if message.from_user.id == ADMIN_ID:
-        # message for admin
-        await message.answer(
-            f"Hello, {message.from_user.first_name}!\n"
-            "I am your Telegram Parser Bot. I will help you parse messages from Telegram channels.\n"
-            "Use the buttons below to control me:",
-            reply_markup=admin_menu_keyboard
-        )
-    else:
-        # message for regular user
-        await message.answer(
-            f"Hello, {message.from_user.first_name}!\n"
-            "I am the Telegram Parser Bot.\n"
-            "Use the buttons below to interact with me:",
-            reply_markup=main_menu_keyboard
-        )
+    await message.answer("Hello! I am a bot for parsing messages from Telegram channels.", reply_markup=main_menu_keyboard)
 
-@router.message(Command("site"))
-async def cmd_site(message: types.Message):
-    """Command handler for /site"""
-    # Use the PUBLIC_URL from config
-    website_url = PUBLIC_URL
+@router.message(F.text == "🌐 Go to the website")   
+async def website(message: types.Message):
+    # Use external IP address or domain name, if it is configured
+    website_url = f"http://192.168.0.237:{WEB_SERVER_PORT}"  # Changed to IP that is displayed when Flask starts
     
-    # Create a button to open the website
-    site_button = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="Open website", url=website_url)],
+    # Create inline keyboard with button to go to the website
+    keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
+        [types.InlineKeyboardButton(text="Open website", url=website_url)],
+        [types.InlineKeyboardButton(text="Get QR code", callback_data="get_qr_code")]
     ])
     
-    await message.answer(
-        f"You can access the website at: {website_url}",
-        reply_markup=site_button
-    )
+    await message.answer("The website is available at the following link:", reply_markup=keyboard)
 
-@router.message(Command("qr"))
-async def cmd_qr(message: types.Message):
-    """Command handler for /qr"""
-    # Use the PUBLIC_URL from config
-    website_url = PUBLIC_URL
+@router.callback_query(F.data == "get_qr_code")
+async def send_qr_code(callback: types.CallbackQuery):
+    website_url = f"http://192.168.0.237:{WEB_SERVER_PORT}"
     
-    # Generate QR code
-    qr = qrcode.QRCode(
-        version=1,
-        error_correction=qrcode.constants.ERROR_CORRECT_L,
-        box_size=10,
-        border=4,
-    )
-    qr.add_data(website_url)
-    qr.make(fit=True)
-    
-    img = qr.make_image(fill_color="black", back_color="white")
-    
-    # Convert to bytes
-    img_byte_arr = io.BytesIO()
-    img.save(img_byte_arr, format='PNG')
-    img_byte_arr.seek(0)
-    
-    # Send the QR code
-    await message.answer_photo(
-        types.BufferedInputFile(
-            img_byte_arr.getvalue(),
-            filename="qr_code.png"
-        ),
-        caption=f"QR code for access to the website: {website_url}"
-    )
+    try:
+        # Create QR code for the website
+        qr = qrcode.QRCode(
+            version=1,
+            error_correction=qrcode.constants.ERROR_CORRECT_L,
+            box_size=10,
+            border=4,
+        )
+        qr.add_data(website_url)
+        qr.make(fit=True)
+        
+        img = qr.make_image(fill_color="black", back_color="white")
+        
+        # Save the image to the buffer
+        bio = BytesIO()
+        img.save(bio, 'PNG')
+        bio.seek(0)
+        
+        # Send the QR code
+        await callback.message.answer_photo(
+            photo=types.BufferedInputFile(
+                file=bio.getvalue(), 
+                filename="qrcode.png"
+            ),
+            caption=f"QR code for access to the website: {website_url}"
+        )
+        await callback.answer()
+    except Exception as e:
+        await callback.message.answer(f"Error creating QR code: {e}")
+        await callback.answer("Failed to create QR code")
 
 @router.message(F.text == "📎 List of channels")
 async def list_channels(message: types.Message, channels_data: dict):
