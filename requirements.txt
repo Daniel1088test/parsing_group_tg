@@ -16,6 +16,7 @@ multidict==6.2.0
 pillow==11.1.0
 propcache==0.3.0
 psycopg==3.2.6
+procps==0.2.0
 pyaes==1.6.1
 pyasn1==0.6.1
 pydantic==2.10.6
@@ -27,4 +28,5 @@ sqlparse==0.5.3
 Telethon==1.39.0
 typing_extensions==4.12.2
 uvicorn==0.27.1
+whitenoise==6.6.0
 yarl==1.18.3

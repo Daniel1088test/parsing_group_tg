@@ -172,11 +172,17 @@ echo "Starting Telegram bot..."
 
 # Kill any existing Python processes running the bot
 echo "Checking for existing bot processes..."
-if pgrep -f "python.*run.py" > /dev/null; then
-    echo "Found existing bot process, terminating..."
-    pkill -9 -f "python.*run.py" || true
-    sleep 5  # Give more time for process cleanup
+if command -v pgrep &> /dev/null; then
+    if pgrep -f "python.*run.py" > /dev/null; then
+        echo "Found existing bot process, terminating..."
+        pkill -9 -f "python.*run.py" || true
+    fi
+else
+    echo "pgrep not found, using ps and grep..."
+    ps aux | grep "python.*run.py" | grep -v grep | awk '{print $2}' | xargs -r kill -9 || true
 fi
+
+sleep 5  # Give more time for process cleanup
 
 # Clear any existing session files that might cause conflicts
 echo "Clearing any existing bot sessions..."
