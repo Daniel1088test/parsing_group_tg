@@ -30,8 +30,8 @@
 import os
 
 # Bot's Django server configuration
-WEB_SERVER_HOST = os.getenv('BOT_SERVER_HOST', '127.0.0.1')  # Default to localhost
-WEB_SERVER_PORT = os.getenv('BOT_SERVER_PORT', '8081')  # Default to 8081
+WEB_SERVER_HOST = os.getenv('BOT_SERVER_HOST', 'parsinggrouptg-production.up.railway.app')  # Default to localhost
+WEB_SERVER_PORT = os.getenv('BOT_SERVER_PORT', '8080')  # Default to 8081
 
 # Main application URL
 MAIN_APP_URL = os.getenv('PUBLIC_URL', 'https://parsinggrouptg-production.up.railway.app')
