@@ -18,10 +18,28 @@ from django.contrib import admin
 from django.urls import path, include
 from django.conf import settings
 from django.conf.urls.static import static
-from django.http import HttpResponse
+from django.http import HttpResponse, JsonResponse
+from django.db import connection
 
 def health_check(request):
-    return HttpResponse("OK", content_type="text/plain")
+    try:
+        # Test database connection
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT 1")
+            cursor.fetchone()
+        
+        # Return success response
+        return JsonResponse({
+            "status": "healthy",
+            "database": "connected",
+            "version": "1.0.0"
+        })
+    except Exception as e:
+        # Return error response
+        return JsonResponse({
+            "status": "unhealthy",
+            "error": str(e)
+        }, status=500)
 
 urlpatterns = [
     path('admin/', admin.site.urls),
