@@ -58,13 +58,27 @@ def _save_message_to_db(message_data):
     try:
         # Try to get the channel
         try:
-            channel = models.Channel.objects.get(name=message_data['channel_name'])
+            # Clean channel name to handle special characters
+            clean_channel_name = message_data['channel_name'].strip()
+            channel = models.Channel.objects.get(name=clean_channel_name)
         except models.Channel.DoesNotExist:
             # Create a new channel if it doesn't exist
             logger.warning(f"Channel {message_data['channel_name']} not found in database. Creating it.")
+            
+            # Clean up the channel name and URL for storage
+            clean_channel_name = message_data['channel_name'].strip()
+            
+            # Generate a suitable URL
+            channel_url = message_data.get('channel_url')
+            if not channel_url:
+                # Extract a clean identifier for the URL
+                channel_identifier = clean_channel_name.lower().replace(' ', '_')
+                channel_identifier = re.sub(r'[^a-z0-9_]', '', channel_identifier)
+                channel_url = f"https://t.me/{channel_identifier}"
+            
             channel = models.Channel(
-                name=message_data['channel_name'],
-                url=f"https://t.me/{message_data['channel_name'].lower().replace(' ', '_')}",
+                name=clean_channel_name,
+                url=channel_url,
                 is_active=True,
                 created_at=datetime.now(),
             )
@@ -113,30 +127,23 @@ async def get_channel_messages(client, channel_identifier):
     Receive messages from channel with better error handling for unauthorized sessions
     """
     try:
-        # Check if this channel has a better alternative URL
-        if channel_identifier in CHANNEL_URL_MAPPING:
-            logger.info(f"Using mapped URL for {channel_identifier}: {CHANNEL_URL_MAPPING[channel_identifier]}")
-            alternative_url = CHANNEL_URL_MAPPING[channel_identifier]
+        # Extract channel name for checking if it needs forced web scraping
+        channel_name = extract_channel_name_from_url(channel_identifier)
+        
+        # Force web scraping for specific channels
+        if channel_name and any(keyword in channel_name for keyword in FORCE_WEB_SCRAPING):
+            logger.info(f"Forcing web scraping for channel: {channel_name}")
+            # Try to get the best URL for web scraping
+            web_url = DIRECT_WEB_URLS.get(channel_name, f"https://t.me/s/{channel_name}")
             
-            # Try first with the alternative URL using Telethon
-            try:
-                username = extract_username_from_link(alternative_url)
-                if username and isinstance(username, str):
-                    entity = await client.get_entity(username)
-                    messages = await client.get_messages(entity, 10)
-                    return messages, entity
-            except Exception as e:
-                logger.info(f"Alternative URL failed with Telethon: {e}, trying web scraping")
-                
-            # If Telethon fails, try web scraping
-            web_messages = await get_public_channel_messages_web(alternative_url)
+            # Get messages via web scraping
+            web_messages = await get_public_channel_messages_web(web_url)
             if web_messages:
                 # Convert web messages to Telethon-like format
-                from telethon.tl.types import Message, PeerChannel, MessageEntityTextUrl
+                from telethon.tl.types import Message, PeerChannel, Channel
                 
                 telethon_messages = []
                 for msg in web_messages:
-                    # Create a simulated Telethon message
                     message = Message(
                         id=msg['id'],
                         message=msg['text'],
@@ -147,20 +154,26 @@ async def get_channel_messages(client, channel_identifier):
                         silent=False,
                         post=True,
                         from_id=None,
-                        peer_id=PeerChannel(channel_id=0),  # Dummy channel ID
+                        peer_id=PeerChannel(channel_id=0),
                         fwd_from=None,
                         via_bot_id=None,
                         reply_to=None,
                         entities=[],
                         ttl_period=None
                     )
+                    # Add additional attributes for web-scraped messages
+                    message.from_web = True
+                    if 'media_url' in msg:
+                        message.media_url = msg['media_url']
+                    if 'media_type' in msg:
+                        message.media_type = msg['media_type']
+                    
                     telethon_messages.append(message)
                 
                 # Create a dummy channel entity
-                from telethon.tl.types import Channel
                 channel = Channel(
                     id=0,
-                    title=username,
+                    title=channel_name,
                     photo=None,
                     admin_rights=None,
                     banned_rights=None,
@@ -168,9 +181,9 @@ async def get_channel_messages(client, channel_identifier):
                     participants_count=None
                 )
                 
-                logger.info(f"Successfully retrieved {len(telethon_messages)} messages via web scraping for {alternative_url}")
+                logger.info(f"Successfully retrieved {len(telethon_messages)} messages via forced web scraping for {channel_name}")
                 return telethon_messages, channel
-                
+        
         # Check if client is authorized
         is_authorized = False
         try:
@@ -275,22 +288,70 @@ async def get_channel_messages(client, channel_identifier):
             # If all else fails, try some common Telegram API approaches for public channels
             logger.warning(f"Trying alternative approaches for channel: {channel_identifier}")
             
-            # Fallback: Try fetching as a public resource
-            try:
-                from telethon.tl.functions.channels import GetFullChannelRequest
+            # Check if this channel has a better alternative URL
+            if channel_identifier in CHANNEL_URL_MAPPING:
+                logger.info(f"Using mapped URL for {channel_identifier}: {CHANNEL_URL_MAPPING[channel_identifier]}")
+                alternative_url = CHANNEL_URL_MAPPING[channel_identifier]
                 
-                if isinstance(username, str):
-                    result = await client(GetFullChannelRequest(channel=username))
-                    if result and hasattr(result, 'full_chat'):
-                        # We have some channel info, try to get messages now
-                        try:
-                            messages = await client.get_messages(username, 10)
-                            return messages, result.full_chat
-                        except:
-                            pass
-            except Exception as e:
-                logger.warning(f"Alternative approach failed: {e}")
-            
+                # Try first with the alternative URL using Telethon
+                try:
+                    username = extract_username_from_link(alternative_url)
+                    if username and isinstance(username, str):
+                        entity = await client.get_entity(username)
+                        messages = await client.get_messages(entity, 10)
+                        return messages, entity
+                except Exception as e:
+                    logger.info(f"Alternative URL failed with Telethon: {e}, trying web scraping")
+                    
+                # If Telethon fails, try web scraping
+                web_messages = await get_public_channel_messages_web(alternative_url)
+                if web_messages:
+                    # Convert web messages to Telethon-like format
+                    from telethon.tl.types import Message, PeerChannel, MessageEntityTextUrl, Channel
+                    
+                    telethon_messages = []
+                    for msg in web_messages:
+                        # Create a simulated Telethon message
+                        message = Message(
+                            id=msg['id'],
+                            message=msg['text'],
+                            date=datetime.fromisoformat(msg['date'].replace('Z', '+00:00')) if 'Z' in msg['date'] else datetime.fromisoformat(msg['date']),
+                            out=False,
+                            mentioned=False,
+                            media_unread=False,
+                            silent=False,
+                            post=True,
+                            from_id=None,
+                            peer_id=PeerChannel(channel_id=0),  # Dummy channel ID
+                            fwd_from=None,
+                            via_bot_id=None,
+                            reply_to=None,
+                            entities=[],
+                            ttl_period=None
+                        )
+                        # Add web-specific attributes
+                        message.from_web = True
+                        if 'media_url' in msg:
+                            message.media_url = msg['media_url']
+                        if 'media_type' in msg:
+                            message.media_type = msg['media_type']
+                        
+                        telethon_messages.append(message)
+                    
+                    # Create a dummy channel entity
+                    channel = Channel(
+                        id=0,
+                        title=username if isinstance(username, str) else "Unknown",
+                        photo=None,
+                        admin_rights=None,
+                        banned_rights=None,
+                        default_banned_rights=None,
+                        participants_count=None
+                    )
+                    
+                    logger.info(f"Successfully retrieved {len(telethon_messages)} messages via web scraping for {alternative_url}")
+                    return telethon_messages, channel
+                
             # Final fallback: try web scraping for public channels
             web_messages = await get_public_channel_messages_web(channel_identifier)
             if web_messages:
@@ -874,6 +935,19 @@ async def telethon_task(queue):
                         # Use channel link
                         channel_link = channel_url
                         
+                        # Ensure the channel link is properly formatted
+                        if not channel_link.startswith(('http://', 'https://')):
+                            channel_link = f"https://{channel_link}"
+                            logger.info(f"Updated channel link format: {channel_link}")
+                        
+                        # Extract the channel name for more robust handling
+                        channel_name_for_url = extract_channel_name_from_url(channel_link)
+                        if channel_name_for_url:
+                            # Check if this is a special case that needs forced web scraping
+                            for special_channel in FORCE_WEB_SCRAPING:
+                                if special_channel in channel_name_for_url.lower():
+                                    logger.info(f"Special channel detected: {channel_name_for_url} will use web scraping")
+                        
                         # Validate channel URL
                         if not channel_link or not await is_valid_channel_url(channel_link):
                             logger.warning(f"Channel {channel_name} has invalid link: {channel_link}")
@@ -1178,7 +1252,6 @@ async def initialize_client(session_id=None, session_filename=None):
                     else:
                         logger.error(f"Failed to connect after {max_retries} attempts for session {session_filename}")
                         await client.disconnect()
-                        return None, None
                         
             except Exception as e:
                 retry_count += 1
@@ -1325,24 +1398,18 @@ async def get_public_channel_messages_web(url, limit=10):
     This works without authorization for public channels.
     """
     try:
-        logger.info(f"Attempting to get public channel messages via web for: {url}")
+        # Extract channel name from the URL
+        channel_name = extract_channel_name_from_url(url)
+        logger.info(f"Attempting to get public channel messages via web for: {channel_name} (URL: {url})")
         
-        # Clean up and normalize URL
+        # Clean up and normalize URL - make sure it's using the /s/ format for public access
         if not url.startswith('http'):
             url = f"https://{url}"
             
-        # Extract username
-        username = None
-        match = re.search(r't\.me/([a-zA-Z0-9_]+)', url)
-        if match:
-            username = match.group(1)
-        
-        if not username:
-            logger.warning(f"Could not extract username from URL: {url}")
-            return []
-        
-        # Create a proper Telegram web URL
-        web_url = f"https://t.me/s/{username}"
+        if not '/s/' in url and channel_name:
+            # Convert to web version URL
+            url = f"https://t.me/s/{channel_name}"
+            logger.info(f"Normalized URL to web version: {url}")
         
         # Set up headers to mimic a browser
         headers = {
@@ -1356,20 +1423,38 @@ async def get_public_channel_messages_web(url, limit=10):
         }
         
         # Use requests to get the page
-        response = requests.get(web_url, headers=headers, timeout=15)
+        logger.info(f"Sending HTTP request to: {url}")
+        response = requests.get(url, headers=headers, timeout=15)
         
         if response.status_code != 200:
-            logger.warning(f"Failed to access channel via web: {response.status_code}")
+            logger.warning(f"Failed to access channel via web: Status {response.status_code} for {url}")
             return []
+        
+        # Quick check if the page contains channel content
+        if "tgme_channel_info" not in response.text:
+            logger.warning(f"Response doesn't appear to contain channel content for {url}")
+            # Try adding /s/ if it's missing and retry
+            if '/s/' not in url:
+                new_url = url.replace('t.me/', 't.me/s/')
+                logger.info(f"Retrying with /s/ added: {new_url}")
+                response = requests.get(new_url, headers=headers, timeout=15)
+                if response.status_code != 200 or "tgme_channel_info" not in response.text:
+                    logger.warning(f"Second attempt failed for {new_url}")
+                    return []
         
         # Parse HTML with BeautifulSoup
         soup = BeautifulSoup(response.text, 'html.parser')
+        
+        # Log channel title if found
+        channel_title_elem = soup.select_one('.tgme_channel_info_header_title')
+        if channel_title_elem:
+            logger.info(f"Found channel: {channel_title_elem.get_text().strip()}")
         
         # Find message containers
         message_containers = soup.select('.tgme_widget_message_wrap')
         
         if not message_containers:
-            logger.warning(f"No messages found for channel {username} via web access")
+            logger.warning(f"No messages found for channel {channel_name} via web access")
             return []
         
         # Limit to the most recent messages
@@ -1380,8 +1465,12 @@ async def get_public_channel_messages_web(url, limit=10):
         for container in message_containers:
             try:
                 # Get message ID
-                message_link = container.select_one('.tgme_widget_message')['data-post']
-                message_id = int(message_link.split('/')[-1])
+                message_link = container.select_one('.tgme_widget_message')
+                if not message_link or not message_link.has_attr('data-post'):
+                    continue
+                    
+                msg_data = message_link['data-post']
+                message_id = int(msg_data.split('/')[-1])
                 
                 # Get text content
                 text_element = container.select_one('.tgme_widget_message_text')
@@ -1429,11 +1518,13 @@ async def get_public_channel_messages_web(url, limit=10):
                 
             except Exception as e:
                 logger.error(f"Error parsing message container: {e}")
+                import traceback
+                logger.error(f"Parse error: {traceback.format_exc()}")
         
         if messages:
-            logger.info(f"Successfully retrieved {len(messages)} messages via web for channel {username}")
+            logger.info(f"Successfully retrieved {len(messages)} messages via web for channel {channel_name}")
         else:
-            logger.warning(f"Retrieved 0 messages via web for channel {username}")
+            logger.warning(f"Retrieved 0 messages via web for channel {channel_name}")
         
         return messages
         
@@ -1472,5 +1563,68 @@ CHANNEL_URL_MAPPING = {
 DIRECT_WEB_URLS = {
     'binanceexchange': 'https://t.me/s/binance',
     'maincasterska': 'https://t.me/s/maincaster',
-    'spilnotass': 'https://t.me/s/sternenko'
+    'spilnotass': 'https://t.me/s/sternenko',
+    'binance': 'https://t.me/s/binance',
+    'maincaster': 'https://t.me/s/maincaster',
+    'spilnota': 'https://t.me/s/spilnota',
+    'sternenko': 'https://t.me/s/sternenko',
+    'lebidlo': 'https://t.me/s/lebidlo'
 }
+
+# List of channels that should always use web scraping regardless of authorization
+FORCE_WEB_SCRAPING = [
+    'binanceexchange', 'maincasterska', 'spilnotass',
+    'binance', 'maincaster', 'spilnota', 'sternenko', 'lebidlo'
+]
+
+def extract_channel_name_from_url(url):
+    """Extract just the channel name from a URL, handling various formats"""
+    # Handle direct web URLs
+    for keyword, direct_url in DIRECT_WEB_URLS.items():
+        if keyword in url.lower():
+            channel_name = direct_url.split('/')[-1]
+            logger.info(f"Mapped {url} to channel name {channel_name} via keyword matching")
+            return channel_name
+            
+    # Try various regex patterns to match different URL formats
+    patterns = [
+        r'https?://(?:t|telegram)\.me/(?:s/)?([a-zA-Z0-9_]+)',  # Standard t.me links
+        r'https?://(?:t|telegram)\.me/\+?([a-zA-Z0-9_]+)',      # t.me with optional + prefix
+        r'https?://t\.me/c/\d+/\d+/([a-zA-Z0-9_]+)',            # Post with channel ID
+        r'([a-zA-Z0-9_]+)$'                                     # Just the channel name at the end
+    ]
+    
+    for pattern in patterns:
+        match = re.search(pattern, url)
+        if match:
+            channel_name = match.group(1).lower()
+            # Remove any /s/ prefix for web links
+            if channel_name.startswith('s/'):
+                channel_name = channel_name[2:]
+            logger.info(f"Extracted channel name {channel_name} from {url} using regex")
+            return channel_name
+    
+    # Hard-coded mappings for problematic URLs
+    url_lower = url.lower()
+    if 'binance' in url_lower:
+        return 'binance'
+    elif 'maincaster' in url_lower or 'maincast' in url_lower:
+        return 'maincaster'
+    elif 'spilnota' in url_lower:
+        return 'spilnota'
+    elif 'sternenko' in url_lower:
+        return 'sternenko'
+    elif 'lebidlo' in url_lower:
+        return 'lebidlo'
+        
+    # Last resort: use the original URL after stripping common prefixes
+    cleaned_url = url.lower()
+    for prefix in ['https://', 'http://', 't.me/', 'telegram.me/', 's/']:
+        cleaned_url = cleaned_url.replace(prefix, '')
+    
+    # If there's a slash in what remains, take the first part
+    if '/' in cleaned_url:
+        cleaned_url = cleaned_url.split('/')[0]
+        
+    logger.info(f"Last resort: extracted {cleaned_url} from {url}")
+    return cleaned_url
