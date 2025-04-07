@@ -91,10 +91,10 @@ async def get_channel_messages(client, channel_identifier):
         messages = await client.get_messages(channel, 10)  # Get last 10 messages
         return messages, channel
     except errors.ChannelInvalidError:
-        print(f"Channel {channel_identifier} not found or unavailable.")
+        logger.warning(f"Channel {channel_identifier} not found or unavailable.")
         return [], None
     except Exception as e:
-        print(f"Error getting messages from channel {channel_identifier}: {e}")
+        logger.error(f"Error getting messages from channel {channel_identifier}: {e}")
         return [], None
 
 async def download_media(client, message, media_dir):
@@ -111,7 +111,7 @@ async def download_media(client, message, media_dir):
             return os.path.basename(file_path) if file_path else None
         return None
     except Exception as e:
-        print(f"Error in downloading media: {e}")
+        logger.error(f"Error in downloading media: {e}")
         return None
 
 async def save_message_to_data(message, channel, queue, category_id=None, client=None):
@@ -140,8 +140,32 @@ async def save_message_to_data(message, channel, queue, category_id=None, client
                 media_type = "webpage"
                 # Here we don't download webpage, but just specify the type
         
-        # Get channel name
-        channel_name = getattr(channel, 'title', None) or getattr(channel, 'name', 'Unknown channel')
+        # Get channel name - avoid accessing DB
+        channel_name = getattr(channel, 'name', 'Unknown channel')
+        channel_id = getattr(channel, 'id', 0)
+        
+        # Get message peer ID safely
+        peer_id = None
+        try:
+            if hasattr(message, 'peer_id') and hasattr(message.peer_id, 'channel_id'):
+                peer_id = message.peer_id.channel_id
+            else:
+                peer_id = 0
+        except Exception as e:
+            logger.error(f"Error getting peer_id: {e}")
+            peer_id = 0
+            
+        # Format the message date
+        message_date = None
+        try:
+            if hasattr(message, 'date'):
+                message_date = message.date.strftime("%Y-%m-%d %H:%M:%S")
+            else:
+                from datetime import datetime
+                message_date = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        except Exception as e:
+            logger.error(f"Error formatting date: {e}")
+            message_date = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         
         # Save full message without limits
         message_info = {
@@ -149,14 +173,20 @@ async def save_message_to_data(message, channel, queue, category_id=None, client
             'media': "media/messages/" + media_file if media_file else "",
             'media_type': media_type if media_type else None,
             'message_id': message.id,
-            'channel_id': message.peer_id.channel_id,
-            'channel_name': channel_name,  # Add channel name
-            'link': f"https://t.me/c/{message.peer_id.channel_id}/{message.id}",
-            'date': message.date.strftime("%Y-%m-%d %H:%M:%S")
+            'channel_id': peer_id,
+            'channel_name': channel_name,
+            'link': f"https://t.me/c/{peer_id}/{message.id}",
+            'date': message_date
         }
         
-        # Save to database
-        await save_message_to_db(message_info)
+        # Save to database using sync_to_async
+        try:
+            await save_message_to_db(message_info)
+            logger.info(f"Saved message from channel {channel_name} (ID: {message.id})")
+        except Exception as e:
+            logger.error(f"Error saving message to database: {e}")
+            import traceback
+            logger.error(f"Database error traceback: {traceback.format_exc()}")
         
         # Send message information to main process
         # Don't send channel object, but only necessary data
@@ -164,11 +194,14 @@ async def save_message_to_data(message, channel, queue, category_id=None, client
             'message_info': message_info, 
             'category_id': category_id
         })
+        
+        return True
 
     except Exception as e:
-        print(f"Error in saving message to file: {e}")
+        logger.error(f"Error in saving message to file: {e}")
         import traceback
-        traceback.print_exc()
+        logger.error(f"Traceback: {traceback.format_exc()}")
+        return False
 
 def extract_username_from_link(link):
     """Extract username/channel from Telegram link"""
@@ -277,50 +310,102 @@ async def telethon_task(queue):
                 
                 logger.info(f"Found {len(channels)} channels for parsing")
                 
-                active_channels = sum(1 for channel in channels if channel.is_active)
+                # Convert all needed attributes to simple values to avoid async access issues
+                channels_to_process = []
+                
+                @sync_to_async
+                def prepare_channels_for_async(channels):
+                    result = []
+                    for channel in channels:
+                        if not channel.is_active:
+                            continue
+                            
+                        # Extract all needed attributes to avoid async DB access later
+                        channel_data = {
+                            'id': channel.id,
+                            'name': channel.name,
+                            'url': channel.url,
+                            'is_active': channel.is_active,
+                        }
+                        
+                        # Add category info if available
+                        try:
+                            if hasattr(channel, 'category') and channel.category:
+                                channel_data['category_id'] = channel.category.id
+                                channel_data['category_name'] = channel.category.name
+                        except Exception as e:
+                            logger.error(f"Error getting category for channel {channel.name}: {e}")
+                        
+                        # Add session info if available
+                        try:
+                            if hasattr(channel, 'session') and channel.session:
+                                channel_data['session_id'] = channel.session.id
+                                channel_data['session_phone'] = channel.session.phone
+                        except Exception as e:
+                            logger.error(f"Error getting session for channel {channel.name}: {e}")
+                            
+                        result.append(channel_data)
+                    return result
+                
+                # Get channels data safely
+                channels_to_process = await prepare_channels_for_async(channels)
+                
+                # Calculate active channels
+                active_channels = len(channels_to_process)
                 logger.info(f"Active channels: {active_channels}/{len(channels)}")
                 
-                # Debug: Print details of each channel to help troubleshoot
-                for idx, channel in enumerate(channels, 1):
-                    if channel.is_active:
-                        session_info = f" [Session: {channel.session.phone}]" if hasattr(channel, 'session') and channel.session else " [No session]"
-                        category_info = f" [Category: {channel.category.name}]" if hasattr(channel, 'category') and channel.category else " [No category]"
-                        logger.debug(f"Channel {idx}: {channel.name}{session_info}{category_info} - URL: {channel.url}")
+                # Debug: Print details of each channel
+                for idx, channel_data in enumerate(channels_to_process, 1):
+                    session_info = f" [Session: {channel_data.get('session_phone', 'None')}]" if 'session_phone' in channel_data else " [No session]"
+                    category_info = f" [Category: {channel_data.get('category_name', 'None')}]" if 'category_name' in channel_data else " [No category]"
+                    logger.debug(f"Channel {idx}: {channel_data['name']}{session_info}{category_info} - URL: {channel_data['url']}")
                 
                 # Track if we've successfully processed any channels
                 channels_processed = 0
                 
-                for channel in channels:
+                for channel_data in channels_to_process:
                     # Skip processing if stop_event was triggered
                     if stop_event:
                         break
-                        
-                    if not channel.is_active:
-                        logger.debug(f"Channel '{channel.name}' is not active for parsing")
-                        continue
+                    
+                    # Get channel data
+                    channel_id = channel_data['id']
+                    channel_name = channel_data['name']
+                    channel_url = channel_data['url']
                     
                     # Skip channels with too many recent failures
-                    channel_key = getattr(channel, 'id', str(channel)) 
+                    channel_key = str(channel_id)
                     failure_info = channel_failures.get(channel_key, {'count': 0, 'last_attempt': None})
                     
                     # Skip channels with more than 5 failures until next full cycle
                     if failure_info['count'] >= 5 and full_cycle_completed:
                         # Reset failures count when starting a new cycle
                         if full_cycle_completed:
-                            logger.info(f"Resetting failure count for channel '{channel.name}' in new cycle")
+                            logger.info(f"Resetting failure count for channel '{channel_name}' in new cycle")
                             failure_info['count'] = 0
                         else:
-                            logger.warning(f"Skipping channel '{channel.name}' due to {failure_info['count']} previous failures")
+                            logger.warning(f"Skipping channel '{channel_name}' due to {failure_info['count']} previous failures")
                             continue
                         
                     try:
                         # Use channel link
-                        channel_link = channel.url
+                        channel_link = channel_url
                         
                         if not channel_link or not channel_link.startswith('https://t.me/'):
-                            print(f"Channel {channel.name} has no valid link.")
+                            logger.warning(f"Channel {channel_name} has no valid link.")
                             continue
                             
+                        # Get a client to use - default to the first one if no specific one is set
+                        client_key = str(channel_data.get('session_id', 'default')) if 'session_id' in channel_data else 'default'
+                        if client_key not in telethon_clients and 'default' in telethon_clients:
+                            client_key = 'default'
+                            
+                        if client_key not in telethon_clients:
+                            logger.error(f"No client available for channel {channel_name}")
+                            continue
+                            
+                        client = telethon_clients[client_key]['client']
+                                
                         # First try to join channel
                         try:
                             # Extract username from link
@@ -328,11 +413,11 @@ async def telethon_task(queue):
                             if username:
                                 entity = await client.get_entity(username)
                                 await client(JoinChannelRequest(entity))
-                                print(f"Successfully subscribed to channel: {username}")
+                                logger.info(f"Successfully subscribed to channel: {username}")
                             else:
-                                print(f"Failed to extract username from link: {channel_link}")
+                                logger.warning(f"Failed to extract username from link: {channel_link}")
                         except Exception as e:
-                            print(f"Error in subscribing to channel {channel_link}: {e}")
+                            logger.error(f"Error in subscribing to channel {channel_link}: {e}")
 
                         # Get messages from channel
                         messages, tg_channel = await get_channel_messages(client, channel_link)
@@ -345,23 +430,28 @@ async def telethon_task(queue):
                             
                             if not last_message_id or latest_message.id > last_message_id:
                                 # Get category ID
-                                category_id = None
-                                if hasattr(channel, 'category_id'):
-                                    category_id = await get_category_id(channel)
+                                category_id = channel_data.get('category_id')
+                                
+                                # Create a channel object for save_message_to_data
+                                channel_obj = type('ChannelObj', (), {'name': channel_name, 'id': channel_id})
+                                
                                 # Send message for saving
-                                await save_message_to_data(latest_message, channel, queue, category_id, client)
+                                await save_message_to_data(latest_message, channel_obj, queue, category_id, client)
                                 last_processed_message_ids[channel_identifier] = latest_message.id
+                                channels_processed += 1
                             else:
-                                print(f"Message from channel {channel.name} already processed.")
+                                logger.debug(f"Message from channel {channel_name} already processed.")
                         else:
-                            print(f"Failed to get messages from channel: {channel.name}")
+                            logger.warning(f"Failed to get messages from channel: {channel_name}")
 
                     except errors.FloodError as e:
-                        print(f"Exceeded request frequency limit. Waiting {e.seconds} seconds.")
+                        logger.warning(f"Exceeded request frequency limit. Waiting {e.seconds} seconds.")
                         await asyncio.sleep(e.seconds)
 
                     except Exception as e:
-                        print(f"Error in telethon_task for channel {channel.name}: {e}")
+                        logger.error(f"Error in telethon_task for channel {channel_name}: {e}")
+                        import traceback
+                        logger.error(f"Traceback: {traceback.format_exc()}")
 
                     # Update failure count
                     failure_info['count'] += 1
@@ -369,22 +459,28 @@ async def telethon_task(queue):
                     channel_failures[channel_key] = failure_info
 
                 # Check if we've completed a full cycle
-                if channels_processed == len(channels):
-                    full_cycle_completed = True
+                if channels_processed > 0:
+                    logger.info(f"Successfully processed {channels_processed} channels")
+                    full_cycle_completed = (channels_processed == len(channels_to_process))
                 else:
+                    logger.warning("No channels were processed in this cycle")
                     full_cycle_completed = False
 
             except Exception as e:
-                print(f"Error in reading or processing channels: {e}")
+                logger.error(f"Error in reading or processing channels: {e}")
+                import traceback
+                logger.error(f"Channel processing error traceback: {traceback.format_exc()}")
 
             await asyncio.sleep(30)  # Pause between checks
 
     except Exception as e:
-        print(f"Error in telethon_task: {e}")
+        logger.error(f"Error in telethon_task: {e}")
+        import traceback
+        logger.error(f"Telethon task error traceback: {traceback.format_exc()}")
 
 def handle_interrupt(signum, frame):
     global stop_event
-    print("Received signal to stop Telethon...")
+    logger.info("Received signal to stop Telethon...")
     stop_event = True
 
 def telethon_worker_process(queue):
