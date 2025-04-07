@@ -29,26 +29,35 @@ SECRET_KEY = 'django-insecure-+0y690!*z(#c)1a%r8&wasr(%33csshyjoc#vflcg3!_z0c2#&
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = False
 
-ALLOWED_HOSTS = ['parsinggrouptg-production.up.railway.app', 'localhost', '127.0.0.1', 'healthcheck.railway.app']
+ALLOWED_HOSTS = ['*']  # Allow all hosts in production since we're behind Railway's proxy
 
 # Security Settings
 CSRF_TRUSTED_ORIGINS = [
     'https://parsinggrouptg-production.up.railway.app',
-    'https://healthcheck.railway.app'
+    'https://healthcheck.railway.app',
+    'http://healthcheck.railway.app'  # Allow non-HTTPS for health checks
 ]
 CSRF_COOKIE_SECURE = True
 SESSION_COOKIE_SECURE = True
 SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 
-# Only enable SSL redirect if not a health check
-def is_health_check(request):
-    return request and request.path.startswith('/health')
-
+# Security settings
 SECURE_SSL_REDIRECT = True
-SECURE_SSL_REDIRECT_EXEMPT = [r'^health/']
+SECURE_SSL_REDIRECT_EXEMPT = [
+    r'^health/',  # Don't redirect health checks
+    r'^.well-known/',  # Don't redirect ACME challenges
+]
 SECURE_HSTS_SECONDS = 31536000
 SECURE_HSTS_INCLUDE_SUBDOMAINS = True
 SECURE_HSTS_PRELOAD = True
+
+# Disable CSRF for health checks
+CSRF_EXEMPT_PATHS = ['/health/']
+
+def CSRF_TRUSTED_ORIGINS_CALLBACK(request):
+    if request.path.startswith('/health/'):
+        return True
+    return None
 
 SESSION_ENGINE = 'django.contrib.sessions.backends.db'
 SESSION_COOKIE_AGE = 60 * 24 * 14

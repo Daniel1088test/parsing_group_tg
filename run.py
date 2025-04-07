@@ -35,7 +35,7 @@ def run_django():
     try:
         from tg_bot.config import WEB_SERVER_HOST, WEB_SERVER_PORT
         # Use 127.0.0.1 instead of localhost to avoid IPv6 issues
-        host = "127.0.0.1" if WEB_SERVER_HOST == "localhost" else WEB_SERVER_HOST
+        host = "parsinggrouptg-production.up.railway.app" if WEB_SERVER_HOST == "localhost" else WEB_SERVER_HOST
         django_process = subprocess.Popen(
             [sys.executable, 'manage.py', 'runserver', f"{host}:{WEB_SERVER_PORT}"],
             stdout=subprocess.PIPE,

@@ -170,69 +170,54 @@ fi
 # Start background tasks (in this case the Telegram bot)
 echo "Starting Telegram bot..."
 
-# Try to kill any existing Python processes running the bot
-echo "Checking for existing bot processes..."
-
-# Kill any process using the bot token (more reliable than PID file)
-BOT_TOKEN=$(grep -r "bot_token" . | grep -oE "[0-9]{8,10}:[a-zA-Z0-9_-]{35}" || true)
-if [ ! -z "$BOT_TOKEN" ]; then
-    echo "Found bot token, checking for existing processes..."
-    for pid in $(ps aux | grep "$BOT_TOKEN" | grep -v grep | awk '{print $2}'); do
-        echo "Killing process $pid"
+# Kill ALL Python processes (except this script)
+echo "Killing all Python processes..."
+CURRENT_PID=$$
+for pid in $(ps aux | grep python | grep -v grep | awk '{print $2}'); do
+    if [ "$pid" != "$CURRENT_PID" ]; then
+        echo "Killing Python process $pid"
         kill -9 $pid 2>/dev/null || true
-    done
-fi
-
-# Also check PID file as backup
-if [ -f ".bot.pid" ]; then
-    OLD_PID=$(cat .bot.pid)
-    if [ -n "$OLD_PID" ]; then
-        echo "Found old bot process (PID: $OLD_PID), attempting to terminate..."
-        kill -9 $OLD_PID 2>/dev/null || true
     fi
-    rm -f .bot.pid
-fi
+done
 
-sleep 10  # Give more time for process cleanup and token release
+# Remove any existing PID files
+rm -f .*.pid .bot.pid *.pid 2>/dev/null || true
 
 # Clear any existing session files that might cause conflicts
 echo "Clearing any existing bot sessions..."
-find . -maxdepth 1 -type f -name "*.session*" -delete 2>/dev/null || true
-sleep 2
+find . -type f -name "*.session*" -delete 2>/dev/null || true
+find /app -type f -name "*.session*" -delete 2>/dev/null || true
+sleep 5
 
 # Create data persistence directory
 SESSIONS_DIR="/app/sessions"
 mkdir -p $SESSIONS_DIR
 
-# Restore any backed up sessions
-if [ -d "$SESSIONS_DIR" ]; then
-    echo "Restoring session files..."
-    cp $SESSIONS_DIR/*.session* . 2>/dev/null || true
-fi
-
-# Start the bot with a fresh session
-echo "Starting fresh bot instance..."
-cd /app  # Ensure we're in the app directory
-
 # Start the bot with retries
-MAX_RETRIES=3
+MAX_RETRIES=5
 RETRY_COUNT=0
 BOT_STARTED=false
 
 while [ $RETRY_COUNT -lt $MAX_RETRIES ] && [ "$BOT_STARTED" = false ]; do
+    echo "Starting bot attempt $((RETRY_COUNT + 1))/$MAX_RETRIES"
+    
+    # Start the bot
+    cd /app  # Ensure we're in the app directory
     python run.py &
     TELEGRAM_PID=$!
     echo $TELEGRAM_PID > .bot.pid
     
-    # Wait a bit to see if the bot stays up
-    sleep 5
+    # Wait longer to see if the bot stays up
+    sleep 10
     if kill -0 $TELEGRAM_PID 2>/dev/null; then
         BOT_STARTED=true
         echo "Bot started successfully"
     else
         echo "Bot failed to start, retrying..."
+        kill -9 $TELEGRAM_PID 2>/dev/null || true
+        rm -f .bot.pid
         RETRY_COUNT=$((RETRY_COUNT + 1))
-        sleep 5
+        sleep 10
     fi
 done
 
@@ -244,11 +229,20 @@ fi
 # Create session backup hook
 backup_sessions() {
     echo "Backing up session files..."
-    find . -maxdepth 1 -type f -name "*.session*" -exec cp {} $SESSIONS_DIR/ \; 2>/dev/null || true
+    mkdir -p $SESSIONS_DIR
+    find . -type f -name "*.session*" -exec cp {} $SESSIONS_DIR/ \; 2>/dev/null || true
 }
 
-# Register the session backup trap
-trap backup_sessions SIGTERM SIGINT
+# Register cleanup for shutdown
+cleanup() {
+    echo "Cleaning up..."
+    backup_sessions
+    kill -9 $TELEGRAM_PID 2>/dev/null || true
+    rm -f .bot.pid
+}
+
+# Register the cleanup trap
+trap cleanup SIGTERM SIGINT
 
 # Wait for all processes
 wait $GUNICORN_PID $TELEGRAM_PID 

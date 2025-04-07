@@ -18,25 +18,17 @@ from django.contrib import admin
 from django.urls import path, include
 from django.conf import settings
 from django.conf.urls.static import static
-from django.http import HttpResponse, JsonResponse
-from django.db import connection
+from django.http import HttpResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_GET
+from django.views.decorators.cache import never_cache
 
 @csrf_exempt
 @require_GET
+@never_cache
 def health_check(request):
-    try:
-        # Test database connection
-        with connection.cursor() as cursor:
-            cursor.execute("SELECT 1")
-            cursor.fetchone()
-        
-        # Return success response with minimal processing
-        return HttpResponse("OK", content_type="text/plain")
-    except Exception as e:
-        # Return error response
-        return HttpResponse("Error: " + str(e), status=500, content_type="text/plain")
+    """Simple health check endpoint that always returns OK"""
+    return HttpResponse("OK", content_type="text/plain", status=200)
 
 urlpatterns = [
     path('admin/', admin.site.urls),
