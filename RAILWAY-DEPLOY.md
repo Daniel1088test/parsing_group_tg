@@ -32,6 +32,8 @@ BOT_TOKEN=your_telegram_bot_token
 API_ID=your_telegram_api_id
 API_HASH=your_telegram_api_hash
 PUBLIC_HOST=parsinggrouptg-production.up.railway.app
+SESSION_COOKIE_SECURE=True
+CSRF_COOKIE_SECURE=True
 ```
 
 Replace the values with your actual values.
@@ -50,14 +52,14 @@ Replace the values with your actual values.
 
 3. Deploy your service
    - Click "Deploy" and wait for the build to complete
-   - Your application will be available at: `http://parsinggrouptg-production.up.railway.app`
+   - Your application will be available at: `https://parsinggrouptg-production.up.railway.app`
 
 ## Step 5: Verify Deployment
 
 1. Check the logs in Railway dashboard
 2. Confirm that migrations ran successfully
-3. Access your application at `http://parsinggrouptg-production.up.railway.app`
-4. The health check endpoint is available at `http://parsinggrouptg-production.up.railway.app/health/`
+3. Access your application at `https://parsinggrouptg-production.up.railway.app`
+4. The health check endpoint is available at `https://parsinggrouptg-production.up.railway.app/health/`
 
 ## Troubleshooting
 

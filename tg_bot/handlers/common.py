@@ -115,8 +115,8 @@ async def list_categories(message: Message):
 @router.message(F.text == "🌐 Go to the site")
 async def goto_website(message: Message):
     """Sends the link to the site"""
-    # Always use HTTP for Railway domains
-    website_url = f"http://{PUBLIC_HOST}"
+    # Use HTTPS for Railway domains
+    website_url = f"https://{PUBLIC_HOST}"
     
     # create an inline keyboard with a button to go to the site
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
@@ -132,8 +132,8 @@ async def goto_website(message: Message):
 @router.callback_query(F.data == "get_qr_code")
 async def send_qr_code(callback_query):
     """Sends the QR code for the site"""
-    # Always use HTTP for Railway domains
-    website_url = f"http://{PUBLIC_HOST}"
+    # Use HTTPS for Railway domains
+    website_url = f"https://{PUBLIC_HOST}"
     
     try:
         # create a QR code for the site

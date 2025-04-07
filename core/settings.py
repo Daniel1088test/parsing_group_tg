@@ -34,13 +34,13 @@ DEBUG = os.getenv('DEBUG', 'True').lower() == 'true'
 # Allow the specific Railway domain and any subdomains
 ALLOWED_HOSTS = ['parsinggrouptg-production.up.railway.app', 'parsinggrouptg-production-7718.up.railway.app', 'gondola.proxy.rlwy.net', '.railway.app', 'localhost', '127.0.0.1', '*']
 
-# Security settings - disable HTTPS/SSL-related security for Railway deployment
-SECURE_SSL_REDIRECT = False
-SESSION_COOKIE_SECURE = False
-CSRF_COOKIE_SECURE = False
-SECURE_HSTS_SECONDS = 0
-SECURE_HSTS_INCLUDE_SUBDOMAINS = False
-SECURE_HSTS_PRELOAD = False
+# Security settings - enable HTTPS
+SECURE_SSL_REDIRECT = False  # Let Railway handle this
+SESSION_COOKIE_SECURE = True
+CSRF_COOKIE_SECURE = True
+SECURE_HSTS_SECONDS = 3600  # 1 hour
+SECURE_HSTS_INCLUDE_SUBDOMAINS = True
+SECURE_HSTS_PRELOAD = True
 
 SESSION_ENGINE = 'django.contrib.sessions.backends.db'
 SESSION_COOKIE_AGE = 60 * 24 * 14
