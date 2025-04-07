@@ -3,18 +3,42 @@ import json
 import os
 import signal
 import re
+import logging
 from datetime import datetime
 import django
 import sys
+
+# Set up logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S',
+)
+logger = logging.getLogger('telegram_parser')
 
 from telethon import TelegramClient, errors, client
 from telethon.tl.functions.channels import JoinChannelRequest
 from telethon.tl.types import MessageMediaPhoto, MessageMediaDocument, MessageMediaWebPage
 from asgiref.sync import sync_to_async
-from tg_bot.config import (
-    API_ID, API_HASH, FILE_JSON, MAX_MESSAGES,
-    CATEGORIES_JSON, DATA_FOLDER, MESSAGES_FOLDER
-)
+
+# Try to import API credentials from config, fall back to hardcoded values if needed
+try:
+    from tg_bot.config import (
+        API_ID, API_HASH, FILE_JSON, MAX_MESSAGES,
+        CATEGORIES_JSON, DATA_FOLDER, MESSAGES_FOLDER
+    )
+except ImportError:
+    # Fall back to hardcoded values
+    logger.warning("Failed to import from config.py, using hardcoded values")
+    API_ID = 19840544  # Integer value
+    API_HASH = "c839f28bad345082329ec086fca021fa"
+    FILE_JSON = 'file.json'
+    MAX_MESSAGES = 100000
+    DATA_FOLDER = os.path.join(os.path.dirname(__file__), 'data')
+    MESSAGES_FOLDER = os.path.join(DATA_FOLDER, 'messages')
+    # Create folders if they don't exist
+    os.makedirs(DATA_FOLDER, exist_ok=True)
+    os.makedirs(MESSAGES_FOLDER, exist_ok=True)
 
 # Configure Django before importing models
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'web_app.settings')
@@ -656,3 +680,21 @@ async def initialize_client(session_id=None, session_filename=None):
                 logger.error(f"Error removing temporary session file: {e}")
                 
         return None, None
+
+def _get_telegram_sessions():
+    """Get all active Telegram sessions from the database"""
+    return list(models.TelegramSession.objects.filter(is_active=True).order_by('id'))
+
+def _get_session_by_id(session_id):
+    """Get a specific Telegram session by ID"""
+    try:
+        return models.TelegramSession.objects.get(id=session_id)
+    except models.TelegramSession.DoesNotExist:
+        return None
+
+# Convert the synchronous DB functions to async
+get_telegram_sessions = sync_to_async(_get_telegram_sessions)
+get_session_by_id = sync_to_async(_get_session_by_id)
+
+# Global variable to store Telethon clients
+telethon_clients = {}
