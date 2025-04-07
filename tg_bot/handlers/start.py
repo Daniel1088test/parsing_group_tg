@@ -49,10 +49,10 @@ async def add_channel_callback(callback: CallbackQuery):
     website_url = f"http://{PUBLIC_HOST}"
     
     message = (
-        "📱 <b>Инструкция по добавлению канала:</b>\n\n"
-        "1. Перешлите мне любое сообщение из канала, который хотите добавить\n"
-        "2. Или используйте кнопку ниже, чтобы добавить через веб-интерфейс\n\n"
-        "📌 <b>Я могу парсить только публичные каналы!</b>"
+        "📱 <b>Instruction for adding a channel:</b>\n\n"
+        "1. Forward me any message from the channel you want to add\n"
+        "2. Or use the button below to add via the web interface\n\n"
+        "📌 <b>I can only parse public channels!</b>"
     )
     
     await callback.message.edit_text(
@@ -68,11 +68,11 @@ async def auth_telethon_callback(callback: CallbackQuery):
     website_url = f"http://{PUBLIC_HOST}"
     
     await callback.message.edit_text(
-        "🔐 <b>Авторизация пользовательского аккаунта для Telethon</b>\n\n"
-        "Для полноценной работы парсера нам нужно авторизовать ваш аккаунт Telegram.\n\n"
-        "<b>⚠️ ВАЖНО:</b> вы должны использовать <b>обычный аккаунт пользователя</b>, "
-        "а не бот-аккаунт! Это необходимо для доступа к API Telegram.\n\n"
-        "Нажмите кнопку ниже, чтобы перейти к авторизации:",
+        "🔐 <b>Authorization of a user account for Telethon</b>\n\n"
+        "For full functionality of the parser, we need to authorize your Telegram account.\n\n"
+        "<b>⚠️ IMPORTANT:</b> you must use a <b>regular user account</b>, "
+        "not a bot account! This is necessary to access the Telegram API.\n\n"
+        "Click the button below to start authorization:",
         reply_markup=get_auth_button(website_url),
         parse_mode="HTML"
     )
