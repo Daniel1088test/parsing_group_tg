@@ -91,9 +91,14 @@ DATABASES = {
 # Use DATABASE_URL if provided (for Railway)
 if os.getenv('DATABASE_URL'):
     import psycopg
-    from urllib.parse import urlparse
+    from urllib.parse import urlparse, parse_qs
 
     db_url = urlparse(os.getenv('DATABASE_URL'))
+    
+    # Extract query parameters if any (like sslmode)
+    db_params = parse_qs(db_url.query)
+    sslmode = db_params.get('sslmode', ['prefer'])[0]
+    
     DATABASES = {
         'default': {
             'ENGINE': 'django.db.backends.postgresql',
@@ -101,7 +106,10 @@ if os.getenv('DATABASE_URL'):
             'USER': db_url.username,
             'PASSWORD': db_url.password,
             'HOST': db_url.hostname,
-            'PORT': db_url.port,
+            'PORT': db_url.port or '5432',
+            'OPTIONS': {
+                'sslmode': sslmode,
+            }
         }
     }
 
@@ -140,7 +148,7 @@ USE_TZ = True
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/5.0/howto/static-files/
 
-STATIC_URL = 'static/'
+STATIC_URL = '/static/'
 STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
 
 # Default primary key field type

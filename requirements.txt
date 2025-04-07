@@ -16,6 +16,7 @@ multidict==6.2.0
 pillow==11.1.0
 propcache==0.3.0
 psycopg==3.2.6
+psycopg-binary==3.2.6
 pyaes==1.6.1
 pyasn1==0.6.1
 pydantic==2.10.6
