@@ -169,9 +169,22 @@ fi
 
 # Start background tasks (in this case the Telegram bot)
 echo "Starting Telegram bot..."
-# Check if another instance is running and kill it
-pkill -f "python run.py" || true
-sleep 2  # Wait for any existing process to fully terminate
+
+# Kill any existing Python processes running the bot
+echo "Checking for existing bot processes..."
+if pgrep -f "python.*run.py" > /dev/null; then
+    echo "Found existing bot process, terminating..."
+    pkill -9 -f "python.*run.py" || true
+    sleep 5  # Give more time for process cleanup
+fi
+
+# Clear any existing session files that might cause conflicts
+echo "Clearing any existing bot sessions..."
+rm -f *.session* || true
+sleep 2
+
+# Start the bot with a fresh session
+echo "Starting fresh bot instance..."
 python run.py &
 TELEGRAM_PID=$!
 
