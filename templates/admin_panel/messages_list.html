@@ -1,0 +1,125 @@
+{% extends 'base.html' %}
+
+{% block title %}Messages{% endblock %}
+
+{% block content %}
+<div class="card">
+    <div class="card-header bg-white py-3 d-flex justify-content-between align-items-center">
+        <h5 class="mb-0">
+            <i class="fas fa-question-circle me-2"></i>Messages
+        </h5>
+        {% comment %} <a href="{% url 'message_create' %}" class="btn btn-primary btn-sm">
+            <i class="fas fa-plus me-2"></i>Create message
+        </a> {% endcomment %}
+    </div>
+    <div class="card-body">
+        <table id="messagesTable" class="table table-striped table-hover">
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>Text</th>
+                    <th>Channel</th>
+                    <th>Category</th>
+                    <th>Link</th>
+                    <th>Created</th>
+                    <th>Updated</th>
+                    <th style="width: 150px;">Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for message in messages %}
+                <tr>
+                    <td>{{ message.id }}</td>
+                    <td>{{ message.text|slice:":20" }}...</td>
+                    <td>{{ message.channel.name }}</td>
+                    <td>{{ message.channel.category.name }}</td>
+                    <td>{{ message.telegram_link|slice:":20" }}...</td>
+                    <td>{{ message.created_at|date:"d.m.Y H:i" }}</td>
+                    <td>{{ message.updated_at|date:"d.m.Y H:i" }}</td>
+                    <td>
+                        <div class="btn-group">
+                            <a href="{% url 'message_detail' message.id %}" class="btn btn-info btn-sm" data-bs-toggle="tooltip" title="Details">
+                                <i class="fas fa-eye"></i>
+                            </a>
+                            <button type="button" class="btn btn-danger btn-sm delete-message" 
+                                    data-id="{{ message.id }}" 
+                                    data-name="{{ message.text }}"
+                                    data-bs-toggle="tooltip" 
+                                    title="Delete">
+                                <i class="fas fa-trash"></i>
+                            </button>
+                        </div>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- Single modal window for all channels -->
+<div class="modal fade" id="deleteMessageModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Confirm deletion</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p>Are you sure you want to delete this message?</p>
+                <div class="alert alert-warning">
+                    <strong>Message:</strong> <span id="messageText"></span>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <form id="deleteMessageForm" method="post" style="display: inline;">
+                    {% csrf_token %}
+                    <button type="submit" class="btn btn-danger">Delete</button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% block extra_js %}
+<script>
+    $(document).ready(function() {
+        // Initialize DataTable
+        $('#messagesTable').DataTable({
+            language: {
+                url: '//cdn.datatables.net/plug-ins/1.13.7/i18n/uk.json',
+            },
+            order: [[0, 'desc']],
+            responsive: true,
+            pageLength: 10,
+            lengthMenu: [[10, 25, 50, -1], [10, 25, 50, "All"]]
+        });
+
+        // Initialize tooltips
+        var tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'))
+        var tooltipList = tooltipTriggerList.map(function (tooltipTriggerEl) {
+            return new bootstrap.Tooltip(tooltipTriggerEl)
+        });
+
+        // Initialize modal window for deletion
+        const deleteModal = new bootstrap.Modal(document.getElementById('deleteMessageModal'));
+        
+        // Click handler for delete button
+        $('.delete-message').click(function() {
+            const messageId = $(this).data('id');
+            const messageText = $(this).data('name');
+            
+            // Update text in modal window
+            $('#messageText').text(messageText);
+            
+            // Update delete form with correct URL
+            $('#deleteMessageForm').attr('action', "{% url 'message_delete' 0 %}".replace('0', messageId));
+            
+            // Show modal window
+            deleteModal.show();
+        });
+    });
+</script>
+{% endblock %}
+{% endblock %}

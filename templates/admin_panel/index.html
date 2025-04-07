@@ -1,0 +1,693 @@
+{% load custom_filters %}
+{% load static %}
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Telegram Parser | Monitoring channels</title>    
+
+    <!-- Bootstrap 5 CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- DataTables CSS -->
+    <link rel="stylesheet" href="https://cdn.datatables.net/1.13.6/css/dataTables.bootstrap5.min.css">
+    <link rel="stylesheet" href="https://cdn.datatables.net/responsive/2.5.0/css/responsive.bootstrap5.min.css">
+    <!-- Font Awesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css">
+    <!-- AOS for animations -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/aos@2.3.4/dist/aos.css">
+    
+    <style>
+        :root {
+            --primary-color: #4e73df;
+            --secondary-color: #8e54e9;
+            --info-color: #36b9cc;
+            --dark-color: #343a40;
+            --light-color: #f8f9fc;
+        }
+        
+        body {
+            background-color: var(--light-color);
+            font-family: 'Nunito', sans-serif;
+            color: #333;
+        }
+        
+        .navbar {
+            background: linear-gradient(to right, var(--primary-color), var(--secondary-color));
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+        
+        .navbar-brand {
+            font-weight: 700;
+            font-size: 1.5rem;
+        }
+        
+        .navbar .nav-link {
+            color: rgba(255, 255, 255, 0.85) !important;
+            font-weight: 500;
+            padding: 0.5rem 1rem;
+            transition: all 0.3s;
+        }
+        
+        .navbar .nav-link:hover {
+            color: #fff !important;
+            transform: translateY(-2px);
+        }
+        
+        .navbar .nav-link.active {
+            color: #fff !important;
+            font-weight: 600;
+        }
+        
+        .hero-section {
+            background: linear-gradient(135deg, rgba(78, 115, 223, 0.9) 0%, rgba(142, 84, 233, 0.9) 100%), url('https://source.unsplash.com/random/1200x800/?telegram') center/cover no-repeat;
+            padding: 6rem 0;
+            color: white;
+            text-align: center;
+        }
+        
+        .hero-title {
+            font-size: 2.8rem;
+            font-weight: 700;
+            text-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+        }
+        
+        .hero-text {
+            font-size: 1.2rem;
+            max-width: 700px;
+            margin: 0 auto;
+            opacity: 0.9;
+            text-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+        }
+        
+        .card {
+            border: none;
+            border-radius: 0.5rem;
+            box-shadow: 0 0.15rem 1.75rem 0 rgba(58, 59, 69, 0.1);
+            transition: all 0.3s ease;
+            margin-bottom: 1.5rem;
+            overflow: hidden;
+        }
+        
+        .card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 0.5rem 2rem 0 rgba(58, 59, 69, 0.2);
+        }
+        
+        .card-header {
+            background: linear-gradient(to right, var(--primary-color), var(--secondary-color));
+            color: white;
+            font-weight: 600;
+            padding: 1rem 1.25rem;
+            border-bottom: none;
+        }
+        
+        .card-body {
+            padding: 1.25rem;
+        }
+        
+        .message-card {
+            border-left: 4px solid var(--primary-color);
+            transition: all 0.3s;
+        }
+        
+        .message-card:hover {
+            border-left-color: var(--secondary-color);
+        }
+        
+        .message-date {
+            font-size: 0.85rem;
+            color: #6c757d;
+        }
+        
+        .message-link {
+            color: var(--primary-color);
+            text-decoration: none;
+            transition: all 0.2s;
+        }
+        
+        .message-link:hover {
+            color: var(--secondary-color);
+        }
+        
+        .category-nav {
+            padding: 0.5rem 1rem;
+            margin-bottom: 2rem;
+            border-radius: 0.5rem;
+            background-color: white;
+            box-shadow: 0 0.15rem 1.75rem 0 rgba(58, 59, 69, 0.1);
+        }
+        
+        .category-item {
+            padding: 0.5rem 1rem;
+            border-radius: 2rem;
+            margin: 0.25rem;
+            color: var(--dark-color);
+            background-color: #f0f3fa;
+            transition: all 0.3s;
+            display: inline-block;
+            text-decoration: none;
+            font-weight: 500;
+        }
+        
+        .category-item:hover {
+            background-color: #e9ecef;
+            color: var(--primary-color);
+        }
+        
+        .category-item.active {
+            background: linear-gradient(to right, var(--primary-color), var(--secondary-color));
+            color: white;
+        }
+        
+        .footer {
+            background-color: var(--dark-color);
+            color: rgba(255, 255, 255, 0.8);
+            padding: 3rem 0;
+        }
+        
+        .footer-title {
+            color: white;
+            font-weight: 600;
+            margin-bottom: 1.5rem;
+        }
+        
+        .footer-link {
+            color: rgba(255, 255, 255, 0.6);
+            text-decoration: none;
+            transition: all 0.3s;
+            display: block;
+            margin-bottom: 0.5rem;
+        }
+        
+        .footer-link:hover {
+            color: white;
+            transform: translateX(5px);
+        }
+        
+        .social-icon {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            background-color: rgba(255, 255, 255, 0.1);
+            color: white;
+            margin-right: 0.5rem;
+            transition: all 0.3s;
+        }
+        
+        .social-icon:hover {
+            background-color: var(--primary-color);
+            transform: translateY(-3px);
+        }
+        
+        .back-to-top {
+            position: fixed;
+            bottom: 2rem;
+            right: 2rem;
+            width: 50px;
+            height: 50px;
+            border-radius: 50%;
+            background: linear-gradient(to right, var(--primary-color), var(--secondary-color));
+            color: white;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.25rem;
+            opacity: 0;
+            transition: all 0.3s;
+            z-index: 99;
+            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.2);
+        }
+        
+        .back-to-top.show {
+            opacity: 1;
+            cursor: pointer;
+        }
+        
+        .back-to-top:hover {
+            transform: translateY(-5px);
+        }
+        
+        /* Loading indicator */
+        .loading {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(255, 255, 255, 0.7);
+            z-index: 9999;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .spinner {
+            width: 50px;
+            height: 50px;
+            border: 5px solid rgba(0, 0, 0, 0.1);
+            border-radius: 50%;
+            border-top-color: var(--primary-color);
+            animation: spin 0.8s ease-in-out infinite;
+        }
+        
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <!-- Loading indicator -->
+    <div class="loading" id="loadingIndicator">
+        <div class="spinner"></div>
+    </div>
+
+    <!-- Navigation -->
+    <nav class="navbar navbar-expand-lg navbar-dark">
+        <div class="container">
+            <a class="navbar-brand" href="{% url 'index' %}">
+                <i class="fas fa-robot me-2"></i>
+                Telegram Parser
+            </a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav ms-auto">
+                    
+                    <li class="nav-item">
+                        <a class="nav-link" href="#categories"><i class="fas fa-folder me-1"></i> Categories</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="#sessions"><i class="fas fa-users me-1"></i> Sessions</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="#messages"><i class="fas fa-comments me-1"></i> Messages</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="{% url 'login' %}"><i class="fas fa-sign-in-alt me-1"></i> Admin panel</a>
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Hero Section -->
+    <section class="hero-section">
+        <div class="container">
+            <h1 class="hero-title mb-4" data-aos="fade-up">Telegram Parser</h1>
+            <p class="hero-text mb-5" data-aos="fade-up" data-aos-delay="200">
+                The fastest and most convenient service for monitoring messages from telegram channels.
+                Get up-to-date information in real time.
+            </p>
+            <a href="#messages" class="btn btn-light btn-lg" data-aos="fade-up" data-aos-delay="400">
+                <i class="fas fa-search me-2"></i> View messages
+            </a>
+        </div>
+    </section>
+
+    <!-- Categories Section -->
+    <section class="py-5" id="categories">
+        <div class="container">
+            <h2 class="text-center mb-4" data-aos="fade-up">Categories</h2>
+            <div class="row justify-content-center">
+                <div class="col-lg-10">
+                    <div class="category-nav text-center" data-aos="fade-up" data-aos-delay="200">
+                        <a href="?" class="category-item {% if not selected_category %}active{% endif %}" data-category-id="">All categories</a>
+                        {% for category in categories %}
+                            <a href="?category={{ category.id }}{% if selected_session %}&session={{ selected_session }}{% endif %}&count={{ current_count }}" 
+                               class="category-item {% if selected_category == category.id|stringformat:'s' %}active{% endif %}" 
+                               data-category-id="{{ category.id }}">
+                                {{ category.name }}
+                                {% if category.session %}
+                                <small class="badge bg-info">{{ category.session.phone }}</small>
+                                {% endif %}
+                            </a>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+    
+   
+    <!-- Messages Section -->
+    <section class="py-5 bg-light" id="messages">
+        <div class="container">
+            <h2 class="text-center mb-5" data-aos="fade-up">Latest messages</h2>
+            <div class="row" id="messagesContainer">
+                {% if messages %}
+                    {% for message in messages %}
+                        <div class="col-lg-6 mb-4">
+                            <div class="card message-card h-100">
+                                <div class="card-body">
+                                    <h5 class="card-title">
+                                        {{ message.channel.name }}
+                                        {% if message.channel.session %}
+                                            <span class="badge bg-warning">{{ message.channel.session.phone }}</span>
+                                        {% endif %}
+                                    </h5>
+                                    <h6 class="card-subtitle mb-2 text-muted">
+                                        <span class="badge bg-primary">{{ message.channel.category.name }}</span>
+                                        {% if message.session_used %}
+                                            <span class="badge bg-success ms-2">Via {{ message.session_used.phone }}</span>
+                                        {% endif %}
+                                    </h6>
+                                    <p class="card-text">
+                                        {{ message.text }}
+                                    </p>
+                                    <div class="media-container mb-3">                                                    
+                                        {% if message.media_type == 'photo' or message.media_type == 'image' %}
+                                        <img src="{{ message.media }}" 
+                                             class="img-fluid rounded" alt="Image">
+                                        {% elif message.media_type == 'video' %}
+                                        <div class="ratio ratio-16x9">
+                                            <video class="rounded" controls preload="metadata">
+                                                <source src="{{ message.media }}" type="video/mp4">
+                                                Your browser does not support video.
+                                            </video>
+                                        </div>
+                                        {% elif message.media_type == 'gif' %}
+                                        <img src="{{ message.media }}" 
+                                             class="img-fluid rounded" alt="GIF">
+                                        {% elif message.media_type == 'document' %}
+                                        <div class="document-container p-3 bg-light rounded">
+                                            <i class="fas fa-file-alt me-2"></i>
+                                            <a href="{{ message.media }}" 
+                                               target="_blank" download>
+                                               Download file
+                                            </a>
+                                        </div>
+                                        {% endif %}
+                                    </div>
+                                    
+                                    <div class="d-flex justify-content-between align-items-center">
+                                        <small class="message-date">
+                                            <i class="far fa-clock me-1"></i> {{ message.created_at }}
+                                        </small>
+                                        <a href="{{ message.telegram_link }}" target="_blank" class="message-link">
+                                            <i class="fas fa-external-link-alt me-1"></i> Link
+                                        </a>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    {% endfor %}
+                    
+                    {% if messages|length >= current_count %}
+                    <div class="col-12 text-center mb-5">
+                        <a href="?category={{ selected_category }}&session={{ selected_session }}&count={{ current_count|add:5 }}" class="btn btn-outline-primary load-more">
+                            <i class="fas fa-plus-circle me-2"></i> Show more
+                        </a>
+                    </div>
+                    {% endif %}
+                {% else %}
+                    <div class="col-12 text-center">
+                        <p>No messages to display.</p>
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="footer">
+
+        <div class="container">
+            <div class="text-center mt-4 pt-4 border-top border-secondary">
+                <p class="mb-0">&copy; 2025 Telegram Parser. All rights reserved.</p>
+            </div>
+        </div>
+    </footer>
+
+    <!-- Back to top button -->
+    <div class="back-to-top" id="backToTop">
+        <i class="fas fa-arrow-up"></i>
+    </div>
+
+    <!-- jQuery -->
+    <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+    <!-- Bootstrap 5 JS -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+    <!-- DataTables JS -->
+    <script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
+    <script src="https://cdn.datatables.net/1.13.6/js/dataTables.bootstrap5.min.js"></script>
+    <script src="https://cdn.datatables.net/responsive/2.5.0/js/dataTables.responsive.min.js"></script>
+    <!-- AOS JS -->
+    <script src="https://cdn.jsdelivr.net/npm/aos@2.3.4/dist/aos.js"></script>
+    
+    <script>
+        // Initialize AOS animation
+        AOS.init({
+            duration: 100,
+            easing: 'ease-in-out',
+            once: true
+        });
+        
+        $(document).ready(function() {
+            // Hide loading indicator
+            $('#loadingIndicator').hide();
+            
+            // Back to top button functionality
+            $(window).scroll(function() {
+                if ($(this).scrollTop() > 300) {
+                    $('#backToTop').addClass('show');
+                } else {
+                    $('#backToTop').removeClass('show');
+                }
+            });
+            
+            $('#backToTop').click(function() {
+                $('html, body').animate({scrollTop: 0}, 800);
+                return false;
+            });
+            
+            // Category filter click handler
+            $(document).on('click', '.category-item', function(e) {
+                e.preventDefault();
+                
+                const categoryId = $(this).data('category-id');
+                
+                // Update active class
+                $('.category-item').removeClass('active');
+                $(this).addClass('active');
+                
+                // Reload page with category parameter - only add categoryId if it's not empty
+                if (categoryId === '' || categoryId === undefined) {
+                    window.location.href = `?`;
+                } else {
+                    window.location.href = `?category=${categoryId}`;
+                }
+            });
+            
+            // Load more messages
+            $(document).on('click', '.load-more', function(e) {
+                e.preventDefault();
+                
+                const categoryId = $(this).data('category');
+                const sessionId = "{{ selected_session }}";
+                const currentCount = "{{ current_count|default:5 }}";
+                const newCount = parseInt(currentCount) + 5;
+                
+                // Build URL with parameters
+                let url = `?count=${newCount}`;
+                if (categoryId && categoryId !== 'undefined') {
+                    url += `&category=${categoryId}`;
+                }
+                if (sessionId && sessionId !== 'undefined') {
+                    url += `&session=${sessionId}`;
+                }
+                
+                // Reload page with parameters
+                window.location.href = url;
+            });
+            
+            // Function to fetch data from API
+            function fetchData(categoryId = '') {
+                let url = '/api/data';
+                if (categoryId) {
+                    url += `?category=${categoryId}`;
+                }
+                
+                fetch(url)
+                    .then(response => response.json())
+                    .then(data => {
+                        // Hide loading indicator
+                        $('#loadingIndicator').hide();
+                        
+                        // Update messages
+                        if (categoryId && data.messages) {
+                            updateMessages(data.messages, data.categories);
+                        } else if (data.messages_by_category) {
+                            updateMessagesByCategory(data.messages_by_category, data.categories);
+                        }
+                    })
+                    .catch(error => {
+                        console.error('Error fetching data:', error);
+                        $('#loadingIndicator').hide();
+                    });
+            }
+            
+            // Function to update messages for a single category
+            function updateMessages(messages, categories) {
+                const $messagesContainer = $('#messagesContainer');
+                $messagesContainer.empty();
+                
+                if (messages.length === 0) {
+                    $messagesContainer.html('<div class="col-12 text-center"><p>Немає повідомлень для відображення.</p></div>');
+                    return;
+                }
+                
+                // Add message cards
+                messages.forEach((message, index) => {
+                    const delay = 100 * (index % 10); // Stagger animation
+                    const messageHtml = createMessageCard(message, categories, delay);
+                    $messagesContainer.append(messageHtml);
+                });
+                
+                // Re-initialize AOS
+                AOS.refresh();
+            }
+            
+            // Function to update messages grouped by category
+            function updateMessagesByCategory(messagesByCategory, categories) {
+                const $messagesContainer = $('#messagesContainer');
+                $messagesContainer.empty();
+                
+                // Check if there are any messages
+                const hasMessages = Object.values(messagesByCategory).some(msgs => msgs.length > 0);
+                
+                if (!hasMessages) {
+                    $messagesContainer.html('<div class="col-12 text-center"><p>Немає повідомлень для відображення.</p></div>');
+                    return;
+                }
+                
+                // Add messages by category
+                let delay = 0;
+                
+                Object.entries(messagesByCategory).forEach(([categoryId, messages]) => {
+                    if (messages.length === 0) return;
+                    
+                    const categoryName = categories[categoryId]?.name || 'Невідома категорія';
+                    
+                    // Add category header
+                    $messagesContainer.append(`
+                        <div class="col-12 mb-4" data-aos="fade-up" data-aos-delay="${delay}">
+                            <h3 class="mb-3">${categoryName}</h3>
+                        </div>
+                    `);
+                    
+                    // Add messages for this category
+                    messages.slice(0, 5).forEach((message, index) => {
+                        const messageDelay = delay + 100 * (index % 5);
+                        const messageHtml = createMessageCard(message, categories, messageDelay);
+                        $messagesContainer.append(messageHtml);
+                    });
+                    
+                    // Add "Load more" button if there are more than 5 messages
+                    if (messages.length > 5) {
+                        $messagesContainer.append(`
+                            <div class="col-12 text-center mb-5" data-aos="fade-up" data-aos-delay="${delay + 500}">
+                                <a href="#" class="btn btn-outline-primary load-more" data-category="${categoryId}">
+                                    <i class="fas fa-plus-circle me-2"></i> Показати більше
+                                </a>
+                            </div>
+                        `);
+                    }
+                    
+                    delay += 600; // Increment delay for next category
+                });
+                
+                // Re-initialize AOS
+                AOS.refresh();
+            }
+            
+            // Function to create a message card
+            function createMessageCard(message, categories, delay = 0) {
+                const categoryName = message.channel?.category?.name || 'Unknown category';
+                
+                // Session badges for the message
+                let sessionBadges = '';
+                if (message.channel?.session) {
+                    sessionBadges += `<span class="badge bg-warning">${message.channel.session.phone}</span> `;
+                }
+                if (message.session_used) {
+                    sessionBadges += `<span class="badge bg-success">Via ${message.session_used.phone}</span>`;
+                }
+                
+                let mediaHtml = '';
+                if (message.media_type) {
+                    if (message.media_type === 'photo' || message.media_type === 'image') {
+                        mediaHtml = `
+                            <div class="media-container mb-3">
+                                <img src="${message.media}" 
+                                     class="img-fluid rounded" alt="Image">
+                            </div>
+                        `;
+                    } else if (message.media_type === 'video') {
+                        mediaHtml = `
+                            <div class="media-container mb-3">
+                                <div class="ratio ratio-16x9">
+                                    <video class="rounded" controls>
+                                        <source src="${message.media}" type="video/mp4">
+                                        Your browser does not support video.
+                                    </video>
+                                </div>
+                            </div>
+                        `;
+                    } else if (message.media_type === 'gif') {
+                        mediaHtml = `
+                            <div class="media-container mb-3">
+                                <img src="${message.media}" 
+                                     class="img-fluid rounded" alt="GIF">
+                            </div>
+                        `;
+                    } else if (message.media_type === 'document') {
+                        mediaHtml = `
+                            <div class="media-container mb-3">
+                                <div class="document-container p-3 bg-light rounded">
+                                    <i class="fas fa-file-alt me-2"></i>
+                                    <a href="${message.media}" 
+                                       target="_blank" download>
+                                       Download file
+                                    </a>
+                                </div>
+                            </div>
+                        `;
+                    }
+                }
+                
+                return `
+                    <div class="col-lg-6 mb-4" data-aos="fade-up" data-aos-delay="${delay}">
+                        <div class="card message-card h-100">
+                            <div class="card-body">
+                                <h5 class="card-title">
+                                    ${message.channel?.name || 'Unknown channel'}
+                                    ${sessionBadges}
+                                </h5>
+                                <h6 class="card-subtitle mb-2 text-muted">
+                                    <span class="badge bg-primary">${categoryName}</span>
+                                </h6>
+                                <p class="card-text">${message.text || ''}</p>
+                                ${mediaHtml}
+                                <div class="d-flex justify-content-between align-items-center">
+                                    <small class="message-date">
+                                        <i class="far fa-clock me-1"></i> ${message.created_at || ''}
+                                    </small>
+                                    <a href="${message.telegram_link || '#'}" target="_blank" class="message-link">
+                                        <i class="fas fa-external-link-alt me-1"></i> Link
+                                    </a>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }
+        });
+    </script>
+</body>
+</html>

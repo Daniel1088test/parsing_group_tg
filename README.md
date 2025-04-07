@@ -1,1 +1,2 @@
-# parsing_group_tg
+# Group-parser-with-admin
+Telethon + Django
