@@ -8,6 +8,7 @@ import multiprocessing
 import queue
 import time
 import traceback
+import base64
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor
 
@@ -77,22 +78,51 @@ async def run_bot():
         logger.error(f"Error starting bot: {e}")
         logger.error(f"Traceback: {traceback.format_exc()}")
 
+def ensure_telethon_session():
+    """Ensure Telethon session files exist and are valid"""
+    logger.info("Checking for Telethon session...")
+    
+    # Check for environment variable containing session data
+    session_data = os.getenv('TELETHON_SESSION')
+    if session_data:
+        try:
+            logger.info("Found Telethon session in environment variables. Using it.")
+            # Write session data to file
+            with open('telethon_session.session', 'wb') as f:
+                f.write(base64.b64decode(session_data))
+            logger.info("Telethon session written from environment variable")
+            return True
+        except Exception as e:
+            logger.error(f"Error writing Telethon session from environment: {e}")
+    
+    # Check if session files exist
+    if os.path.exists('telethon_session.session'):
+        logger.info("Found telethon_session.session file")
+        return True
+    elif os.path.exists('telethon_user_session.session'):
+        logger.info("Found telethon_user_session.session file")
+        # Copy it to the standard name for consistency
+        import shutil
+        shutil.copy('telethon_user_session.session', 'telethon_session.session')
+        logger.info("Copied telethon_user_session.session to telethon_session.session")
+        return True
+    elif os.path.exists('test_session.session'):
+        logger.info("Found test_session.session file")
+        # Copy it to the standard name for consistency
+        import shutil
+        shutil.copy('test_session.session', 'telethon_session.session')
+        logger.info("Copied test_session.session to telethon_session.session")
+        return True
+        
+    logger.warning("No Telethon session files found!")
+    return False
+
 def run_telethon_parser(message_queue):
     """Start Telethon parser"""
     logger.info("Starting Telethon parser...")
     try:
-        # Check if telethon session exists in environment variables first
-        session_data = os.getenv('TELETHON_SESSION')
-        if session_data:
-            logger.info("Found Telethon session in environment variables. Using it.")
-            # Write session data to file
-            with open('telethon_session.session', 'wb') as f:
-                import base64
-                f.write(base64.b64decode(session_data))
-        
-        # Check if any user session file exists (either from bot or console)
-        if not (os.path.exists('telethon_user_session.session') or 
-                os.path.exists('telethon_session.session')):
+        # Verify Telethon session exists
+        if not ensure_telethon_session():
             logger.warning("No Telethon session file found. Please authorize using the Telegram bot (🔐 Authorize Telethon) or run 'python -m tg_bot.auth_telethon'.")
             logger.warning("IMPORTANT: You must use a regular user account, NOT a bot!")
             logger.warning("Telethon parser will not be started.")
@@ -104,8 +134,46 @@ def run_telethon_parser(message_queue):
         os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'core.settings')
         django.setup()
         
+        # Initialize Telethon here, outside of worker process
+        from telethon import TelegramClient
+        from tg_bot.config import API_ID, API_HASH
+        
+        logger.info(f"Initializing Telethon client with API_ID: {API_ID}")
+        
+        # Try with multiple session names in case of issues
+        session_names = ['telethon_session', 'telethon_user_session', 'test_session']
+        client = None
+        
+        for session_name in session_names:
+            if os.path.exists(f"{session_name}.session"):
+                try:
+                    logger.info(f"Trying session file: {session_name}.session")
+                    client = TelegramClient(session_name, API_ID, API_HASH)
+                    client.connect()
+                    if client.is_user_authorized():
+                        logger.info(f"Successfully authorized with session: {session_name}")
+                        break
+                    else:
+                        logger.warning(f"Session {session_name} exists but authorization failed")
+                        client.disconnect()
+                        client = None
+                except Exception as e:
+                    logger.error(f"Error using session {session_name}: {e}")
+                    if client:
+                        client.disconnect()
+                    client = None
+        
+        if not client or not client.is_user_authorized():
+            logger.error("All session attempts failed. Telethon parser will not start.")
+            return
+        
+        # If we got here, we have a working client
+        logger.info("Telethon client successfully connected and authorized")
+        
+        # Pass the initialized client to the worker process
         from tg_bot.telethon_worker import telethon_worker_process
-        telethon_worker_process(message_queue)
+        telethon_worker_process(message_queue, client)
+        
     except Exception as e:
         logger.error(f"Error starting Telethon parser: {e}")
         logger.error(f"Traceback: {traceback.format_exc()}")

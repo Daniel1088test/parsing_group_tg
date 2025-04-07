@@ -358,46 +358,35 @@ async def initialize_client(session_id=None, session_filename=None):
                 
         return None, None
 
-async def telethon_task(queue):
+async def telethon_task(queue, pre_initialized_client=None):
     global stop_event, telethon_clients
     """
     background task for parsing messages with Telethon.
     """
     try:
-        # Get all active sessions from the database
-        sessions = await get_telegram_sessions()
-        
-        if not sessions:
-            logger.warning("No active Telegram sessions found in the database")
-            # Try to initialize a default client
-            default_client, default_me = await initialize_client()
-            if default_client:
+        # If we have a pre-initialized client, use it
+        if pre_initialized_client:
+            logger.info("Using pre-initialized client from run.py")
+            try:
+                me = await pre_initialized_client.get_me()
                 telethon_clients['default'] = {
-                    'client': default_client,
-                    'user': default_me,
+                    'client': pre_initialized_client,
+                    'user': me,
                     'session_id': None
                 }
-                logger.info("Initialized default client as no sessions were found in database")
-            else:
-                logger.error("Failed to initialize default client and no sessions in database. Parser cannot run.")
-                return
-        else:
-            # Initialize clients for all active sessions
-            for session in sessions:
-                client, me = await initialize_client(session_id=session.id)
-                if client:
-                    telethon_clients[str(session.id)] = {
-                        'client': client,
-                        'user': me,
-                        'session_id': session.id,
-                        'session': session
-                    }
-                    logger.info(f"Initialized client for session {session.phone} (ID: {session.id})")
-                else:
-                    logger.error(f"Failed to initialize client for session {session.phone} (ID: {session.id})")
+                logger.info(f"Using pre-initialized client as: {me.first_name} (@{me.username}) [ID: {me.id}]")
+            except Exception as e:
+                logger.error(f"Error getting info for pre-initialized client: {e}")
+                # Continue below to try initializing from sessions
+        
+        # If we don't have any clients yet (or pre-init failed), proceed with normal initialization
+        if not telethon_clients:
+            # Get all active sessions from the database
+            sessions = await get_telegram_sessions()
             
-            # If no clients were initialized, try with default session
-            if not telethon_clients:
+            if not sessions:
+                logger.warning("No active Telegram sessions found in the database")
+                # Try to initialize a default client
                 default_client, default_me = await initialize_client()
                 if default_client:
                     telethon_clients['default'] = {
@@ -405,228 +394,189 @@ async def telethon_task(queue):
                         'user': default_me,
                         'session_id': None
                     }
-                    logger.info("Initialized default client as fallback")
+                    logger.info("Initialized default client as no sessions were found in database")
                 else:
-                    logger.error("Failed to initialize any client. Parser cannot run.")
+                    logger.error("Failed to initialize default client and no sessions in database. Parser cannot run.")
                     return
+            else:
+                # Initialize clients for all active sessions
+                for session in sessions:
+                    client, me = await initialize_client(session_id=session.id)
+                    if client:
+                        telethon_clients[str(session.id)] = {
+                            'client': client,
+                            'user': me,
+                            'session_id': session.id,
+                            'session': session
+                        }
+                        logger.info(f"Initialized client for session {session.phone} (ID: {session.id})")
+                    else:
+                        logger.error(f"Failed to initialize client for session {session.phone} (ID: {session.id})")
+                
+                # If no clients were initialized, try with default session
+                if not telethon_clients:
+                    logger.warning("No clients were initialized from sessions. Trying default session.")
+                    default_client, default_me = await initialize_client()
+                    if default_client:
+                        telethon_clients['default'] = {
+                            'client': default_client,
+                            'user': default_me,
+                            'session_id': None
+                        }
+                        logger.info("Initialized default client as fallback")
+                    else:
+                        logger.error("Failed to initialize any client. Parser cannot run.")
+                        return
         
-        logger.info("====== Telethon Parser started ======")
-        logger.info(f"Initialized {len(telethon_clients)} client(s)")
-
+        # Main parsing loop
+        logger.info("Starting to receive updates...")
+        
         while not stop_event:
             try:
+                # Get channels from database
                 channels = await get_channels()
+                
                 if not channels:
-                    logger.warning("No channels found for parsing. Waiting before retrying...")
-                    await asyncio.sleep(30)
+                    logger.warning("No channels found in the database")
+                    await asyncio.sleep(60)  # Wait 1 minute before checking again
                     continue
                 
-                logger.info(f"Found {len(channels)} channels for parsing")
-                
-                active_channels = sum(1 for channel in channels if channel.is_active)
-                logger.info(f"Active channels: {active_channels}/{len(channels)}")
-                
+                # Iterate through each channel and collect messages
                 for channel in channels:
-                    # Check if stop event was set during iteration
                     if stop_event:
                         break
                         
-                    if not channel.is_active:
-                        logger.debug(f"Channel '{channel.name}' is not active for parsing")
-                        continue
-                        
-                    try:
-                        # Get the appropriate client for this channel
-                        channel_session_id = getattr(channel, 'session_id', None)
-                        client_info = None
-                        
-                        if channel_session_id and str(channel_session_id) in telethon_clients:
-                            # Use the channel's assigned session
-                            client_info = telethon_clients[str(channel_session_id)]
-                            logger.debug(f"Using assigned session {channel_session_id} for channel '{channel.name}'")
-                        elif 'default' in telethon_clients:
-                            # Use the default client if available
-                            client_info = telethon_clients['default']
-                            logger.debug(f"Using default session for channel '{channel.name}'")
-                        elif telethon_clients:
-                            # Use the first available client
-                            first_key = next(iter(telethon_clients))
-                            client_info = telethon_clients[first_key]
-                            logger.debug(f"Using first available session for channel '{channel.name}'")
-                        else:
-                            logger.error(f"No client available for channel '{channel.name}'")
-                            continue
-                        
-                        client = client_info['client']
-                        session = client_info.get('session')
-                        
-                        # use channel link
-                        channel_link = channel.url
-                        
-                        if not channel_link or not channel_link.startswith('https://t.me/'):
-                            logger.warning(f"Channel '{channel.name}' has no valid link")
-                            continue
-                                
-                        # first try to join channel
-                        try:
-                            # extract username from link
-                            username = extract_username_from_link(channel_link)
-                            if username:
-                                entity = await client.get_entity(username)
-                                await client(JoinChannelRequest(entity))
-                                logger.info(f"Successfully joined channel: @{username}")
-                            else:
-                                logger.warning(f"Unable to get identifier from link: {channel_link}")
-                        except errors.FloodWaitError as e:
-                            hours, remainder = divmod(e.seconds, 3600)
-                            minutes, seconds = divmod(remainder, 60)
-                            time_str = f"{hours}h {minutes}m {seconds}s" if hours > 0 else f"{minutes}m {seconds}s"
-                            logger.warning(f"Flood wait for {time_str} when joining channel. Skipping.")
-                            continue
-                        except Exception as e:
-                            logger.error(f"Error joining channel {channel_link}: {e}")
-
-                        # Get messages with retry logic
-                        retry_count = 0
-                        max_retries = 3
-                        messages = None
-                        tg_channel = None
-                        
-                        while retry_count < max_retries and not messages:
-                            try:
-                                # get messages from channel
-                                messages, tg_channel = await get_channel_messages(client, channel_link)
-                                if not messages or not tg_channel:
-                                    retry_count += 1
-                                    if retry_count < max_retries:
-                                        logger.warning(f"Retry {retry_count}/{max_retries} getting messages from '{channel.name}'")
-                                        await asyncio.sleep(retry_count * 2)  # Exponential backoff
-                                    else:
-                                        logger.error(f"Failed to get messages from '{channel.name}' after {max_retries} attempts")
-                            except Exception as e:
-                                logger.error(f"Error getting messages from channel '{channel.name}': {e}")
-                                retry_count += 1
-                                if retry_count < max_retries:
-                                    await asyncio.sleep(retry_count * 2)
-                                
-                        if messages and tg_channel:
-                            # check if message is new
-                            latest_message = messages[0]
-                            channel_identifier = f"{channel_link}_{client_info['session_id'] if client_info['session_id'] else 'default'}"
-                            last_message_id = last_processed_message_ids.get(channel_identifier)
-                            
-                            if not last_message_id or latest_message.id > last_message_id:
-                                # get category id
-                                category_id = None
-                                if hasattr(channel, 'category_id'):
-                                    category_id = await get_category_id(channel)
-                                # send message to save
-                                session_info = f" (via {session.phone})" if session else ""
-                                logger.info(f"New message in channel '{channel.name}' [ID: {latest_message.id}]{session_info}")
-                                await save_message_to_data(latest_message, channel, queue, category_id, client, session)
-                                last_processed_message_ids[channel_identifier] = latest_message.id
-                            else:
-                                logger.debug(f"Message from channel '{channel.name}' already processed")
-                        else:
-                            logger.warning(f"Unable to get messages from channel: '{channel.name}'")
-
-                    except errors.FloodError as e:
-                        hours, remainder = divmod(e.seconds, 3600)
-                        minutes, seconds = divmod(remainder, 60)
-                        time_str = f"{hours}h {minutes}m {seconds}s" if hours > 0 else f"{minutes}m {seconds}s"
-                        logger.warning(f"Rate limit exceeded. Waiting {time_str}")
-                        await asyncio.sleep(e.seconds)
-
-                    except Exception as e:
-                        logger.error(f"Error in telethon_task for channel '{channel.name}': {e}")
-                        logger.error(f"Traceback: {traceback.format_exc()}")
-
-                    # Small sleep between processing channels to avoid rate limiting
-                    await asyncio.sleep(5)
+                    # Determine which client to use for this channel
+                    client_info = None
                     
-                # End of channels loop
-                if stop_event:
-                    break
+                    # Use channel-specific session if available
+                    if channel.session and channel.session.is_active:
+                        session_id = str(channel.session.id)
+                        client_info = telethon_clients.get(session_id)
+                        if not client_info:
+                            logger.warning(f"Channel {channel.name} has session {channel.session.phone} (ID: {channel.session.id}) but no client initialized for it")
                     
-                logger.info("Parsing cycle completed. Waiting 30 seconds for the next cycle...")
-                await asyncio.sleep(30)  # pause between checks
-                
-            except Exception as e:
-                logger.error(f"Error reading or processing channels: {e}")
-                await asyncio.sleep(30)  # Wait before retrying
-                
-    except Exception as e:
-        logger.error(f"Error in telethon_task: {e}")
-        logger.error(f"Traceback: {traceback.format_exc()}")
-    finally:
-        # Ensure all clients are properly disconnected
-        for session_id, client_info in list(telethon_clients.items()):
-            if client_info and 'client' in client_info:
-                try:
-                    logger.info(f"Disconnecting Telethon client for session {session_id}...")
+                    # Fall back to default client if no channel-specific client or it failed
+                    if not client_info:
+                        client_info = telethon_clients.get('default')
+                        if not client_info:
+                            logger.error(f"No default client available for channel {channel.name}. Skipping.")
+                            continue
+                    
+                    # Get client and associated information
                     client = client_info['client']
-                    # Use an explicit timeout for disconnecting to avoid hanging
-                    disconnect_task = asyncio.create_task(client.disconnect())
+                    session = client_info.get('session')
+                    
                     try:
-                        await asyncio.wait_for(disconnect_task, timeout=5)
-                        logger.info(f"Telethon client for session {session_id} disconnected")
-                    except asyncio.TimeoutError:
-                        logger.warning(f"Timeout disconnecting client for session {session_id}")
+                        # Get identifier for the channel
+                        if channel.link:
+                            identifier = channel.link
+                            # Extract username if it's a t.me link
+                            username = extract_username_from_link(identifier)
+                            if username:
+                                identifier = username
+                        else:
+                            identifier = channel.name
+                            
+                        logger.debug(f"Getting messages for channel: {identifier}")
+                        
+                        # Try to join the channel if not already joined
+                        try:
+                            channel_entity = await client.get_entity(identifier)
+                            try:
+                                await client(JoinChannelRequest(channel_entity))
+                                logger.info(f"Joined channel {getattr(channel_entity, 'title', identifier)}")
+                            except Exception as e:
+                                # Ignore errors here as we might already be in the channel
+                                if "USER_ALREADY_PARTICIPANT" not in str(e):
+                                    logger.debug(f"Could not join channel {identifier}: {e}")
+                        except Exception as e:
+                            logger.error(f"Could not get entity for channel {identifier}: {e}")
+                            continue
+                        
+                        # Get the category ID for the channel
+                        category_id = await get_category_id(channel)
+                        
+                        # Get messages from the channel
+                        messages, channel_entity = await get_channel_messages(client, identifier)
+                        
+                        if not messages or not channel_entity:
+                            logger.warning(f"No messages or channel entity found for {identifier}")
+                            continue
+                            
+                        # Process messages
+                        for message in messages:
+                            if message.id in last_processed_message_ids.get(identifier, set()):
+                                continue  # Skip already processed messages
+                                
+                            # Save the message
+                            await save_message_to_data(
+                                message,
+                                channel_entity,
+                                queue,
+                                category_id=category_id,
+                                client=client,
+                                session=session
+                            )
+                            
+                            # Update last processed message IDs for this channel
+                            if identifier not in last_processed_message_ids:
+                                last_processed_message_ids[identifier] = set()
+                            last_processed_message_ids[identifier].add(message.id)
+                            
                     except Exception as e:
-                        logger.error(f"Error disconnecting client for session {session_id}: {e}")
-                except Exception as e:
-                    logger.error(f"Error disconnecting client for session {session_id}: {e}")
-
-def handle_interrupt(signum, frame):
-    global stop_event
-    logger.info("Received signal to stop Telethon...")
-    stop_event = True
-
-def telethon_worker_process(queue):
-    """
-    start background task Telethon in separate process.
-    """
-    global stop_event
-    stop_event = False
-    
-    logger.info("Starting Telethon parser process...")
-    signal.signal(signal.SIGINT, handle_interrupt)
-    signal.signal(signal.SIGTERM, handle_interrupt)
-
-    # Run the telethon task in a new event loop
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    try:
-        loop.run_until_complete(telethon_task(queue))
-    except KeyboardInterrupt:
-        logger.info("Parser process completed by user (KeyboardInterrupt)")
-        stop_event = True
+                        logger.error(f"Error processing channel {channel.name}: {e}")
+                        import traceback
+                        logger.error(f"Traceback: {traceback.format_exc()}")
+                
+                # Sleep between iterations to avoid overloading
+                await asyncio.sleep(60)  # Check every 1 minute
+                    
+            except Exception as e:
+                logger.error(f"Error in telethon_task main loop: {e}")
+                import traceback
+                logger.error(f"Traceback: {traceback.format_exc()}")
+                await asyncio.sleep(60)  # Wait a minute before retrying
+                
     except Exception as e:
-        logger.error(f"Error in parser process: {e}")
+        logger.error(f"Fatal error in telethon_task: {e}")
         import traceback
         logger.error(f"Traceback: {traceback.format_exc()}")
     finally:
-        # Cancel pending tasks
-        pending_tasks = [task for task in asyncio.all_tasks(loop) if not task.done()]
-        
-        if pending_tasks:
-            # Cancel all pending tasks
-            logger.info(f"Cancelling {len(pending_tasks)} pending tasks...")
-            for task in pending_tasks:
-                task.cancel()
-                
-            # Give tasks a chance to respond to cancellation
-            try:
-                loop.run_until_complete(asyncio.gather(*pending_tasks, return_exceptions=True))
-            except Exception as e:
-                logger.error(f"Error during task cancellation: {e}")
-        
-        # Close the loop
-        try:
-            loop.run_until_complete(loop.shutdown_asyncgens())
-            loop.close()
-            logger.info("Event loop closed")
-        except Exception as e:
-            logger.error(f"Error closing event loop: {e}")
-            
-        logger.info("Parser process completed")
+        # Clean up clients
+        for client_id, client_info in telethon_clients.items():
+            if client_info and client_info['client']:
+                try:
+                    await client_info['client'].disconnect()
+                    logger.info(f"Disconnected client {client_id}")
+                except Exception as e:
+                    logger.error(f"Error disconnecting client {client_id}: {e}")
+
+def handle_interrupt(signum, frame):
+    global stop_event
+    logger.info("Received signal to stop")
+    stop_event = True
+
+def telethon_worker_process(queue, pre_initialized_client=None):
+    """
+    Entry point for the telethon worker process
+    """
+    # Set up signal handler
+    signal.signal(signal.SIGINT, handle_interrupt)
+    signal.signal(signal.SIGTERM, handle_interrupt)
+    
+    # Configure event loop
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    
+    try:
+        # Run the telethon task
+        loop.run_until_complete(telethon_task(queue, pre_initialized_client))
+    except KeyboardInterrupt:
+        logger.info("Interrupted")
+    except Exception as e:
+        logger.error(f"Error in telethon_worker_process: {e}")
+        import traceback
+        logger.error(f"Traceback: {traceback.format_exc()}")
+    finally:
+        loop.close()
