@@ -14,13 +14,42 @@ This application allows you to parse messages from Telegram channels and store t
 
 ## Telethon Authorization
 
-**Important**: Before the parser can work correctly, you must authorize a Telegram user account. The error "The key is not registered in the system" indicates that your session is not authorized.
+**IMPORTANT**: The parser needs a properly authorized Telegram user account to work. The error "The key is not registered in the system" indicates your session is not authorized.
 
-### Authorization Methods
+### Fixing the Parsing Issue for Railway Deployment
 
-#### Method 1: Using the Authorization Helper (Recommended)
+The main issue with Railway deployment is that it cannot handle interactive authentication prompts. You must create an authorized session file locally and upload it to Railway.
 
-Run the following command:
+#### Step 1: Create an Authorized Session
+
+Run this command on your local machine:
+
+```bash
+python create_session_for_railway.py
+```
+
+This interactive script will:
+1. Guide you through Telegram authorization
+2. Create a `telethon_session.session` file
+3. Make copies with alternative names for compatibility
+
+#### Step 2: Upload the Session File to Railway
+
+Once the session file is created:
+1. Upload the `telethon_session.session` file to your Railway project
+2. Redeploy your application
+
+#### Step 3: Verify the Parser
+
+After redeploying, the parser should now work correctly. You can verify this by:
+1. Checking the logs for successful connection messages
+2. Using the `/forceparse` command in the bot to test parsing a specific channel
+
+### Alternative Authorization Methods
+
+#### Method 1: Using the Authorization Helper
+
+Run the following command locally:
 
 ```bash
 python authorize_telegram.py
@@ -43,21 +72,30 @@ Options:
 #### Method 3: Via the Bot (Admin Only)
 
 If you're an admin, you can use the `/authorize_telethon` command in the bot chat.
-The authorization will run on the server console, so you'll need to check the terminal where the bot is running.
+**Note**: This only works in local development, not on Railway.
 
 ### Troubleshooting
 
-If you're seeing errors like "The key is not registered in the system" or "Session exists but is not authorized", you need to properly authorize a Telegram user account for the parser to work.
+If parsing is still not working:
 
-Common issues:
-
-1. **Using a bot account instead of a user account**: You must use a regular Telegram user account, not a bot.
-2. **Authentication expired**: Telegram sessions can expire; reauthorize using one of the methods above.
-3. **Rate limiting**: If you see "FloodWaitError", you've been rate limited. Wait the specified time before trying again.
+1. **Check the logs**: Look for errors related to Telethon or session authorization
+2. **Verify session file**: Make sure the session file is named correctly and uploaded to Railway
+3. **Check API credentials**: Ensure your API_ID and API_HASH are correct in the code and environment variables
+4. **Session expired**: Telegram sessions can expire; create a new one if this happens
+5. **Try a fresh session**: Delete existing session files and create a new one
 
 ## Commands
 
 - `/start`: Start the bot
 - `/forceparse <channel_link>`: Test parsing for a specific channel
-- `/authorize_telethon`: Start the Telethon authorization process
+- `/authorize_telethon`: Start the Telethon authorization process (local only)
 - `/ping`: Check if the bot is running
+
+## Production Deployment Notes
+
+When deploying to Railway or other cloud platforms:
+
+1. Always use pre-authorized session files
+2. Never rely on interactive authentication methods
+3. Make sure to handle EOFError and other exceptions that might occur in non-interactive environments
+4. Consider using the `cryptg` module for better encryption performance
