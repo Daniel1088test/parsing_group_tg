@@ -34,7 +34,7 @@ API_HASH=your_telegram_api_hash
 PUBLIC_HOST=gondola.proxy.rlwy.net:37023
 ```
 
-Replace the values with your actual values.
+**NOTE**: The `PUBLIC_HOST` variable is especially important as it controls what URL is displayed to users in the Telegram bot. Make sure it matches your actual Railway domain.
 
 ## Step 4: Deploy Your Service
 

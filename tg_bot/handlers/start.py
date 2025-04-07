@@ -99,20 +99,22 @@ async def cmd_start(message: types.Message):
 
 @router.message(F.text == "🌐 Go to the website")   
 async def website(message: types.Message):
-    # Use external IP address or domain name, if it is configured
-    website_url = f"http://192.168.0.237:{WEB_SERVER_PORT}"  # Changed to IP that is displayed when Flask starts
+    # Use the PUBLIC_HOST from configuration
+    protocol = "https" if PUBLIC_HOST.startswith(("https://", "gondola.proxy.rlwy.net")) else "http"
+    website_url = f"{protocol}://{PUBLIC_HOST}"
     
     # Create inline keyboard with button to go to the website
     keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
-        [types.InlineKeyboardButton(text="Open website", url=website_url)],
+        [types.InlineKeyboardButton(text="Open site", url=website_url)],
         [types.InlineKeyboardButton(text="Get QR code", callback_data="get_qr_code")]
     ])
     
-    await message.answer("The website is available at the following link:", reply_markup=keyboard)
+    await message.answer(f"The site is available at: {website_url}", reply_markup=keyboard)
 
 @router.callback_query(F.data == "get_qr_code")
 async def send_qr_code(callback: types.CallbackQuery):
-    website_url = f"http://192.168.0.237:{WEB_SERVER_PORT}"
+    protocol = "https" if PUBLIC_HOST.startswith(("https://", "gondola.proxy.rlwy.net")) else "http"
+    website_url = f"{protocol}://{PUBLIC_HOST}"
     
     try:
         # Create QR code for the website

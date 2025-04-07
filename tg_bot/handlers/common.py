@@ -2,7 +2,7 @@ from aiogram import Router, F
 from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, BufferedInputFile
 from aiogram.filters import Command
 from tg_bot.keyboards.main_menu import main_menu_keyboard
-from tg_bot.config import ADMIN_ID, WEB_SERVER_HOST, WEB_SERVER_PORT
+from tg_bot.config import ADMIN_ID, WEB_SERVER_HOST, WEB_SERVER_PORT, PUBLIC_HOST
 from admin_panel.models import Channel, Category
 from asgiref.sync import sync_to_async
 import qrcode
@@ -115,9 +115,9 @@ async def list_categories(message: Message):
 @router.message(F.text == "🌐 Go to the site")
 async def goto_website(message: Message):
     """Sends the link to the site"""
-    # Use 127.0.0.1 if host is localhost
-    host = "127.0.0.1" if WEB_SERVER_HOST == "localhost" else WEB_SERVER_HOST
-    website_url = f"http://{host}:{WEB_SERVER_PORT}"
+    # Use the PUBLIC_HOST configuration
+    protocol = "https" if PUBLIC_HOST.startswith(("https://", "gondola.proxy.rlwy.net")) else "http"
+    website_url = f"{protocol}://{PUBLIC_HOST}"
     
     # create an inline keyboard with a button to go to the site
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
@@ -133,8 +133,9 @@ async def goto_website(message: Message):
 @router.callback_query(F.data == "get_qr_code")
 async def send_qr_code(callback_query):
     """Sends the QR code for the site"""
-    host = "127.0.0.1" if WEB_SERVER_HOST == "localhost" else WEB_SERVER_HOST
-    website_url = f"http://{host}:{WEB_SERVER_PORT}"
+    # Use the PUBLIC_HOST configuration
+    protocol = "https" if PUBLIC_HOST.startswith(("https://", "gondola.proxy.rlwy.net")) else "http"
+    website_url = f"{protocol}://{PUBLIC_HOST}"
     
     try:
         # create a QR code for the site
