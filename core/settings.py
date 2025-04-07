@@ -15,6 +15,7 @@ import os
 from dotenv import load_dotenv
 import dj_database_url
 
+# Load .env file if it exists
 load_dotenv()
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
@@ -82,13 +83,32 @@ WSGI_APPLICATION = 'core.wsgi.application'
 # Database
 # https://docs.djangoproject.com/en/5.0/ref/settings/#databases
 
+# Default SQLite database
 DATABASES = {
-    'default': dj_database_url.config(
-        default=os.getenv('DATABASE_URL', 'sqlite:///' + str(BASE_DIR / 'db.sqlite3')),
-        conn_max_age=600,
-        conn_health_checks=True,
-    )
+    'default': {
+        'ENGINE': 'django.db.backends.sqlite3',
+        'NAME': BASE_DIR / 'db.sqlite3',
+    }
 }
+
+# If DATABASE_URL is set, use it instead
+DATABASE_URL = os.getenv('DATABASE_URL')
+if DATABASE_URL:
+    # Special handling for PostgreSQL URLs from Railway
+    if DATABASE_URL.startswith('postgresql://'):
+        DATABASES['default'] = dj_database_url.config(
+            default=DATABASE_URL,
+            conn_max_age=600,
+            conn_health_checks=True,
+        )
+        print("Using PostgreSQL database from DATABASE_URL")
+    else:
+        try:
+            DATABASES['default'] = dj_database_url.parse(DATABASE_URL)
+            print("Using database from DATABASE_URL")
+        except Exception as e:
+            print(f"Error parsing DATABASE_URL: {e}")
+            print("Falling back to SQLite database")
 
 
 # Password validation
