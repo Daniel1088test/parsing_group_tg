@@ -16,7 +16,6 @@ from tg_bot.config import (
 from tg_bot.handlers import start, admin
 from tg_bot.telethon_worker import telethon_worker_process
 from tg_bot.auth_telethon import authorize_telethon
-from tg_bot.create_session import create_session_file
 
 
 # enable logging with more detailed formatting
@@ -77,23 +76,6 @@ def check_required_files():
             json.dump({"0": {"name": "За замовчуванням"}}, f, indent=4, ensure_ascii=False)
         logger.info(f"Created file {CATEGORIES_JSON}")
 
-async def ensure_telethon_session():
-    """Ensure that a Telethon session file exists, creating one if needed"""
-    session_files = ['telethon_user_session.session', 'telethon_session.session', 'anon.session']
-    if not any(os.path.exists(file) for file in session_files):
-        logger.info("No Telethon session files found. Creating a basic session file...")
-        try:
-            if await create_session_file():
-                logger.info("Successfully created a basic Telethon session file")
-            else:
-                logger.warning("Failed to create Telethon session file. You may need to run manual authorization.")
-        except Exception as e:
-            logger.error(f"Error creating Telethon session file: {e}")
-            import traceback
-            logger.error(f"Traceback: {traceback.format_exc()}")
-    else:
-        logger.info(f"Found existing Telethon session file(s): {[f for f in session_files if os.path.exists(f)]}")
-
 async def on_startup(bot: Bot):
     global telethon_process, web_process
     
@@ -117,15 +99,8 @@ async def on_startup(bot: Bot):
         dp["categories"] = {}
 
     try:
-        # Ensure Telethon has a valid session file
-        await ensure_telethon_session()
-        
-        # Attempt to authorize Telethon if possible (non-interactive)
-        try:
-            await authorize_telethon()
-        except Exception as e:
-            logger.warning(f"Non-critical error during Telethon authorization: {e}")
-            logger.warning("Continuing with existing session file or basic session file")
+        # authorize Telethon (before starting process)
+        await authorize_telethon()
 
         # start Telethon in separate process
         telethon_process = Process(target=telethon_worker_process, args=(message_queue,))
@@ -137,8 +112,6 @@ async def on_startup(bot: Bot):
         asyncio.create_task(process_messages(message_queue))
     except Exception as e:
         logger.error(f"Error starting processes: {e}")
-        import traceback
-        logger.error(f"Traceback: {traceback.format_exc()}")
 
 async def on_shutdown(bot: Bot):
     global telethon_process, web_process
@@ -191,24 +164,11 @@ async def process_messages(queue):
                 message_info = queue.get_nowait()
                 if message_info and 'message_data' in message_info:
                     message_data = message_info['message_data']
-                    category_id = message_info.get('category_id')
-                    
-                    # Log the received message info for debugging
-                    logger.info(f"Received message from Telethon: {message_data['message_id']} from channel {message_data['channel_name']}")
-                    logger.debug(f"Message data: {message_data}")
-                    
-                    # Here you can add additional processing for the message
-                    # For example, send notifications, update statistics, etc.
-                    
-                    # Log success after processing
-                    logger.info(f"Successfully processed message {message_data['message_id']} from {message_data['channel_name']}")
-                else:
-                    logger.warning(f"Received malformed message data from queue: {message_info}")
+                    logger.info(f"Received message from Telethon: {message_data}")
 
+                  
             except Exception as e:
                 logger.error(f"Error processing message: {e}")
-                import traceback
-                logger.error(f"Error traceback: {traceback.format_exc()}")
     logger.info("Processing messages from queue completed")
 
 async def run_bot_forever():
@@ -225,8 +185,6 @@ async def run_bot_forever():
         await dp.start_polling(bot)
     except Exception as e:
         logger.error(f"Error in bot work: {e}")
-        import traceback
-        logger.error(f"Traceback: {traceback.format_exc()}")
     finally:
         logger.info("Bot work completed")
 
@@ -237,5 +195,3 @@ if __name__ == '__main__':
         logger.info("Bot stopped by user or system")
     except Exception as e:
         logger.error(f"Unexpected error: {e}")
-        import traceback
-        logger.error(f"Traceback: {traceback.format_exc()}")

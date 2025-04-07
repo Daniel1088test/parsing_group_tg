@@ -13,9 +13,7 @@ https://docs.djangoproject.com/en/5.0/ref/settings/
 from pathlib import Path
 import os
 from dotenv import load_dotenv
-import dj_database_url
 
-# Load .env file if it exists
 load_dotenv()
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
@@ -26,38 +24,15 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # See https://docs.djangoproject.com/en/5.0/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = os.getenv('SECRET_KEY', 'django-insecure-+0y690!*z(#c)1a%r8&wasr(%33csshyjoc#vflcg3!_z0c2#&')
+SECRET_KEY = 'django-insecure-+0y690!*z(#c)1a%r8&wasr(%33csshyjoc#vflcg3!_z0c2#&'
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = os.getenv('DEBUG', 'True').lower() == 'true'
+DEBUG = True
 
-# Allow the specific Railway domain and any subdomains
-ALLOWED_HOSTS = ['parsinggrouptg-production.up.railway.app', 'parsinggrouptg-production-7718.up.railway.app', 'gondola.proxy.rlwy.net', '.railway.app', 'localhost', '127.0.0.1', '*']
-
-# CSRF settings - add trusted origins
-CSRF_TRUSTED_ORIGINS = [
-    'https://parsinggrouptg-production.up.railway.app',
-    'https://parsinggrouptg-production-7718.up.railway.app', 
-    'https://gondola.proxy.rlwy.net',
-    'http://parsinggrouptg-production.up.railway.app',
-    'http://parsinggrouptg-production-7718.up.railway.app',
-    'http://gondola.proxy.rlwy.net',
-]
-
-# Security settings - enable HTTPS
-SECURE_SSL_REDIRECT = False  # Let Railway handle this
-SESSION_COOKIE_SECURE = True
-CSRF_COOKIE_SECURE = True
-CSRF_COOKIE_HTTPONLY = True
-CSRF_USE_SESSIONS = True
-CSRF_COOKIE_SAMESITE = 'Lax'
-SECURE_HSTS_SECONDS = 3600  # 1 hour
-SECURE_HSTS_INCLUDE_SUBDOMAINS = True
-SECURE_HSTS_PRELOAD = True
+ALLOWED_HOSTS = []
 
 SESSION_ENGINE = 'django.contrib.sessions.backends.db'
 SESSION_COOKIE_AGE = 60 * 24 * 14
-
 # Application definition
 
 INSTALLED_APPS = [
@@ -106,32 +81,12 @@ WSGI_APPLICATION = 'core.wsgi.application'
 # Database
 # https://docs.djangoproject.com/en/5.0/ref/settings/#databases
 
-# Default SQLite database
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.sqlite3',
         'NAME': BASE_DIR / 'db.sqlite3',
     }
 }
-
-# If DATABASE_URL is set, use it instead
-DATABASE_URL = os.getenv('DATABASE_URL')
-if DATABASE_URL:
-    # Special handling for PostgreSQL URLs from Railway
-    if DATABASE_URL.startswith('postgresql://'):
-        DATABASES['default'] = dj_database_url.config(
-            default=DATABASE_URL,
-            conn_max_age=600,
-            conn_health_checks=True,
-        )
-        print("Using PostgreSQL database from DATABASE_URL")
-    else:
-        try:
-            DATABASES['default'] = dj_database_url.parse(DATABASE_URL)
-            print("Using database from DATABASE_URL")
-        except Exception as e:
-            print(f"Error parsing DATABASE_URL: {e}")
-            print("Falling back to SQLite database")
 
 
 # Password validation
@@ -169,7 +124,6 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/5.0/howto/static-files/
 
 STATIC_URL = 'static/'
-STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.0/ref/settings/#default-auto-field

@@ -2,7 +2,7 @@ from aiogram import Router, F
 from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, BufferedInputFile
 from aiogram.filters import Command
 from tg_bot.keyboards.main_menu import main_menu_keyboard
-from tg_bot.config import ADMIN_ID, WEB_SERVER_HOST, WEB_SERVER_PORT, PUBLIC_HOST
+from tg_bot.config import ADMIN_ID, WEB_SERVER_HOST, WEB_SERVER_PORT
 from admin_panel.models import Channel, Category
 from asgiref.sync import sync_to_async
 import qrcode
@@ -115,8 +115,9 @@ async def list_categories(message: Message):
 @router.message(F.text == "🌐 Go to the site")
 async def goto_website(message: Message):
     """Sends the link to the site"""
-    # Use HTTPS for Railway domains for the clickable link
-    website_url = f"https://{PUBLIC_HOST}"
+    # Use 127.0.0.1 if host is localhost
+    host = "127.0.0.1" if WEB_SERVER_HOST == "localhost" else WEB_SERVER_HOST
+    website_url = f"http://{host}:{WEB_SERVER_PORT}"
     
     # create an inline keyboard with a button to go to the site
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
@@ -125,15 +126,15 @@ async def goto_website(message: Message):
     ])
     
     await message.answer(
-        f"The site is available at: {PUBLIC_HOST}",
+        f"The site is available at: {website_url}",
         reply_markup=keyboard
     )
 
 @router.callback_query(F.data == "get_qr_code")
 async def send_qr_code(callback_query):
     """Sends the QR code for the site"""
-    # Use HTTPS for Railway domains for the QR code
-    website_url = f"https://{PUBLIC_HOST}"
+    host = "127.0.0.1" if WEB_SERVER_HOST == "localhost" else WEB_SERVER_HOST
+    website_url = f"http://{host}:{WEB_SERVER_PORT}"
     
     try:
         # create a QR code for the site
@@ -159,7 +160,7 @@ async def send_qr_code(callback_query):
                 file=bio.getvalue(), 
                 filename="qrcode.png"
             ),
-            caption=f"QR code for access to the site: {PUBLIC_HOST}"
+            caption=f"QR code for access to the site: {website_url}"
         )
         await callback_query.answer()
     except Exception as e:

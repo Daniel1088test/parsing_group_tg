@@ -83,23 +83,23 @@ async def start_telethon_auth(message: Message, state: FSMContext):
     if os.path.exists('telethon_user_session.session'):
         # Create inline keyboard with button to delete session
         delete_keyboard = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="✅ Yes, delete", callback_data="delete_session_file")],
-            [InlineKeyboardButton(text="❌ No, cancel", callback_data="cancel_auth")]
+            [InlineKeyboardButton(text="✅ Так, видалити", callback_data="delete_session_file")],
+            [InlineKeyboardButton(text="❌ Ні, скасувати", callback_data="cancel_auth")]
         ])
         
         await message.answer(
-            "The file telethon_user_session.session already exists.\n"
-            "If you have problems with authorization, it is recommended to delete it.\n"
-            "Do you want to delete the existing session file?",
+            "Файл сесії telethon_user_session.session вже існує.\n"
+            "Якщо ви маєте проблеми з авторизацією, рекомендується видалити його.\n"
+            "Бажаєте видалити існуючий файл сесії?",
             reply_markup=delete_keyboard
         )
         return
     
     await message.answer(
-        "For authorization in Telethon, you need your phone number.\n"
-        "Enter your phone number in the format +380XXXXXXXXX:\n"
-        "⚠️ IMPORTANT: You must use a regular user account, NOT a bot!\n"
-        "To cancel, click the button below ⬇️",
+        "Для авторизації в Telethon потрібен ваш номер телефону.\n"
+        "Введіть номер телефону у форматі +380XXXXXXXXX:\n"
+        "⚠️ ВАЖЛИВО: Ви повинні використовувати звичайний аккаунт користувача, НЕ бота!\n"
+        "Щоб скасувати, натисніть кнопку нижче ⬇️",
         reply_markup=cancel_keyboard
     )
     await state.set_state(AddSessionStates.waiting_for_phone)
@@ -114,32 +114,32 @@ async def delete_session_file(callback: CallbackQuery, state: FSMContext):
         if os.path.exists('telethon_user_session.session'):
             os.remove('telethon_user_session.session')
             await callback.message.edit_text(
-                "✅ The session file has been successfully deleted. You can now create a new session."
+                "✅ Файл сесії успішно видалено. Тепер ви можете створити нову сесію."
             )
         
         # Start authorization process
         await callback.message.answer(
-            "For authorization in Telethon, you need your phone number.\n"
-            "Enter your phone number in the format +380XXXXXXXXX:\n"
-            "⚠️ IMPORTANT: You must use a regular user account, NOT a bot!\n"
-            "To cancel, click the button below ⬇️",
+            "Для авторизації в Telethon потрібен ваш номер телефону.\n"
+            "Введіть номер телефону у форматі +380XXXXXXXXX:\n"
+            "⚠️ ВАЖЛИВО: Ви повинні використовувати звичайний аккаунт користувача, НЕ бота!\n"
+            "Щоб скасувати, натисніть кнопку нижче ⬇️",
             reply_markup=cancel_keyboard
         )
         await state.set_state(AddSessionStates.waiting_for_phone)
         await state.update_data(is_telethon_auth=True)
     except Exception as e:
         await callback.message.edit_text(
-            f"❌ Error deleting the session file: {str(e)}"
+            f"❌ Помилка видалення файлу сесії: {str(e)}"
         )
 
 @router.callback_query(F.data == "cancel_auth")
 async def cancel_auth(callback: CallbackQuery):
     """Cancel the authorization process"""
     await callback.message.edit_text(
-        "Authorization cancelled. Select another menu item.",
+        "Авторизацію скасовано. Оберіть інший пункт меню.",
     )
     await callback.message.answer(
-        "Select an action:",
+        "Оберіть дію:",
         reply_markup=session_menu_keyboard
     )
 
@@ -174,7 +174,7 @@ async def process_phone(message: Message, state: FSMContext):
             telethon_client = TelegramClient('telethon_user_session', API_ID, API_HASH)
             
             await message.answer(
-                "Connecting to Telegram...",
+                "Підключаюсь до Telegram...",
                 reply_markup=cancel_keyboard
             )
             
@@ -184,8 +184,8 @@ async def process_phone(message: Message, state: FSMContext):
                 if await telethon_client.is_user_authorized():
                     me = await telethon_client.get_me()
                     await message.answer(
-                        f"✅ You are already authorized as {me.first_name} (@{me.username})!\n"
-                        f"The session file is valid and ready to use.",
+                        f"✅ Ви вже авторизовані як {me.first_name} (@{me.username})!\n"
+                        f"Файл сесії дійсний і готовий до використання.",
                         reply_markup=main_menu_keyboard
                     )
                     await state.clear()
@@ -193,7 +193,7 @@ async def process_phone(message: Message, state: FSMContext):
                 
                 # Request code
                 await message.answer(
-                    "Please wait, requesting the confirmation code...",
+                    "Будь ласка, зачекайте, запитую код підтвердження...",
                     reply_markup=cancel_keyboard
                 )
                 
@@ -202,8 +202,8 @@ async def process_phone(message: Message, state: FSMContext):
                     await telethon_client.send_code_request(phone)
                     
                     await message.answer(
-                        "Telegram has sent the confirmation code to your phone or to the Telegram app.\n"
-                        "Please enter the code:",
+                        "Telegram надіслав код підтвердження на ваш телефон або у додаток Telegram.\n"
+                        "Будь ласка, введіть код:",
                         reply_markup=cancel_keyboard
                     )
                     
@@ -214,15 +214,15 @@ async def process_phone(message: Message, state: FSMContext):
                     minutes, seconds = divmod(remainder, 60)
                     time_str = ""
                     if hours > 0:
-                        time_str += f"{hours} hours "
+                        time_str += f"{hours} годин "
                     if minutes > 0:
-                        time_str += f"{minutes} minutes "
+                        time_str += f"{minutes} хвилин "
                     if seconds > 0 or (hours == 0 and minutes == 0):
-                        time_str += f"{seconds} seconds"
+                        time_str += f"{seconds} секунд"
                     
                     await message.answer(
-                        f"❌ Too many attempts to authorize! Telegram requires waiting {time_str} before the next attempt.\n"
-                        f"Try again later or use another phone number.",
+                        f"❌ Занадто багато спроб авторизації! Telegram вимагає зачекати {time_str} перед наступною спробою.\n"
+                        f"Спробуйте пізніше або використайте інший номер телефону.",
                         reply_markup=session_menu_keyboard
                     )
                     
@@ -240,26 +240,26 @@ async def process_phone(message: Message, state: FSMContext):
                 minutes, seconds = divmod(remainder, 60)
                 time_str = ""
                 if hours > 0:
-                    time_str += f"{hours} hours "
+                    time_str += f"{hours} годин "
                 if minutes > 0:
-                    time_str += f"{minutes} minutes "
+                    time_str += f"{minutes} хвилин "
                 if seconds > 0 or (hours == 0 and minutes == 0):
-                    time_str += f"{seconds} seconds"
+                    time_str += f"{seconds} секунд"
                 
                 await message.answer(
-                    f"❌ Too many attempts to authorize! Telegram requires waiting {time_str} before the next attempt.\n"
-                    f"Try again later or use another phone number.",
+                    f"❌ Занадто багато спроб авторизації! Telegram вимагає зачекати {time_str} перед наступною спробою.\n"
+                    f"Спробуйте пізніше або використайте інший номер телефону.",
                     reply_markup=session_menu_keyboard
                 )
                 await state.clear()
             except errors.PhoneNumberInvalidError:
                 await message.answer(
-                    "❌ Invalid phone number format. Try again:",
+                    "❌ Невірний формат номера телефону. Спробуйте ще раз:",
                     reply_markup=cancel_keyboard
                 )
             except Exception as e:
                 await message.answer(
-                    f"❌ Error connecting to Telegram: {str(e)}",
+                    f"❌ Помилка підключення до Telegram: {str(e)}",
                     reply_markup=session_menu_keyboard
                 )
                 await state.clear()
@@ -307,7 +307,7 @@ async def process_code(message: Message, state: FSMContext):
     try:
         # Try to sign in with the code
         await message.answer(
-            "Attempting to sign in with the provided code...",
+            "Спроба входу з наданим кодом...",
             reply_markup=cancel_keyboard
         )
         
@@ -318,29 +318,29 @@ async def process_code(message: Message, state: FSMContext):
             me = await telethon_client.get_me()
             
             await message.answer(
-                f"✅ Successful authorization as {me.first_name} (@{me.username})!\n"
-                f"The session file has been created. You can now use Telethon parsing.",
+                f"✅ Успішна авторизація як {me.first_name} (@{me.username})!\n"
+                f"Файл сесії створено. Тепер ви можете використовувати парсинг Telethon.",
                 reply_markup=main_menu_keyboard
             )
             
         except errors.SessionPasswordNeededError:
             # Two-factor authentication is enabled
             await message.answer(
-                "For this account, two-factor authentication is enabled.\n"
-                "Two-factor authentication through the bot interface is not supported.\n"
-                "Please create a new session using the command: python -m tg_bot.auth_telethon",
+                "Для цього аккаунту увімкнена двофакторна автентифікація.\n"
+                "Двофакторна автентифікація через інтерфейс бота не підтримується.\n"
+                "Будь ласка, створіть новий сеанс через команду: python -m tg_bot.auth_telethon",
                 reply_markup=main_menu_keyboard
             )
         except errors.PhoneCodeInvalidError:
             await message.answer(
-                "❌ The entered code is incorrect. Try again:",
+                "❌ Введений код невірний. Спробуйте ще раз:",
                 reply_markup=cancel_keyboard
             )
             # Stay in the same state to try again
             return
         except errors.PhoneCodeExpiredError:
             await message.answer(
-                "❌ The entered code has expired. Please request a new code and start authorization again.",
+                "❌ Введений код застарів. Спробуйте запросити новий код, почавши авторизацію спочатку.",
                 reply_markup=session_menu_keyboard
             )
             # Clean up and clear state
@@ -351,7 +351,7 @@ async def process_code(message: Message, state: FSMContext):
             await state.clear()
         except Exception as e:
             await message.answer(
-                f"❌ Error signing in: {str(e)}",
+                f"❌ Помилка входу: {str(e)}",
                 reply_markup=main_menu_keyboard
             )
     finally:
