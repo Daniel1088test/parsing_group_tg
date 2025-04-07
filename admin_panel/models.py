@@ -2,16 +2,18 @@ from django.db import models
 
 class TelegramSession(models.Model):
     phone = models.CharField(max_length=20, unique=True)
-    api_id = models.CharField(max_length=255)
-    api_hash = models.CharField(max_length=255)
+    phone_hash = models.CharField(max_length=100, blank=True, null=True)
+    session_string = models.TextField(blank=True, null=True)
+    api_id = models.IntegerField(default=0)
+    api_hash = models.CharField(max_length=100, blank=True, null=True)
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+    user_id = models.BigIntegerField(blank=True, null=True)
     session_file = models.CharField(max_length=255, blank=True, null=True)
-    session_string = models.TextField(blank=True, null=True)  # For storing the serialized session
 
     def __str__(self):
-        return f"{self.phone} - {'Active' if self.is_active else 'Inactive'}"
+        return f"Session {self.phone}"
 
     class Meta:
         verbose_name = 'Telegram Session'
@@ -19,7 +21,9 @@ class TelegramSession(models.Model):
         ordering = ['-created_at']
 
 class Category(models.Model):
-    name = models.CharField(max_length=255)
+    name = models.CharField(max_length=100)
+    description = models.TextField(blank=True)
+    is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     session = models.ForeignKey(TelegramSession, on_delete=models.SET_NULL, null=True, blank=True, related_name='categories')
@@ -33,13 +37,13 @@ class Category(models.Model):
         ordering = ['name']
     
 class Channel(models.Model):
-    name = models.CharField(max_length=255)
-    url = models.URLField(max_length=255)
-    category = models.ForeignKey(Category, on_delete=models.CASCADE)
+    name = models.CharField(max_length=100)
+    url = models.CharField(max_length=200)
+    category = models.ForeignKey(Category, on_delete=models.SET_NULL, null=True, blank=True)
+    session = models.ForeignKey(TelegramSession, on_delete=models.SET_NULL, null=True, blank=True)
+    is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
-    is_active = models.BooleanField(default=True)
-    session = models.ForeignKey(TelegramSession, on_delete=models.SET_NULL, null=True, blank=True, related_name='channels')
 
     def __str__(self):
         session_info = f" ({self.session.phone})" if self.session else ""
@@ -51,19 +55,19 @@ class Channel(models.Model):
         ordering = ['name']
     
 class Message(models.Model):
-    text = models.TextField()
-    media = models.FileField(upload_to='messages/', null=True, blank=True)
-    media_type = models.CharField(max_length=255, null=True, blank=True)
-    telegram_message_id = models.CharField(max_length=255, null=True, blank=True)
-    telegram_channel_id = models.CharField(max_length=255, null=True, blank=True)
-    telegram_link = models.URLField(max_length=255, null=True, blank=True)
+    text = models.TextField(blank=True, null=True)
+    media = models.CharField(max_length=255, blank=True, null=True)
+    media_type = models.CharField(max_length=20, blank=True, null=True)
+    telegram_message_id = models.BigIntegerField(null=True, blank=True)
+    telegram_channel_id = models.BigIntegerField(null=True, blank=True)
+    telegram_link = models.CharField(max_length=255, blank=True, null=True)
     channel = models.ForeignKey(Channel, on_delete=models.CASCADE)
+    session_used = models.ForeignKey(TelegramSession, on_delete=models.SET_NULL, null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
-    session_used = models.ForeignKey(TelegramSession, on_delete=models.SET_NULL, null=True, blank=True, related_name='messages')
 
     def __str__(self):
-        return f"{self.telegram_message_id} - {self.text[:10]}"
+        return f"Message {self.telegram_message_id} from {self.channel.name}"
     
     class Meta:
         verbose_name = 'Message'
