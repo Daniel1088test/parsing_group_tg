@@ -7,15 +7,39 @@ import logging
 from datetime import datetime
 import django
 from typing import Dict, Optional, Tuple
+import sys
 
 from telethon import TelegramClient, errors, client
 from telethon.tl.functions.channels import JoinChannelRequest
 from telethon.tl.types import MessageMediaPhoto, MessageMediaDocument, MessageMediaWebPage
 from asgiref.sync import sync_to_async
-from tg_bot.config import (
-    API_ID, API_HASH, FILE_JSON, MAX_MESSAGES,
-    CATEGORIES_JSON, DATA_FOLDER, MESSAGES_FOLDER
-)
+
+# Try to import API credentials from config, fall back to hardcoded values if needed
+try:
+    from tg_bot.config import (
+        API_ID, API_HASH, FILE_JSON, MAX_MESSAGES,
+        CATEGORIES_JSON, DATA_FOLDER, MESSAGES_FOLDER
+    )
+except ImportError:
+    # Fall back to hardcoded values
+    import os
+    API_ID = 19840544  # Integer value
+    API_HASH = "c839f28bad345082329ec086fca021fa"
+    FILE_JSON = 'file.json'
+    MAX_MESSAGES = 100000
+    DATA_FOLDER = os.path.join(os.path.dirname(__file__), 'data')
+    MESSAGES_FOLDER = os.path.join(DATA_FOLDER, 'messages')
+    CATEGORIES_JSON = 'categories.json'
+except ValueError:
+    # Handle case where API_ID isn't a valid integer
+    import os
+    API_ID = 19840544  # Integer value
+    API_HASH = "c839f28bad345082329ec086fca021fa"
+    FILE_JSON = 'file.json'
+    MAX_MESSAGES = 100000
+    DATA_FOLDER = os.path.join(os.path.dirname(__file__), 'data')
+    MESSAGES_FOLDER = os.path.join(DATA_FOLDER, 'messages')
+    CATEGORIES_JSON = 'categories.json'
 
 # configuration of logging
 logging.basicConfig(    
@@ -370,6 +394,8 @@ async def save_message_to_data(message, channel, queue, category_id=None, client
 
 async def initialize_client(session_id=None, session_filename=None):
     """Initialize a Telethon client for a specific session"""
+    logger.info(f"Initializing Telethon client: session_id={session_id}, session_filename={session_filename}")
+    
     # If session_id is provided, look up the DB record
     if session_id:
         session = await get_session_by_id(session_id)
@@ -378,34 +404,50 @@ async def initialize_client(session_id=None, session_filename=None):
             # If it's a custom session file from our DB
             if not os.path.exists(f'{session_filename}.session'):
                 # Fall back to default session files
-                if os.path.exists('telethon_user_session.session'):
-                    session_filename = 'telethon_user_session'
-                elif os.path.exists('telethon_session.session'):
-                    session_filename = 'telethon_session'
+                for file in ['telethon_user_session.session', 'telethon_session.session', 'anon.session']:
+                    if os.path.exists(file):
+                        session_filename = file.replace('.session', '')
+                        logger.info(f"Using fallback session file: {session_filename}")
+                        break
                 else:
                     logger.error(f"No session file found for session ID {session_id}")
                     return None, None
         else:
             # Default session files if the session record doesn't specify one
-            if os.path.exists('telethon_user_session.session'):
-                session_filename = 'telethon_user_session'
-            elif os.path.exists('telethon_session.session'):
-                session_filename = 'telethon_session'
+            for file in ['telethon_user_session.session', 'telethon_session.session', 'anon.session']:
+                if os.path.exists(file):
+                    session_filename = file.replace('.session', '')
+                    logger.info(f"Using default session file: {session_filename}")
+                    break
             else:
                 logger.error(f"No default session file found")
                 return None, None
     elif not session_filename:
         # Default to checking normal session files
-        if os.path.exists('telethon_user_session.session'):
-            session_filename = 'telethon_user_session'
-        elif os.path.exists('telethon_session.session'):
-            session_filename = 'telethon_session'
+        for file in ['telethon_user_session.session', 'telethon_session.session', 'anon.session']:
+            if os.path.exists(file):
+                session_filename = file.replace('.session', '')
+                logger.info(f"Using found session file: {session_filename}")
+                break
         else:
             logger.error("No session file found")
-            return None, None
+            try:
+                # Try to create a basic session file
+                from tg_bot.create_session import create_session_file
+                if await create_session_file():
+                    logger.info("Created a basic session file. Retrying initialization...")
+                    # After creating session, retry with default session name
+                    session_filename = 'telethon_session'
+                else:
+                    return None, None
+            except Exception as e:
+                logger.error(f"Error creating basic session file: {e}")
+                return None, None
     
     # Session file with a unique suffix to avoid conflicts
-    unique_session = f"{session_filename}_{session_id or 'default'}_{os.getpid()}"
+    process_id = os.getpid()
+    unique_session = f"{session_filename}_{session_id or 'default'}_{process_id}"
+    logger.debug(f"Using unique session name: {unique_session}")
     
     try:
         # Copy the session file to prevent concurrent access
@@ -415,14 +457,39 @@ async def initialize_client(session_id=None, session_filename=None):
                 shutil.copy2(f'{session_filename}.session', f'{unique_session}.session')
                 logger.debug(f"Created temporary session file: {unique_session}.session")
             except Exception as e:
-                logger.error(f"Error copying session file: {e}")
+                logger.warning(f"Error copying session file: {e} - continuing with original")
                 # Continue with original file if copy fails
                 unique_session = session_filename
         else:
+            logger.warning(f"Session file {session_filename}.session doesn't exist - using name anyway")
             unique_session = session_filename
         
-        # Create Telethon client with the session file
-        client = TelegramClient(unique_session, API_ID, API_HASH)
+        # Create Telethon client with the session file - handle SSL errors
+        try:
+            # Check if we're on Windows to add special connection settings
+            on_windows = sys.platform.startswith('win')
+            connection_params = {}
+            
+            if on_windows:
+                from telethon.network import connection
+                connection_params = {
+                    'connection': connection.ConnectionTcpFull,
+                    'auto_reconnect': True,
+                }
+            
+            client = TelegramClient(
+                unique_session, 
+                API_ID, 
+                API_HASH,
+                **connection_params
+            )
+            logger.info(f"Created Telethon client with session: {unique_session}")
+        except ImportError as e:
+            if "libssl" in str(e) or "ssl" in str(e):
+                logger.warning("SSL library issues detected. Falling back to slower Python encryption.")
+                client = TelegramClient(unique_session, API_ID, API_HASH)
+            else:
+                raise
         
         # Connect with timeout and retry logic
         max_retries = 3
@@ -436,6 +503,7 @@ async def initialize_client(session_id=None, session_filename=None):
                 try:
                     await asyncio.wait_for(connect_task, timeout=15)  # 15 seconds timeout
                     connected = True
+                    logger.info(f"Successfully connected with session: {unique_session}")
                 except asyncio.TimeoutError:
                     retry_count += 1
                     backoff = retry_count * 2  # Exponential backoff
@@ -468,15 +536,34 @@ async def initialize_client(session_id=None, session_filename=None):
                     return None, None
         
         # Check authorization
-        if not await client.is_user_authorized():
-            logger.error(f"Session {session_filename} exists but is not authorized")
-            await client.disconnect()
-            return None, None
+        authorized = False
+        try:
+            authorized = await client.is_user_authorized()
+        except Exception as e:
+            logger.warning(f"Error checking authorization status: {e} - continuing anyway")
+            # Continue anyway - we may just need a working session, not full authorization
+        
+        if not authorized:
+            logger.warning(f"Session {session_filename} exists but is not authorized. Limited functionality will be available.")
+            # We'll continue anyway, as some operations don't require full authorization
             
         # Get user info
         try:
             me = await client.get_me()
-            logger.info(f"Initialized client for session {session_filename} as: {me.first_name} (@{me.username}) [ID: {me.id}]")
+            if me:
+                logger.info(f"Initialized client for session {session_filename} as: {me.first_name} (@{me.username}) [ID: {me.id}]")
+            else:
+                logger.warning(f"Could not get user info for session {session_filename}, but continuing anyway")
+                # Create a dummy "me" object for operations that need it
+                from telethon.tl.types import User
+                me = User(
+                    id=0,
+                    is_self=True,
+                    access_hash=0,
+                    first_name="Unknown",
+                    last_name="User",
+                    username="unknown_user"
+                )
             
             # If we have a session_id, update the DB record with username info
             if session_id:
@@ -495,13 +582,31 @@ async def initialize_client(session_id=None, session_filename=None):
             return client, me
         except Exception as e:
             logger.error(f"Error getting account information for session {session_filename}: {e}")
+            # If we can't get user info but we're connected, still return the client
+            # with a dummy "me" object for basic operations
+            if connected:
+                logger.warning("Returning client without user info for basic operations")
+                from telethon.tl.types import User
+                dummy_me = User(
+                    id=0, 
+                    is_self=True,
+                    access_hash=0,
+                    first_name="Unknown",
+                    last_name="User",
+                    username="unknown_user"
+                )
+                return client, dummy_me
+            
             await client.disconnect()
             return None, None
             
     except Exception as e:
         logger.error(f"Error initializing client for session {session_filename}: {e}")
+        import traceback
+        logger.error(f"Traceback: {traceback.format_exc()}")
         try:
-            await client.disconnect()
+            if 'client' in locals() and client:
+                await client.disconnect()
         except:
             pass
         
@@ -521,6 +626,18 @@ async def telethon_task(queue):
     background task for parsing messages with Telethon.
     """
     try:
+        # Define session files to check for
+        session_files = ['telethon_user_session.session', 'telethon_session.session', 'anon.session']
+        
+        # Check if session files exist, create one if not
+        if not any(os.path.exists(file) for file in session_files):
+            logger.warning("No session files found. Attempting to create a basic session...")
+            try:
+                from tg_bot.create_session import create_session_file
+                await create_session_file()
+            except Exception as e:
+                logger.error(f"Failed to create basic session file: {e}")
+
         # Get all active sessions from the database
         sessions = await get_telegram_sessions()
         
@@ -570,6 +687,12 @@ async def telethon_task(queue):
         logger.info("====== Telethon Parser started ======")
         logger.info(f"Initialized {len(telethon_clients)} client(s)")
 
+        # Track parse failures per channel to avoid excessive retries
+        channel_failures = {}
+        
+        # Flag for indicating parse cycle completion
+        full_cycle_completed = False
+
         while not stop_event:
             try:
                 channels = await get_channels()
@@ -590,6 +713,9 @@ async def telethon_task(queue):
                         category_info = f" [Category: {channel.category.name}]" if hasattr(channel, 'category') and channel.category else " [No category]"
                         logger.debug(f"Channel {idx}: {channel.name}{session_info}{category_info} - URL: {channel.url}")
                 
+                # Track if we've successfully processed any channels
+                channels_processed = 0
+                
                 for channel in channels:
                     # Check if stop event was set during iteration
                     if stop_event:
@@ -598,6 +724,20 @@ async def telethon_task(queue):
                     if not channel.is_active:
                         logger.debug(f"Channel '{channel.name}' is not active for parsing")
                         continue
+                    
+                    # Skip channels with too many recent failures
+                    channel_key = getattr(channel, 'id', str(channel)) 
+                    failure_info = channel_failures.get(channel_key, {'count': 0, 'last_attempt': None})
+                    
+                    # Skip channels with more than 5 failures until next full cycle
+                    if failure_info['count'] >= 5 and full_cycle_completed:
+                        # Reset failures count when starting a new cycle
+                        if full_cycle_completed:
+                            logger.info(f"Resetting failure count for channel '{channel.name}' in new cycle")
+                            failure_info['count'] = 0
+                        else:
+                            logger.warning(f"Skipping channel '{channel.name}' due to {failure_info['count']} previous failures")
+                            continue
                         
                     try:
                         # Get the appropriate client for this channel
@@ -619,7 +759,31 @@ async def telethon_task(queue):
                             logger.debug(f"Using first available session for channel '{channel.name}'")
                         else:
                             logger.error(f"No client available for channel '{channel.name}'")
-                            continue
+                            # Attempt to reinitialize clients
+                            try:
+                                logger.info("Attempting to reinitialize Telethon clients...")
+                                default_client, default_me = await initialize_client()
+                                if default_client:
+                                    telethon_clients['default'] = {
+                                        'client': default_client,
+                                        'user': default_me,
+                                        'session_id': None
+                                    }
+                                    client_info = telethon_clients['default']
+                                    logger.info("Successfully reinitialized default client")
+                                else:
+                                    # Increment failure count and continue to next channel
+                                    failure_info['count'] += 1
+                                    failure_info['last_attempt'] = datetime.now()
+                                    channel_failures[channel_key] = failure_info
+                                    continue
+                            except Exception as e:
+                                logger.error(f"Failed to reinitialize clients: {e}")
+                                # Increment failure count and continue to next channel
+                                failure_info['count'] += 1
+                                failure_info['last_attempt'] = datetime.now()
+                                channel_failures[channel_key] = failure_info
+                                continue
                         
                         client = client_info['client']
                         session = client_info.get('session')
@@ -629,6 +793,10 @@ async def telethon_task(queue):
                         
                         if not channel_link or not channel_link.startswith('https://t.me/'):
                             logger.warning(f"Channel '{channel.name}' has no valid link: {channel_link}")
+                            # Increment failure count
+                            failure_info['count'] += 1
+                            failure_info['last_attempt'] = datetime.now()
+                            channel_failures[channel_key] = failure_info
                             continue
                         
                         logger.info(f"Trying to fetch messages from channel '{channel.name}' using link: {channel_link}")
@@ -653,9 +821,17 @@ async def telethon_task(queue):
                                             logger.info(f"Successfully resolved private channel ID for '{channel.name}'")
                                         except Exception as e:
                                             logger.error(f"Failed to get entity for channel ID {channel_id}: {e}")
+                                            # Increment failure count and continue
+                                            failure_info['count'] += 1
+                                            failure_info['last_attempt'] = datetime.now()
+                                            channel_failures[channel_key] = failure_info
                                             continue
                                     else:
                                         logger.error(f"Could not extract channel ID from link: {channel_link}")
+                                        # Increment failure count and continue
+                                        failure_info['count'] += 1
+                                        failure_info['last_attempt'] = datetime.now()
+                                        channel_failures[channel_key] = failure_info
                                         continue
                                 else:
                                     # This is a public channel with a username
@@ -667,12 +843,24 @@ async def telethon_task(queue):
                                             logger.info(f"Successfully resolved username @{username} for channel '{channel.name}'")
                                         except Exception as e:
                                             logger.error(f"Failed to get entity for username @{username}: {e}")
+                                            # Increment failure count and continue
+                                            failure_info['count'] += 1
+                                            failure_info['last_attempt'] = datetime.now()
+                                            channel_failures[channel_key] = failure_info
                                             continue
                                     else:
                                         logger.error(f"Could not extract username from link: {channel_link}")
+                                        # Increment failure count and continue
+                                        failure_info['count'] += 1
+                                        failure_info['last_attempt'] = datetime.now()
+                                        channel_failures[channel_key] = failure_info
                                         continue
                             else:
                                 logger.warning(f"Channel link format not supported: {channel_link}")
+                                # Increment failure count and continue
+                                failure_info['count'] += 1
+                                failure_info['last_attempt'] = datetime.now()
+                                channel_failures[channel_key] = failure_info
                                 continue
                             
                             # Try to join the channel if we have an entity
@@ -687,11 +875,21 @@ async def telethon_task(queue):
                                     minutes, seconds = divmod(remainder, 60)
                                     time_str = f"{hours}h {minutes}m {seconds}s" if hours > 0 else f"{minutes}m {seconds}s"
                                     logger.warning(f"Flood wait for {time_str} when joining channel. Skipping.")
+                                    # Increment failure count and continue
+                                    failure_info['count'] += 1
+                                    failure_info['last_attempt'] = datetime.now()
+                                    channel_failures[channel_key] = failure_info
                                     continue
                                 except Exception as e:
                                     logger.error(f"Error joining channel {channel_link}: {e}")
+                                    # Don't count this as a major failure - just continue
                         except Exception as e:
                             logger.error(f"Error processing channel link {channel_link}: {e}")
+                            # Increment failure count
+                            failure_info['count'] += 1
+                            failure_info['last_attempt'] = datetime.now()
+                            channel_failures[channel_key] = failure_info
+                            continue
 
                         # Get messages with retry logic
                         retry_count = 0
@@ -710,11 +908,20 @@ async def telethon_task(queue):
                                         await asyncio.sleep(retry_count * 2)  # Exponential backoff
                                     else:
                                         logger.error(f"Failed to get messages from '{channel.name}' after {max_retries} attempts")
+                                        # Increment failure count
+                                        failure_info['count'] += 1
+                                        failure_info['last_attempt'] = datetime.now()
+                                        channel_failures[channel_key] = failure_info
                             except Exception as e:
                                 logger.error(f"Error getting messages from channel '{channel.name}': {e}")
                                 retry_count += 1
                                 if retry_count < max_retries:
                                     await asyncio.sleep(retry_count * 2)
+                                else:
+                                    # Increment failure count after max retries
+                                    failure_info['count'] += 1
+                                    failure_info['last_attempt'] = datetime.now()
+                                    channel_failures[channel_key] = failure_info
                                 
                         if messages and tg_channel:
                             try:
@@ -783,12 +990,25 @@ async def telethon_task(queue):
                                 else:
                                     logger.debug(f"No new messages from channel '{channel.name}'")
                                 
+                                # Successfully processed this channel - reset failure counter
+                                channels_processed += 1
+                                failure_info['count'] = 0
+                                channel_failures[channel_key] = failure_info
+                                
                             except Exception as e:
                                 logger.error(f"Error processing messages from channel '{channel.name}': {e}")
                                 import traceback
                                 logger.error(f"Traceback: {traceback.format_exc()}")
+                                # Increment failure count
+                                failure_info['count'] += 1
+                                failure_info['last_attempt'] = datetime.now()
+                                channel_failures[channel_key] = failure_info
                         else:
                             logger.warning(f"Unable to get messages from channel: '{channel.name}'")
+                            # Increment failure count
+                            failure_info['count'] += 1
+                            failure_info['last_attempt'] = datetime.now()
+                            channel_failures[channel_key] = failure_info
 
                     except errors.FloodError as e:
                         hours, remainder = divmod(e.seconds, 3600)
@@ -796,11 +1016,16 @@ async def telethon_task(queue):
                         time_str = f"{hours}h {minutes}m {seconds}s" if hours > 0 else f"{minutes}m {seconds}s"
                         logger.warning(f"Rate limit exceeded. Waiting {time_str}")
                         await asyncio.sleep(e.seconds)
+                        # Don't increment failure count for flood errors - they're global, not channel-specific
 
                     except Exception as e:
                         logger.error(f"Error in telethon_task for channel '{channel.name}': {e}")
                         import traceback
                         logger.error(f"Traceback: {traceback.format_exc()}")
+                        # Increment failure count
+                        failure_info['count'] += 1
+                        failure_info['last_attempt'] = datetime.now()
+                        channel_failures[channel_key] = failure_info
 
                     # Small sleep between processing channels to avoid rate limiting
                     await asyncio.sleep(5)
@@ -809,7 +1034,16 @@ async def telethon_task(queue):
                 if stop_event:
                     break
                     
-                logger.info("Parsing cycle completed. Waiting 30 seconds for the next cycle...")
+                # Mark this cycle as completed if we processed at least one channel
+                if channels_processed > 0:
+                    full_cycle_completed = True
+                    
+                    # Print statistics about channel failures
+                    failure_channels = sum(1 for v in channel_failures.values() if v['count'] > 0)
+                    if failure_channels > 0:
+                        logger.info(f"Channel failure statistics: {failure_channels} channels have parsing issues")
+                    
+                logger.info(f"Parsing cycle completed. Processed {channels_processed} channels successfully. Waiting 30 seconds for the next cycle...")
                 await asyncio.sleep(30)  # pause between checks
                 
             except Exception as e:

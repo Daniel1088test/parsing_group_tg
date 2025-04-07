@@ -16,6 +16,7 @@ from tg_bot.config import (
 from tg_bot.handlers import start, admin
 from tg_bot.telethon_worker import telethon_worker_process
 from tg_bot.auth_telethon import authorize_telethon
+from tg_bot.create_session import create_session_file
 
 
 # enable logging with more detailed formatting
@@ -76,6 +77,23 @@ def check_required_files():
             json.dump({"0": {"name": "За замовчуванням"}}, f, indent=4, ensure_ascii=False)
         logger.info(f"Created file {CATEGORIES_JSON}")
 
+async def ensure_telethon_session():
+    """Ensure that a Telethon session file exists, creating one if needed"""
+    session_files = ['telethon_user_session.session', 'telethon_session.session', 'anon.session']
+    if not any(os.path.exists(file) for file in session_files):
+        logger.info("No Telethon session files found. Creating a basic session file...")
+        try:
+            if await create_session_file():
+                logger.info("Successfully created a basic Telethon session file")
+            else:
+                logger.warning("Failed to create Telethon session file. You may need to run manual authorization.")
+        except Exception as e:
+            logger.error(f"Error creating Telethon session file: {e}")
+            import traceback
+            logger.error(f"Traceback: {traceback.format_exc()}")
+    else:
+        logger.info(f"Found existing Telethon session file(s): {[f for f in session_files if os.path.exists(f)]}")
+
 async def on_startup(bot: Bot):
     global telethon_process, web_process
     
@@ -99,8 +117,15 @@ async def on_startup(bot: Bot):
         dp["categories"] = {}
 
     try:
-        # authorize Telethon (before starting process)
-        await authorize_telethon()
+        # Ensure Telethon has a valid session file
+        await ensure_telethon_session()
+        
+        # Attempt to authorize Telethon if possible (non-interactive)
+        try:
+            await authorize_telethon()
+        except Exception as e:
+            logger.warning(f"Non-critical error during Telethon authorization: {e}")
+            logger.warning("Continuing with existing session file or basic session file")
 
         # start Telethon in separate process
         telethon_process = Process(target=telethon_worker_process, args=(message_queue,))
@@ -112,6 +137,8 @@ async def on_startup(bot: Bot):
         asyncio.create_task(process_messages(message_queue))
     except Exception as e:
         logger.error(f"Error starting processes: {e}")
+        import traceback
+        logger.error(f"Traceback: {traceback.format_exc()}")
 
 async def on_shutdown(bot: Bot):
     global telethon_process, web_process
@@ -198,6 +225,8 @@ async def run_bot_forever():
         await dp.start_polling(bot)
     except Exception as e:
         logger.error(f"Error in bot work: {e}")
+        import traceback
+        logger.error(f"Traceback: {traceback.format_exc()}")
     finally:
         logger.info("Bot work completed")
 
@@ -208,3 +237,5 @@ if __name__ == '__main__':
         logger.info("Bot stopped by user or system")
     except Exception as e:
         logger.error(f"Unexpected error: {e}")
+        import traceback
+        logger.error(f"Traceback: {traceback.format_exc()}")
