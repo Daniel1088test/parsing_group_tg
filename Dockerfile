@@ -12,7 +12,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     libpq-dev \
     curl \
+    postgresql-client \
     && rm -rf /var/lib/apt/lists/*
+
+# Create directory for database backups
+RUN mkdir -p /app/db_backups
 
 # Install dependencies
 COPY requirements.txt .

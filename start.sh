@@ -52,38 +52,85 @@ mkdir -p media
 echo "Testing database connection..."
 python db_test.py || echo "Database connection test failed, but continuing..."
 
-# Run migrations first (with error handling)
-echo "Running database migrations..."
-set +e  # Temporarily disable exit on error
-python manage.py migrate
-MIGRATE_EXIT_CODE=$?
-set -e  # Re-enable exit on error
+# Output message
+echo "Starting application setup..."
 
-if [ $MIGRATE_EXIT_CODE -ne 0 ]; then
-    echo "Warning: Migration failed with exit code $MIGRATE_EXIT_CODE but continuing startup..."
+# Install dependencies
+python -m pip install --upgrade pip
+
+if [ -f requirements.txt ]; then
+    echo "Installing requirements..."
+    pip install -r requirements.txt
 fi
+
+# Setup environment variables if not using Railway
+if [ -z "$RAILWAY_ENVIRONMENT" ]; then
+    echo "Loading environment variables from .env file..."
+    if [ -f .env ]; then
+        export $(cat .env | grep -v '^#' | xargs)
+    fi
+fi
+
+# Database backup/restore handling for persistence
+if [ -n "$DATABASE_URL" ]; then
+    echo "Setting up database persistence..."
+    BACKUP_DIR="/app/db_backups"
+    mkdir -p $BACKUP_DIR
+
+    # Extract database credentials from DATABASE_URL
+    PGUSER=$(echo $DATABASE_URL | awk -F '//' '{print $2}' | awk -F ':' '{print $1}')
+    PGPASSWORD=$(echo $DATABASE_URL | awk -F ':' '{print $3}' | awk -F '@' '{print $1}')
+    PGHOST=$(echo $DATABASE_URL | awk -F '@' '{print $2}' | awk -F ':' '{print $1}')
+    PGPORT=$(echo $DATABASE_URL | awk -F ':' '{print $4}' | awk -F '/' '{print $1}')
+    PGDATABASE=$(echo $DATABASE_URL | awk -F '/' '{print $4}' | awk -F '?' '{print $1}')
+
+    # Check if backup file exists and restore if it does
+    export PGPASSWORD=$PGPASSWORD
+    if [ -f "$BACKUP_DIR/db_backup.sql" ]; then
+        echo "Restoring database from backup..."
+        pg_restore -h $PGHOST -p $PGPORT -U $PGUSER -d $PGDATABASE -c "$BACKUP_DIR/db_backup.sql" || true
+    fi
+
+    # Create backup hook for when the app shuts down
+    create_backup() {
+        echo "Creating database backup before shutdown..."
+        pg_dump -h $PGHOST -p $PGPORT -U $PGUSER -d $PGDATABASE -F c -f "$BACKUP_DIR/db_backup.sql" || true
+        echo "Backup completed."
+    }
+
+    # Register the trap
+    trap create_backup SIGTERM SIGINT
+fi
+
+# Run migrations
+echo "Running migrations..."
+python manage.py migrate --noinput
 
 # Collect static files
 echo "Collecting static files..."
 python manage.py collectstatic --noinput
 
-# Set Railway environment to production if not already set
-export RAILWAY_ENVIRONMENT=${RAILWAY_ENVIRONMENT:-production}
+# Compress files if needed
+if [ -x "$(command -v python manage.py compress)" ]; then
+    echo "Compressing static files..."
+    python manage.py compress --force
+fi
 
-echo "Starting application in $RAILWAY_ENVIRONMENT mode on $WEB_SERVER_HOST:$PORT..."
+# Create superuser if needed
+if [ -n "$DJANGO_SUPERUSER_USERNAME" ] && [ -n "$DJANGO_SUPERUSER_PASSWORD" ] && [ -n "$DJANGO_SUPERUSER_EMAIL" ]; then
+    echo "Creating superuser..."
+    python manage.py createsuperuser --noinput || true
+fi
 
-# For Railway deployment, we need to use gunicorn as the main process
-if [ "$RAILWAY_ENVIRONMENT" = "production" ]; then
-    echo "Starting Django with gunicorn on $WEB_SERVER_HOST:$PORT..."
-    
-    # Start the Telegram bot in the background
-    echo "Starting Telegram bot in background..."
-    python run.py &
-    
-    # Start gunicorn as the main process (not in background)
-    echo "Starting gunicorn as main process..."
-    exec gunicorn core.wsgi:application --bind $WEB_SERVER_HOST:$PORT --workers 2 --threads 2 --timeout 120 --access-logfile - --error-logfile -
-else
-    # For development, just use the run.py script which starts everything
-    python run.py
-fi 
+# Start server
+echo "Starting server..."
+gunicorn core.asgi:application -k uvicorn.workers.UvicornWorker --bind 0.0.0.0:$PORT --timeout 120 --workers 2 &
+GUNICORN_PID=$!
+
+# Start background tasks (in this case the Telegram bot)
+echo "Starting Telegram bot..."
+python run.py &
+TELEGRAM_PID=$!
+
+# Wait for all processes
+wait $GUNICORN_PID $TELEGRAM_PID 

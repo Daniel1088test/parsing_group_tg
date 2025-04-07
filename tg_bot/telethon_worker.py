@@ -37,7 +37,43 @@ def _save_message_to_db(message_data):
     save message to db
     """
     try:
-        channel = models.Channel.objects.get(name=message_data['channel_name'])
+        # Try to find channel by exact name
+        try:
+            channel = models.Channel.objects.get(name=message_data['channel_name'])
+        except models.Channel.DoesNotExist:
+            # Try to find channel by URL if available and contains a username
+            channel_username = None
+            if 'link' in message_data:
+                channel_username = extract_username_from_link(message_data['link'])
+            
+            if channel_username:
+                # Try to find by URL containing the username
+                channels = models.Channel.objects.filter(url__contains=channel_username)
+                if channels.exists():
+                    channel = channels.first()
+                else:
+                    # Create new channel with default category
+                    default_category, _ = models.Category.objects.get_or_create(name="Uncategorized")
+                    channel = models.Channel(
+                        name=message_data['channel_name'],
+                        url=f"https://t.me/{channel_username}",
+                        category=default_category,
+                        is_active=True
+                    )
+                    channel.save()
+                    logger.info(f"Created new channel: {channel.name}")
+            else:
+                # Create new channel as a last resort
+                default_category, _ = models.Category.objects.get_or_create(name="Uncategorized")
+                channel = models.Channel(
+                    name=message_data['channel_name'],
+                    url="",  # Empty URL since we don't have one
+                    category=default_category,
+                    is_active=True
+                )
+                channel.save()
+                logger.info(f"Created new channel: {channel.name}")
+        
         message = models.Message(
             text=message_data['text'],
             media=message_data['media'],
@@ -55,6 +91,8 @@ def _save_message_to_db(message_data):
         return message
     except Exception as e:
         logger.error(f"Error saving message: {e}")
+        import traceback
+        logger.error(f"Error traceback: {traceback.format_exc()}")
         return None
 
 def _get_channels():
