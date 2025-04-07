@@ -24,12 +24,12 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # See https://docs.djangoproject.com/en/5.0/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = os.getenv('SECRET_KEY', 'django-insecure-+0y690!*z(#c)1a%r8&wasr(%33csshyjoc#vflcg3!_z0c2#&')
+SECRET_KEY = 'django-insecure-+0y690!*z(#c)1a%r8&wasr(%33csshyjoc#vflcg3!_z0c2#&'
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = os.getenv('DEBUG', 'False').lower() == 'true'
+DEBUG = True
 
-ALLOWED_HOSTS = ['localhost', '127.0.0.1', '.up.railway.app', 'parsinggrouptg-production.up.railway.app', '*']
+ALLOWED_HOSTS = []
 
 SESSION_ENGINE = 'django.contrib.sessions.backends.db'
 SESSION_COOKIE_AGE = 60 * 24 * 14
@@ -48,7 +48,6 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
-    'whitenoise.middleware.WhiteNoiseMiddleware',  # Add WhiteNoise for static files
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -82,39 +81,12 @@ WSGI_APPLICATION = 'core.wsgi.application'
 # Database
 # https://docs.djangoproject.com/en/5.0/ref/settings/#databases
 
-# Default to SQLite
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.sqlite3',
         'NAME': BASE_DIR / 'db.sqlite3',
     }
 }
-
-# Use DATABASE_URL if provided (for Railway)
-DATABASE_URL = os.getenv('DATABASE_URL')
-if DATABASE_URL:
-    import dj_database_url
-    # Configure with SSL for Railway
-    db_config = dj_database_url.config(
-        default=DATABASE_URL,
-        conn_max_age=600,
-        conn_health_checks=True,
-    )
-    
-    # Ensure we have proper SSL configuration for PostgreSQL
-    if 'OPTIONS' not in db_config:
-        db_config['OPTIONS'] = {}
-    
-    if db_config['ENGINE'] == 'django.db.backends.postgresql':
-        db_config['OPTIONS']['sslmode'] = 'require'
-        # Add connection stability parameters
-        db_config['OPTIONS']['connect_timeout'] = 10
-        db_config['OPTIONS']['keepalives'] = 1
-        db_config['OPTIONS']['keepalives_idle'] = 30
-        db_config['OPTIONS']['keepalives_interval'] = 10
-        db_config['OPTIONS']['keepalives_count'] = 5
-    
-    DATABASES['default'] = db_config
 
 
 # Password validation
@@ -151,11 +123,7 @@ USE_TZ = True
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/5.0/howto/static-files/
 
-STATIC_URL = '/static/'
-STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
-
-# Use WhiteNoise for static files
-STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
+STATIC_URL = 'static/'
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.0/ref/settings/#default-auto-field

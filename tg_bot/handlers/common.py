@@ -1,4 +1,4 @@
-from aiogram import Router, types, F
+from aiogram import Router, F
 from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, BufferedInputFile
 from aiogram.filters import Command
 from tg_bot.keyboards.main_menu import main_menu_keyboard
@@ -7,46 +7,16 @@ from admin_panel.models import Channel, Category
 from asgiref.sync import sync_to_async
 import qrcode
 from io import BytesIO
-import logging
 
 router = Router()
-logger = logging.getLogger('telegram_bot')
 
 @router.message(Command("start"))
-async def cmd_start(message: types.Message):
-    """Handle the /start command"""
-    try:
-        # Check if user is admin
-        is_admin = message.from_user.id == ADMIN_ID
-        
-        # Create keyboard based on user role
-        keyboard = await main_menu_keyboard(is_admin)
-        
-        await message.answer(
-            "Welcome! I am a bot for channel parsing.\nSelect an option from the menu below:",
-            reply_markup=keyboard
-        )
-    except Exception as e:
-        logger.error(f"Error in start command: {e}")
-        await message.answer("An error occurred. Please try again later.")
-
-@router.message(F.text == "🔄 Main menu")
-async def return_to_main_menu(message: types.Message):
-    """Return to main menu"""
-    try:
-        # Check if user is admin
-        is_admin = message.from_user.id == ADMIN_ID
-        
-        # Create keyboard based on user role
-        keyboard = await main_menu_keyboard(is_admin)
-        
-        await message.answer(
-            "Select an option from the menu below:",
-            reply_markup=keyboard
-        )
-    except Exception as e:
-        logger.error(f"Error returning to main menu: {e}")
-        await message.answer("An error occurred. Please try again later.")
+async def cmd_start(message: Message):
+    await message.answer(
+        "Welcome! I am a bot for channel parsing.\n"
+        "Select an option from the menu below:",
+        reply_markup=main_menu_keyboard
+    )
 
 @router.message(F.text == "📎 List of channels")
 async def list_channels(message: Message):

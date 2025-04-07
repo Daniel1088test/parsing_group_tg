@@ -18,22 +18,10 @@ from django.contrib import admin
 from django.urls import path, include
 from django.conf import settings
 from django.conf.urls.static import static
-from django.http import HttpResponse
-import logging
-
-logger = logging.getLogger(__name__)
-
-# Health check view for Railway
-def health_check(request):
-    logger.info(f"Health check requested by {request.META.get('REMOTE_ADDR')}")
-    return HttpResponse("OK")
 
 urlpatterns = [
     path('admin/', admin.site.urls),
     path('', include('admin_panel.urls')),
-    path('health/', health_check, name='health_check'),
 ]
-
-# Always serve static files in any environment
-urlpatterns += static(settings.STATIC_URL, document_root=settings.STATIC_ROOT)
-urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
+if settings.DEBUG:
+    urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
