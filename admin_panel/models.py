@@ -8,6 +8,7 @@ class TelegramSession(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     session_file = models.CharField(max_length=255, blank=True, null=True)
+    session_data = models.TextField(blank=True, null=True, help_text="Base64 encoded session data")
 
     def __str__(self):
         return f"{self.phone} - {'Active' if self.is_active else 'Inactive'}"

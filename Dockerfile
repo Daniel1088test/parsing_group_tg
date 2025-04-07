@@ -5,7 +5,7 @@ WORKDIR /app
 # Set environment variables
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
-ENV PORT=8000
+ENV PORT=8080
 
 # Install system dependencies required for psycopg and other packages
 RUN apt-get update && apt-get install -y --no-install-recommends \

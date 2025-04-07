@@ -29,7 +29,7 @@ SECRET_KEY = os.getenv('SECRET_KEY', 'django-insecure-+0y690!*z(#c)1a%r8&wasr(%3
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = os.getenv('DEBUG', 'False').lower() == 'true'
 
-ALLOWED_HOSTS = ['localhost', '127.0.0.1', '.up.railway.app', '*']
+ALLOWED_HOSTS = ['localhost', '127.0.0.1', '.up.railway.app', 'parsinggrouptg-production.up.railway.app', '*']
 
 SESSION_ENGINE = 'django.contrib.sessions.backends.db'
 SESSION_COOKIE_AGE = 60 * 24 * 14

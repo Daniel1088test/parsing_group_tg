@@ -95,6 +95,35 @@ def ensure_telethon_session():
         except Exception as e:
             logger.error(f"Error writing Telethon session from environment: {e}")
     
+    # Check Django database for session data
+    try:
+        # Initialize Django
+        import django
+        os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'core.settings')
+        django.setup()
+        
+        # Import models
+        from admin_panel.models import TelegramSession
+        
+        # Look for session data in the database
+        sessions = TelegramSession.objects.filter(is_active=True, session_data__isnull=False).exclude(session_data='')
+        
+        if sessions.exists():
+            session = sessions.first()
+            logger.info(f"Found Telethon session in database for phone {session.phone}")
+            
+            try:
+                # Decode and write to file
+                session_data = session.session_data
+                with open('telethon_session.session', 'wb') as f:
+                    f.write(base64.b64decode(session_data))
+                logger.info("Telethon session written from database")
+                return True
+            except Exception as e:
+                logger.error(f"Error writing Telethon session from database: {e}")
+    except Exception as e:
+        logger.error(f"Error checking database for sessions: {e}")
+    
     # Check if session files exist
     if os.path.exists('telethon_session.session'):
         logger.info("Found telethon_session.session file")
@@ -112,6 +141,12 @@ def ensure_telethon_session():
         import shutil
         shutil.copy('test_session.session', 'telethon_session.session')
         logger.info("Copied test_session.session to telethon_session.session")
+        return True
+    elif os.path.exists('telethon_session_backup.session'):
+        logger.info("Found telethon_session_backup.session file, restoring from backup")
+        import shutil
+        shutil.copy('telethon_session_backup.session', 'telethon_session.session')
+        logger.info("Restored from backup session file")
         return True
         
     logger.warning("No Telethon session files found!")

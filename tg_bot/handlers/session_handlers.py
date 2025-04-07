@@ -8,6 +8,8 @@ from django.core.validators import RegexValidator
 from asgiref.sync import sync_to_async
 import asyncio
 import os
+import base64
+import shutil
 from telethon import TelegramClient, errors
 
 from tg_bot.keyboards.session_menu import (
@@ -39,6 +41,45 @@ cancel_keyboard = ReplyKeyboardMarkup(
 # Telethon client for authorization
 telethon_client = None
 telethon_phone = None
+
+# Function to save session file for deployment
+async def save_session_to_deployment():
+    """Save the Telethon session file content to DATABASE or ENV VAR for deployment"""
+    try:
+        if os.path.exists('telethon_user_session.session'):
+            # Copy to standard session name for consistency
+            shutil.copy('telethon_user_session.session', 'telethon_session.session')
+            
+            # Make backup copies for redundancy
+            if not os.path.exists('telethon_session_backup.session'):
+                shutil.copy('telethon_session.session', 'telethon_session_backup.session')
+            
+            # Read and encode the session file for environment variable storage
+            with open('telethon_session.session', 'rb') as f:
+                session_data = f.read()
+                encoded_data = base64.b64encode(session_data).decode('utf-8')
+            
+            # Save in TelegramSession model for possible use
+            @sync_to_async
+            def update_or_create_session():
+                session, created = TelegramSession.objects.update_or_create(
+                    phone='telethon_main',
+                    defaults={
+                        'api_id': API_ID,
+                        'api_hash': API_HASH,
+                        'session_file': 'telethon_session',
+                        'session_data': encoded_data,
+                        'is_active': True
+                    }
+                )
+                return session
+            
+            await update_or_create_session()
+            return True
+        return False
+    except Exception as e:
+        print(f"Error saving session for deployment: {e}")
+        return False
 
 @router.message(F.text == "🔑 Add new session")
 async def show_session_menu(message: Message):
@@ -110,12 +151,13 @@ async def start_telethon_auth(message: Message, state: FSMContext):
 async def delete_session_file(callback: CallbackQuery, state: FSMContext):
     """Deleting the Telethon session file"""
     try:
-        # Delete session file
-        if os.path.exists('telethon_user_session.session'):
-            os.remove('telethon_user_session.session')
-            await callback.message.edit_text(
-                "✅ Файл сесії успішно видалено. Тепер ви можете створити нову сесію."
-            )
+        # Delete all session files
+        for session_file in ['telethon_user_session.session', 'telethon_session.session', 'telethon_session_backup.session']:
+            if os.path.exists(session_file):
+                os.remove(session_file)
+                await callback.message.edit_text(
+                    f"✅ Файл сесії {session_file} успішно видалено."
+                )
         
         # Start authorization process
         await callback.message.answer(
@@ -183,9 +225,14 @@ async def process_phone(message: Message, state: FSMContext):
                 
                 if await telethon_client.is_user_authorized():
                     me = await telethon_client.get_me()
+                    
+                    # Save session for deployment
+                    deployment_saved = await save_session_to_deployment()
+                    deployment_status = "та збережено для розгортання" if deployment_saved else "але не збережено для розгортання (помилка)"
+                    
                     await message.answer(
                         f"✅ Ви вже авторизовані як {me.first_name} (@{me.username})!\n"
-                        f"Файл сесії дійсний і готовий до використання.",
+                        f"Файл сесії дійсний {deployment_status}.",
                         reply_markup=main_menu_keyboard
                     )
                     await state.clear()
@@ -317,11 +364,20 @@ async def process_code(message: Message, state: FSMContext):
             # Get user info
             me = await telethon_client.get_me()
             
+            # Save session for deployment
+            deployment_saved = await save_session_to_deployment()
+            deployment_status = "та збережено для розгортання" if deployment_saved else "але не збережено для розгортання (помилка)"
+            
             await message.answer(
                 f"✅ Успішна авторизація як {me.first_name} (@{me.username})!\n"
-                f"Файл сесії створено. Тепер ви можете використовувати парсинг Telethon.",
+                f"Файл сесії створено {deployment_status}.\n"
+                f"Тепер ви можете використовувати парсинг Telethon.\n\n"
+                f"⚠️ ВАЖЛИВО: Перезапустіть сервер для застосування змін!",
                 reply_markup=main_menu_keyboard
             )
+            
+            # Clear state to indicate authorization is complete
+            await state.clear()
             
         except errors.SessionPasswordNeededError:
             # Two-factor authentication is enabled
@@ -331,6 +387,7 @@ async def process_code(message: Message, state: FSMContext):
                 "Будь ласка, створіть новий сеанс через команду: python -m tg_bot.auth_telethon",
                 reply_markup=main_menu_keyboard
             )
+            await state.clear()
         except errors.PhoneCodeInvalidError:
             await message.answer(
                 "❌ Введений код невірний. Спробуйте ще раз:",
@@ -354,6 +411,7 @@ async def process_code(message: Message, state: FSMContext):
                 f"❌ Помилка входу: {str(e)}",
                 reply_markup=main_menu_keyboard
             )
+            await state.clear()
     finally:
         # Clean up resources properly only if authentication is complete or failed with an error
         # We don't clean up on invalid code since we want to allow the user to try again
