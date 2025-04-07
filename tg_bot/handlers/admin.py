@@ -1767,3 +1767,56 @@ async def cmd_force_parse(message: types.Message):
     except Exception as e:
         import traceback
         await message.answer(f"❌ Error: {e}\n{traceback.format_exc()[:1000]}")
+
+# Add after the existing command handlers, near the bottom of the file
+
+@router.message(Command("authorize_telethon"), F.from_user.id == ADMIN_ID)
+async def cmd_authorize_telethon(message: types.Message):
+    """Command to authorize Telethon for proper channel parsing"""
+    await message.answer("Starting Telethon authorization process...")
+    
+    # Run the authorization in a subprocess to avoid blocking the bot
+    import subprocess
+    import sys
+    
+    # Create a message to explain what's needed
+    info_message = (
+        "⚠️ Important: The authorization process requires interactive input, "
+        "so it will run in your server/terminal window.\n\n"
+        "Check your server console or terminal where the bot is running, "
+        "and follow the instructions there to enter your phone number and verification code.\n\n"
+        "Once completed, the parsing should work correctly."
+    )
+    await message.answer(info_message)
+    
+    # Show command that will be executed
+    cmd = [sys.executable, "-m", "tg_bot.auth_telethon", "--force"]
+    await message.answer(f"Running command: {' '.join(cmd)}")
+    
+    # Start the process in a non-blocking way
+    try:
+        # Use Popen instead of run() to avoid blocking
+        process = subprocess.Popen(
+            cmd, 
+            stdout=subprocess.PIPE, 
+            stderr=subprocess.PIPE,
+            text=True
+        )
+        
+        await message.answer(
+            "Authorization process started in the server console.\n"
+            "Please check your server/terminal window to complete the process."
+        )
+        
+        # Send follow-up instructions
+        await message.answer(
+            "After completing authorization in the terminal:\n"
+            "1. Restart the application to apply changes\n"
+            "2. Use the /forceparse command to test parsing"
+        )
+        
+    except Exception as e:
+        await message.answer(f"Error starting authorization process: {e}")
+        logger.error(f"Error starting Telethon authorization: {e}")
+        import traceback
+        logger.error(f"Traceback: {traceback.format_exc()}")

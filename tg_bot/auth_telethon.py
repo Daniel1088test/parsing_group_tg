@@ -3,6 +3,7 @@ import asyncio
 import logging
 import argparse
 import sys
+import getpass
 from telethon import TelegramClient, errors
 
 # Set up logging
@@ -20,7 +21,60 @@ ON_WINDOWS = sys.platform.startswith('win')
 API_ID = 19840544  # Integer
 API_HASH = "c839f28bad345082329ec086fca021fa"  # String
 
-async def authorize_telethon(delete_existing=False):
+async def interactive_auth(client):
+    """Interactively authorize the client with user input for phone and code"""
+    try:
+        logger.info("Starting interactive authorization...")
+        logger.info("IMPORTANT: You must use a regular user account phone number, NOT a bot!")
+        
+        # Ask for phone number
+        phone = input("Please enter your phone number (include country code, e.g. +380xxxxxxxxx): ")
+        
+        # Request code
+        await client.send_code_request(phone)
+        logger.info(f"Code sent to {phone}. Please check your Telegram app or SMS.")
+        
+        # Get verification code
+        code = input("Enter the code you received: ")
+        
+        try:
+            await client.sign_in(phone, code)
+            me = await client.get_me()
+            logger.info(f"Successfully authorized as {me.first_name} (@{me.username}) [ID: {me.id}]")
+            return True
+        except errors.SessionPasswordNeededError:
+            # Two-factor authentication is enabled
+            logger.info("Two-factor authentication is enabled.")
+            password = getpass.getpass("Please enter your 2FA password: ")
+            await client.sign_in(password=password)
+            me = await client.get_me()
+            logger.info(f"Successfully authorized with 2FA as {me.first_name} (@{me.username}) [ID: {me.id}]")
+            return True
+        
+    except errors.PhoneCodeInvalidError:
+        logger.error("Invalid code provided. Please try again.")
+        return False
+    except errors.PhoneCodeExpiredError:
+        logger.error("Code expired. Please restart the authorization process.")
+        return False
+    except errors.FloodWaitError as e:
+        hours, remainder = divmod(e.seconds, 3600)
+        minutes, seconds = divmod(remainder, 60)
+        time_str = ""
+        if hours > 0:
+            time_str += f"{hours} hours "
+        if minutes > 0:
+            time_str += f"{minutes} minutes "
+        if seconds > 0 or (hours == 0 and minutes == 0):
+            time_str += f"{seconds} seconds"
+        
+        logger.error(f"Too many auth attempts! Telegram requires waiting {time_str} before trying again.")
+        return False
+    except Exception as e:
+        logger.error(f"Error during authorization: {e}")
+        return False
+
+async def authorize_telethon(delete_existing=False, force_auth=False):
     """
     Authorize Telethon by creating a new session or using an existing one.
     This function needs to be run interactively to handle phone number input and verification code.
@@ -28,6 +82,7 @@ async def authorize_telethon(delete_existing=False):
     
     Args:
         delete_existing: If True, delete existing session file if it exists
+        force_auth: If True, force interactive authorization even if session exists
     """
     logger.info("Starting Telethon authorization process...")
     logger.info(f"API ID: {API_ID}")
@@ -87,10 +142,12 @@ async def authorize_telethon(delete_existing=False):
                 raise
         
         # Check authorization and handle accordingly
-        if await client.is_user_authorized():
+        is_authorized = await client.is_user_authorized()
+        if is_authorized and not force_auth:
             logger.info("Already authorized! Session file exists and is valid.")
             me = await client.get_me()
             logger.info(f"Authorized as: {me.first_name} (@{me.username}) [ID: {me.id}]")
+            
             # Save a backup of the session file
             if os.path.exists(f'{session_file}.session'):
                 backup_file = f'{session_file}_backup.session'
@@ -100,41 +157,40 @@ async def authorize_telethon(delete_existing=False):
                     logger.info(f"Created backup of session file: {backup_file}")
                 except Exception as e:
                     logger.error(f"Failed to create backup of session file: {e}")
-        else:
-            logger.info("Authorization required. Please follow the prompts:")
-            logger.info("IMPORTANT: You must use a regular user account phone number, NOT a bot!")
-            
+                    
+            # Create copies for other session names for compatibility
             try:
-                # Start the client which will prompt for phone number and code
-                await client.start()
+                main_file = f'{session_file}.session'
+                for alt_name in ['telethon_session.session', 'anon.session']:
+                    if not os.path.exists(alt_name) and alt_name != main_file:
+                        import shutil
+                        shutil.copy2(main_file, alt_name)
+                        logger.info(f"Created copy of session file as {alt_name} for compatibility")
+            except Exception as e:
+                logger.error(f"Error creating alternative session files: {e}")
+        else:
+            # Either not authorized or force_auth is True
+            if not is_authorized:
+                logger.info("Not authorized or authorization has expired. Starting interactive login...")
+            else:
+                logger.info("Forcing re-authorization as requested...")
                 
-                me = await client.get_me()
-                logger.info(f"Successfully authorized as: {me.first_name} (@{me.username}) [ID: {me.id}]")
-                # Create symbolic links/copies to alternative session file names for compatibility
+            # Interactive authorization
+            auth_success = await interactive_auth(client)
+            
+            if auth_success:
+                # Create copies for other session names for compatibility
                 try:
                     main_file = f'{session_file}.session'
                     for alt_name in ['telethon_session.session', 'anon.session']:
-                        if not os.path.exists(alt_name) and alt_name != main_file:
+                        if not os.path.exists(alt_name) or alt_name != main_file:
                             import shutil
                             shutil.copy2(main_file, alt_name)
                             logger.info(f"Created copy of session file as {alt_name} for compatibility")
                 except Exception as e:
                     logger.error(f"Error creating alternative session files: {e}")
-            except errors.FloodWaitError as e:
-                # Calculate time in more human-readable format
-                hours, remainder = divmod(e.seconds, 3600)
-                minutes, seconds = divmod(remainder, 60)
-                
-                time_str = ""
-                if hours > 0:
-                    time_str += f"{hours} hours "
-                if minutes > 0:
-                    time_str += f"{minutes} minutes "
-                if seconds > 0 or (hours == 0 and minutes == 0):
-                    time_str += f"{seconds} seconds"
-                
-                logger.error(f"Too many auth attempts! Telegram requires waiting {time_str} before trying again.")
-                logger.error("Try again later or use a different phone number.")
+            else:
+                logger.error("Authorization failed. Please try again later.")
                 return False
         
         logger.info("Telethon authorization completed successfully!")
@@ -156,6 +212,7 @@ if __name__ == "__main__":
     # Parse command line arguments
     parser = argparse.ArgumentParser(description='Authorize Telethon client')
     parser.add_argument('--delete', action='store_true', help='Delete existing session file before authorization')
+    parser.add_argument('--force', action='store_true', help='Force interactive authorization even if session exists')
     args = parser.parse_args()
     
     # This script should be run directly: python -m tg_bot.auth_telethon
@@ -167,14 +224,17 @@ if __name__ == "__main__":
         
         if args.delete:
             print("WARNING: The --delete flag is set. Any existing session file will be deleted.")
+        if args.force:
+            print("WARNING: The --force flag is set. You will be asked to authorize even if a valid session exists.")
             
         print("Press Ctrl+C at any time to cancel.\n")
         
-        success = asyncio.run(authorize_telethon(args.delete))
+        success = asyncio.run(authorize_telethon(args.delete, args.force))
         
         if success:
             print("\n=== Authorization Successful ===")
             print("You can now run the main application.")
+            print("✅ IMPORTANT: Your session is now fully authorized and should work correctly.")
         else:
             print("\n=== Authorization Failed ===")
             print("Please check your internet connection and Telegram API credentials.")
