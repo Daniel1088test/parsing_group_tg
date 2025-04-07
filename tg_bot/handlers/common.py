@@ -2,6 +2,7 @@ from aiogram import Router, F
 from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, BufferedInputFile, CallbackQuery
 from aiogram.filters import Command
 from tg_bot.keyboards.main_menu import main_menu_keyboard
+from tg_bot.keyboards.admin_menu import admin_menu_keyboard
 from tg_bot.config import ADMIN_IDS, WEB_SERVER_HOST, WEB_SERVER_PORT, PUBLIC_URL
 from admin_panel.models import Channel, Category
 from asgiref.sync import sync_to_async

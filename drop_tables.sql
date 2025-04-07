@@ -1,3 +1,4 @@
+-- Drop tables if they exist
 DROP TABLE IF EXISTS admin_panel_message CASCADE;
 DROP TABLE IF EXISTS admin_panel_channel CASCADE;
 DROP TABLE IF EXISTS admin_panel_category CASCADE;
@@ -11,4 +12,4 @@ DROP TABLE IF EXISTS auth_group CASCADE;
 DROP TABLE IF EXISTS auth_user_groups CASCADE;
 DROP TABLE IF EXISTS auth_user_user_permissions CASCADE;
 DROP TABLE IF EXISTS auth_user CASCADE;
-DROP TABLE IF EXISTS django_session CASCADE; 
+DROP TABLE IF EXISTS django_session CASCADE;
