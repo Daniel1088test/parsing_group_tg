@@ -524,12 +524,41 @@ async def telethon_task(queue, pre_initialized_client=None):
         
         # If we don't have any clients yet (or pre-init processing failed), proceed with normal initialization
         if not telethon_clients:
-            # Get all active sessions from the database
-            sessions = await get_telegram_sessions()
+        # Get all active sessions from the database
+        sessions = await get_telegram_sessions()
+        
+        if not sessions:
+            logger.warning("No active Telegram sessions found in the database")
+            # Try to initialize a default client
+            default_client, default_me = await initialize_client()
+            if default_client:
+                telethon_clients['default'] = {
+                    'client': default_client,
+                    'user': default_me,
+                    'session_id': None
+                }
+                logger.info("Initialized default client as no sessions were found in database")
+            else:
+                logger.error("Failed to initialize default client and no sessions in database. Parser cannot run.")
+                return
+        else:
+            # Initialize clients for all active sessions
+            for session in sessions:
+                client, me = await initialize_client(session_id=session.id)
+                if client:
+                    telethon_clients[str(session.id)] = {
+                        'client': client,
+                        'user': me,
+                        'session_id': session.id,
+                        'session': session
+                    }
+                    logger.info(f"Initialized client for session {session.phone} (ID: {session.id})")
+                else:
+                    logger.error(f"Failed to initialize client for session {session.phone} (ID: {session.id})")
             
-            if not sessions:
-                logger.warning("No active Telegram sessions found in the database")
-                # Try to initialize a default client
+            # If no clients were initialized, try with default session
+            if not telethon_clients:
+                    logger.warning("No clients were initialized from sessions. Trying default session.")
                 default_client, default_me = await initialize_client()
                 if default_client:
                     telethon_clients['default'] = {
@@ -537,43 +566,14 @@ async def telethon_task(queue, pre_initialized_client=None):
                         'user': default_me,
                         'session_id': None
                     }
-                    logger.info("Initialized default client as no sessions were found in database")
+                    logger.info("Initialized default client as fallback")
                 else:
-                    logger.error("Failed to initialize default client and no sessions in database. Parser cannot run.")
+                    logger.error("Failed to initialize any client. Parser cannot run.")
                     return
-            else:
-                # Initialize clients for all active sessions
-                for session in sessions:
-                    client, me = await initialize_client(session_id=session.id)
-                    if client:
-                        telethon_clients[str(session.id)] = {
-                            'client': client,
-                            'user': me,
-                            'session_id': session.id,
-                            'session': session
-                        }
-                        logger.info(f"Initialized client for session {session.phone} (ID: {session.id})")
-                    else:
-                        logger.error(f"Failed to initialize client for session {session.phone} (ID: {session.id})")
-                
-                # If no clients were initialized, try with default session
-                if not telethon_clients:
-                    logger.warning("No clients were initialized from sessions. Trying default session.")
-                    default_client, default_me = await initialize_client()
-                    if default_client:
-                        telethon_clients['default'] = {
-                            'client': default_client,
-                            'user': default_me,
-                            'session_id': None
-                        }
-                        logger.info("Initialized default client as fallback")
-                    else:
-                        logger.error("Failed to initialize any client. Parser cannot run.")
-                        return
         
         # Main parsing loop
         logger.info("Starting to receive updates...")
-        
+
         while not stop_event:
             try:
                 # Get channels from database
@@ -590,8 +590,8 @@ async def telethon_task(queue, pre_initialized_client=None):
                         break
                         
                     # Determine which client to use for this channel
-                    client_info = None
-                    
+                        client_info = None
+                        
                     # Use channel-specific session if available
                     if channel.session and channel.session.is_active:
                         session_id = str(channel.session.id)
@@ -605,11 +605,11 @@ async def telethon_task(queue, pre_initialized_client=None):
                         if not client_info:
                             logger.error(f"No default client available for channel {channel.name}. Skipping.")
                             continue
-                    
+                        
                     # Get client and associated information
-                    client = client_info['client']
-                    session = client_info.get('session')
-                    
+                        client = client_info['client']
+                        session = client_info.get('session')
+                        
                     try:
                         # Get identifier for the channel
                         if channel.url:
@@ -618,7 +618,7 @@ async def telethon_task(queue, pre_initialized_client=None):
                             username = extract_username_from_link(identifier)
                             if username:
                                 identifier = username
-                        else:
+                            else:
                             identifier = channel.name
                             
                         logger.debug(f"Getting messages for channel: {identifier}")
@@ -713,15 +713,15 @@ async def telethon_task(queue, pre_initialized_client=None):
                             if identifier not in last_processed_message_ids:
                                 last_processed_message_ids[identifier] = set()
                             last_processed_message_ids[identifier].add(message.id)
-                            
+
                     except Exception as e:
                         logger.error(f"Error processing channel {channel.name}: {e}")
                         import traceback
                         logger.error(f"Traceback: {traceback.format_exc()}")
-                
+
                 # Sleep between iterations to avoid overloading
                 await asyncio.sleep(60)  # Check every 1 minute
-                    
+                
             except Exception as e:
                 logger.error(f"Error in telethon_task main loop: {e}")
                 import traceback
@@ -754,7 +754,7 @@ def telethon_worker_process(queue, pre_initialized_client=None):
     # Set up signal handler
     signal.signal(signal.SIGINT, handle_interrupt)
     signal.signal(signal.SIGTERM, handle_interrupt)
-    
+
     # Configure event loop
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
@@ -784,4 +784,4 @@ def telethon_worker_process(queue, pre_initialized_client=None):
         import traceback
         logger.error(f"Traceback: {traceback.format_exc()}")
     finally:
-        loop.close()
+            loop.close()

@@ -11,6 +11,7 @@ import os
 import base64
 import shutil
 from telethon import TelegramClient, errors
+import logging
 
 from tg_bot.keyboards.session_menu import (
     session_menu_keyboard,
@@ -19,7 +20,7 @@ from tg_bot.keyboards.session_menu import (
 )
 from tg_bot.keyboards.main_menu import main_menu_keyboard
 from admin_panel.models import TelegramSession
-from tg_bot.config import API_ID, API_HASH, ADMIN_ID
+from tg_bot.config import API_ID, API_HASH, ADMIN_IDS
 
 router = Router()
 
@@ -113,7 +114,7 @@ async def cancel_action(message: Message, state: FSMContext):
 async def start_telethon_auth(message: Message, state: FSMContext):
     """Starts the Telethon authorization process"""
     # Only admins can use this
-    if message.from_user.id != ADMIN_ID:
+    if str(message.from_user.id) not in ADMIN_IDS:
         await message.answer(
             "❌ This function is only available to administrators.",
             reply_markup=main_menu_keyboard

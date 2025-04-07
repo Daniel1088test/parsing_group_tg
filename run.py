@@ -36,7 +36,7 @@ def run_django():
     """Start Django server"""
     logger.info("Starting Django server...")
     try:
-        from tg_bot.config import WEB_SERVER_HOST, WEB_SERVER_PORT
+        from tg_bot.config import WEB_SERVER_HOST, WEB_SERVER_PORT, ADMIN_IDS
         # Use 0.0.0.0 to listen on all interfaces in production
         host = WEB_SERVER_HOST
         port = WEB_SERVER_PORT

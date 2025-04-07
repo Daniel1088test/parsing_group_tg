@@ -1,8 +1,8 @@
 from aiogram import Router, F
-from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, BufferedInputFile
+from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, BufferedInputFile, CallbackQuery
 from aiogram.filters import Command
 from tg_bot.keyboards.main_menu import main_menu_keyboard
-from tg_bot.config import ADMIN_ID, WEB_SERVER_HOST, WEB_SERVER_PORT, PUBLIC_URL
+from tg_bot.config import ADMIN_IDS, WEB_SERVER_HOST, WEB_SERVER_PORT, PUBLIC_URL
 from admin_panel.models import Channel, Category
 from asgiref.sync import sync_to_async
 import qrcode
@@ -15,7 +15,7 @@ router = Router()
 @router.message(Command("start"))
 async def cmd_start(message: Message):
     # create a message based on user type
-    if message.from_user.id == ADMIN_ID:
+    if str(message.from_user.id) in ADMIN_IDS:
         # message for admin
         await message.answer(
             f"Hello, {message.from_user.first_name}!\n"
@@ -33,21 +33,35 @@ async def cmd_start(message: Message):
         )
 
 @router.message(Command("help"))
-async def cmd_help(message: Message):
-    # show help message
-    await message.answer(
-        "This bot allows you to parse messages from Telegram channels.\n"
-        "Available commands:\n"
-        "/start - Start interacting with the bot\n"
-        "/help - Show this help message\n"
-        "/site - Get the link to the site\n"
-        "/qr - Get a QR code for accessing the site"
+async def show_help(message: Message):
+    """Show available commands"""
+    if str(message.from_user.id) in ADMIN_IDS:
+        admin_text = (
+            "Admin commands:"
+            "\n/ping - check server connection"
+            "\n/stop - stop the bot"
+            "\n/link_session <session_id> <channel_id> - link session to channel"
+            "\n/link_category <session_id> <category_id> - link session to category"
+        )
+    else:
+        admin_text = ""
+        
+    help_text = (
+        "Telegram Parser Bot 🔍"
+        "\n\nMain commands:"
+        "\n/start - start the bot and show main menu"
+        "\n/help - show this help message"
     )
+    
+    if admin_text:
+        help_text += f"\n\n{admin_text}"
+    
+    await message.answer(help_text, reply_markup=main_menu_keyboard)
 
 @router.message(F.text == "❓ Help")
 async def help_button(message: Message):
     # call the function for the /help command
-    await cmd_help(message)
+    await show_help(message)
 
 @router.message(F.text == "ℹ️ Information")
 async def info_button(message: Message):
@@ -85,39 +99,29 @@ async def cmd_site(message: Message):
 
 @router.message(F.text == "🌐 Site")
 async def site_button(message: Message):
-    """Handle site button click"""
-    await cmd_site(message)
-
-@router.message(Command("qr"))
-async def cmd_qr(message: Message):
-    """Generate QR code for site"""
-    # Use the PUBLIC_URL from config
-    website_url = PUBLIC_URL
+    """Handler for the 'Go to the site' button"""
+    site_url = PUBLIC_URL
     
-    # generate a QR code
-    qr = qrcode.QRCode(
-        version=1,
-        error_correction=qrcode.constants.ERROR_CORRECT_L,
-        box_size=10,
-        border=4,
-    )
-    qr.add_data(website_url)
-    qr.make(fit=True)
+    # Create inline keyboard
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="Open Site 🌐", url=site_url)],
+        [InlineKeyboardButton(text="Get QR code", callback_data="qr_code")]
+    ])
     
-    img = qr.make_image(fill_color="black", back_color="white")
+    # Admin section
+    if str(message.from_user.id) in ADMIN_IDS:
+        admin_text = (
+            "As an administrator, you can manage all aspects of the parser from the site:\n"
+            "• Add/edit/remove channels and categories\n"
+            "• View parsed messages\n"
+            "• Configure parser settings\n\n"
+        )
+    else:
+        admin_text = ""
     
-    # convert to bytes
-    imgByteArr = io.BytesIO()
-    img.save(imgByteArr, format='PNG')
-    imgByteArr.seek(0)
-    
-    # send the QR code as a photo
-    await message.answer_photo(
-        types.BufferedInputFile(
-            imgByteArr.getvalue(),
-            filename="qr_code.png"
-        ),
-        caption=f"QR code for access to the site: {website_url}"
+    await message.answer(
+        f"{admin_text}Click the button below to go to the site:",
+        reply_markup=keyboard
     )
 
 @router.message(F.text == "📎 List of channels")
@@ -142,8 +146,8 @@ async def list_channels(message: Message):
         )
         return
     
-    # check if the message is from the admin
-    if message.from_user.id == ADMIN_ID:
+    # check if the message is from admin
+    if str(message.from_user.id) in ADMIN_IDS:
         # import the keyboard for the admin
         from tg_bot.keyboards.channels_menu import get_channels_keyboard
         await message.answer(
@@ -185,8 +189,8 @@ async def list_categories(message: Message):
         )
         return
     
-    # check if the message is from the admin
-    if message.from_user.id == ADMIN_ID:
+    # check if the message is from admin
+    if str(message.from_user.id) in ADMIN_IDS:
         # import the keyboard for the admin
         from tg_bot.keyboards.channels_menu import get_categories_keyboard
         await message.answer(
@@ -215,56 +219,63 @@ async def list_categories(message: Message):
     )
 
 @router.message(F.text == "🌐 Go to the site")
-async def goto_website(message: Message):
-    """Sends the link to the site"""
-    # Use 127.0.0.1 if host is localhost
-    host = "127.0.0.1" if WEB_SERVER_HOST == "localhost" else WEB_SERVER_HOST
-    website_url = f"http://{host}:{WEB_SERVER_PORT}"
+async def site_button(message: Message):
+    """Handler for the 'Go to the site' button"""
+    site_url = PUBLIC_URL
     
-    # create an inline keyboard with a button to go to the site
+    # Create inline keyboard
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="Open site", url=website_url)],
-        [InlineKeyboardButton(text="Get QR code", callback_data="get_qr_code")]
+        [InlineKeyboardButton(text="Open Site 🌐", url=site_url)],
+        [InlineKeyboardButton(text="Get QR code", callback_data="qr_code")]
     ])
     
+    # Admin section
+    if str(message.from_user.id) in ADMIN_IDS:
+        admin_text = (
+            "As an administrator, you can manage all aspects of the parser from the site:\n"
+            "• Add/edit/remove channels and categories\n"
+            "• View parsed messages\n"
+            "• Configure parser settings\n\n"
+        )
+    else:
+        admin_text = ""
+    
     await message.answer(
-        f"The site is available at: {website_url}",
+        f"{admin_text}Click the button below to go to the site:",
         reply_markup=keyboard
     )
 
-@router.callback_query(F.data == "get_qr_code")
-async def send_qr_code(callback_query):
-    """Sends the QR code for the site"""
-    host = "127.0.0.1" if WEB_SERVER_HOST == "localhost" else WEB_SERVER_HOST
-    website_url = f"http://{host}:{WEB_SERVER_PORT}"
+@router.callback_query(F.data == "qr_code")
+async def process_qr_code(callback: CallbackQuery):
+    """Generate and send QR code for the site link"""
+    # Use the PUBLIC_URL configuration
+    site_url = PUBLIC_URL
     
-    try:
-        # create a QR code for the site
-        qr = qrcode.QRCode(
-            version=1,
-            error_correction=qrcode.constants.ERROR_CORRECT_L,
-            box_size=10,
-            border=4,
-        )
-        qr.add_data(website_url)
-        qr.make(fit=True)
-        
-        img = qr.make_image(fill_color="black", back_color="white")
-        
-        # save the image to the buffer
-        bio = BytesIO()
-        img.save(bio, 'PNG')
-        bio.seek(0)
-        
-        # send the QR code
-        await callback_query.message.answer_photo(
-            photo=BufferedInputFile(
-                file=bio.getvalue(), 
-                filename="qrcode.png"
-            ),
-            caption=f"QR code for access to the site: {website_url}"
-        )
-        await callback_query.answer()
-    except Exception as e:
-        await callback_query.message.answer(f"Error creating the QR code: {str(e)}")
-        await callback_query.answer("Failed to create the QR code") 
+    # Create QR code
+    qr = qrcode.QRCode(
+        version=1,
+        error_correction=qrcode.constants.ERROR_CORRECT_L,
+        box_size=10,
+        border=4,
+    )
+    qr.add_data(site_url)
+    qr.make(fit=True)
+    
+    img = qr.make_image(fill_color="black", back_color="white")
+    
+    # Save to bytes
+    img_byte_arr = io.BytesIO()
+    img.save(img_byte_arr, format='PNG')
+    img_byte_arr.seek(0)
+    
+    # Admin text
+    if str(callback.from_user.id) in ADMIN_IDS:
+        caption = f"Admin access QR code for {site_url}"
+    else:
+        caption = f"QR code for {site_url}"
+    
+    await callback.message.answer_photo(
+        photo=BufferedInputFile(img_byte_arr.read(), filename="qr_code.png"),
+        caption=caption
+    )
+    await callback.answer() 

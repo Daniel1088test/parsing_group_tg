@@ -8,8 +8,10 @@ API_HASH = os.getenv('API_HASH', 'c839f28bad345082329ec086fca021fa')
 # Telegram Bot token
 TOKEN_BOT = os.getenv('TOKEN_BOT', '7923260865:AAGWm7t0Zz2PqFPI5PldEVwrOC4HZ_5oP0c')
 
-# Admin ID
-ADMIN_ID = os.getenv('ADMIN_ID', '574349489')
+# Admin ID - можна вказати декілька ID через кому
+# ID користувача в кадрі: 574349489, додамо новий ID
+ADMIN_IDS = list(map(str.strip, os.getenv('ADMIN_ID', '574349489,1088968819,3156523012').split(',')))
+ADMIN_ID = ADMIN_IDS[0]  # Для сумісності зі старим кодом
 
 # Base project path
 BASE_DIR = Path(__file__).resolve().parent.parent
