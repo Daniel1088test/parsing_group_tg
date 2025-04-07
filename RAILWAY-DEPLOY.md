@@ -27,14 +27,14 @@ Your project is already configured for Railway deployment with the following fil
 DATABASE_URL=postgresql://postgres:urCNhXdwvbqOvvEsJDffIiDUMcLhAvcs@switchback.proxy.rlwy.net:10052/railway
 DEBUG=False
 SECRET_KEY=your-secure-secret-key
-ALLOWED_HOSTS=.railway.app,gondola.proxy.rlwy.net
+ALLOWED_HOSTS=.railway.app,parsinggrouptg-production.up.railway.app
 BOT_TOKEN=your_telegram_bot_token
 API_ID=your_telegram_api_id
 API_HASH=your_telegram_api_hash
-PUBLIC_HOST=gondola.proxy.rlwy.net:37023
+PUBLIC_HOST=parsinggrouptg-production.up.railway.app
 ```
 
-**NOTE**: The `PUBLIC_HOST` variable is especially important as it controls what URL is displayed to users in the Telegram bot. Make sure it matches your actual Railway domain.
+Replace the values with your actual values.
 
 ## Step 4: Deploy Your Service
 
@@ -50,14 +50,14 @@ PUBLIC_HOST=gondola.proxy.rlwy.net:37023
 
 3. Deploy your service
    - Click "Deploy" and wait for the build to complete
-   - Your application will be available at: `https://gondola.proxy.rlwy.net:37023`
+   - Your application will be available at: `http://parsinggrouptg-production.up.railway.app`
 
 ## Step 5: Verify Deployment
 
 1. Check the logs in Railway dashboard
 2. Confirm that migrations ran successfully
-3. Access your application at `https://gondola.proxy.rlwy.net:37023`
-4. The health check endpoint is available at `https://gondola.proxy.rlwy.net:37023/health/`
+3. Access your application at `http://parsinggrouptg-production.up.railway.app`
+4. The health check endpoint is available at `http://parsinggrouptg-production.up.railway.app/health/`
 
 ## Troubleshooting
 
