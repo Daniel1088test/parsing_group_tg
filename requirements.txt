@@ -1,3 +1,6 @@
+--index-url https://pypi.org/simple
+--extra-index-url https://files.pythonhosted.org/packages
+
 aiofiles==24.1.0
 aiogram==3.19.0
 aiohappyeyeballs==2.6.1
