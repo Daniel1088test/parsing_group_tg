@@ -15,9 +15,10 @@ logger = logging.getLogger('telegram_bot')
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'core.settings')
 django.setup()
 
-from aiogram import Bot, Dispatcher
+from aiogram import Bot, Dispatcher, types
 from aiogram.fsm.storage.memory import MemoryStorage
-from tg_bot.config import TOKEN_BOT
+from aiogram.utils import executor
+from tg_bot.config import TOKEN_BOT, PUBLIC_URL
 from tg_bot.handlers import common_router, admin_router, session_router
 from tg_bot.middlewares import ChannelsDataMiddleware
 
@@ -34,6 +35,20 @@ dp.callback_query.middleware(ChannelsDataMiddleware())
 dp.include_router(session_router)
 dp.include_router(admin_router)
 dp.include_router(common_router)
+
+@dp.message_handler(commands=['start'])
+async def start_command(message: types.Message):
+    keyboard = types.InlineKeyboardMarkup()
+    url_button = types.InlineKeyboardButton(
+        text="Open site", 
+        url=PUBLIC_URL
+    )
+    keyboard.add(url_button)
+    
+    await message.reply(
+        "Welcome! Click the button below to open the site:",
+        reply_markup=keyboard
+    )
 
 async def main():
     # display information about the bot start

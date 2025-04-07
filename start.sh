@@ -209,13 +209,45 @@ mkdir -p $SESSIONS_DIR
 export BOT_SERVER_HOST="127.0.0.1"  # Use localhost for the bot's Django server
 export BOT_SERVER_PORT="8081"  # Use a different port than the main Django server
 
-# Set Telegram bot configuration
-export BOT_TOKEN="7896267673:AAFkPv6ro2aIBnlTgXOmzEKVvLo6TRbw-xI"
-export API_ID="20662346"
-export API_HASH="8981176be8754bcd6dbfdb4d9f499b57"
+# Set Telegram bot configuration from Railway variables or defaults
+export BOT_TOKEN="${BOT_TOKEN:-7896267673:AAFkPv6ro2aIBnlTgXOmzEKVvLo6TRbw-xI}"
+export API_ID="${API_ID:-20662346}"
+export API_HASH="${API_HASH:-8981176be8754bcd6dbfdb4d9f499b57}"
+export PUBLIC_URL="${PUBLIC_URL:-https://parsinggrouptg-production.up.railway.app}"
+
+# Kill any existing bot processes more aggressively
+echo "Killing any existing bot processes..."
+if [ -f ".bot.pid" ]; then
+    OLD_PID=$(cat .bot.pid)
+    if [ -n "$OLD_PID" ]; then
+        echo "Found old bot process (PID: $OLD_PID), terminating..."
+        kill -9 $OLD_PID 2>/dev/null || true
+    fi
+fi
+
+# Also try to kill any process using our bot token
+if [ -n "$BOT_TOKEN" ]; then
+    echo "Checking for processes using our bot token..."
+    for pid in $(grep -l "$BOT_TOKEN" /proc/*/environ 2>/dev/null); do
+        pid=$(echo "$pid" | cut -d/ -f3)
+        if [ "$pid" != "$$" ] && [ -e "/proc/$pid" ]; then
+            echo "Killing process $pid that was using our bot token"
+            kill -9 $pid 2>/dev/null || true
+        fi
+    done
+fi
+
+# Remove any existing PID files
+rm -f .*.pid .bot.pid *.pid 2>/dev/null || true
+
+# Clear any existing session files that might cause conflicts
+echo "Clearing any existing bot sessions..."
+find . -type f -name "*.session*" -delete 2>/dev/null || true
+find /app -type f -name "*.session*" -delete 2>/dev/null || true
+sleep 5
 
 # Create necessary directories
-mkdir -p /app/tg_bot/data
+mkdir -p /app/tg_bot/data/sessions
 mkdir -p /app/tg_bot/data/messages
 
 # Start the bot with retries
@@ -233,15 +265,14 @@ while [ $RETRY_COUNT -lt $MAX_RETRIES ] && [ "$BOT_STARTED" = false ]; do
     echo $TELEGRAM_PID > .bot.pid
     
     # Wait longer to see if the bot stays up
-    sleep 15  # Increased wait time to ensure proper startup
+    sleep 20  # Increased wait time to ensure proper startup
     if kill -0 $TELEGRAM_PID 2>/dev/null; then
-        # Check if process is actually running and not just a zombie
         if grep -q "zombie" "/proc/$TELEGRAM_PID/status" 2>/dev/null; then
             echo "Bot process is zombie, considering as failed"
             kill -9 $TELEGRAM_PID 2>/dev/null || true
             rm -f .bot.pid
             RETRY_COUNT=$((RETRY_COUNT + 1))
-            sleep 10
+            sleep 15  # Increased sleep between retries
         else
             BOT_STARTED=true
             echo "Bot started successfully"
@@ -251,7 +282,7 @@ while [ $RETRY_COUNT -lt $MAX_RETRIES ] && [ "$BOT_STARTED" = false ]; do
         kill -9 $TELEGRAM_PID 2>/dev/null || true
         rm -f .bot.pid
         RETRY_COUNT=$((RETRY_COUNT + 1))
-        sleep 10
+        sleep 15  # Increased sleep between retries
     fi
 done
 

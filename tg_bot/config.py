@@ -30,11 +30,12 @@
 import os
 
 # Bot's Django server configuration
-WEB_SERVER_HOST = os.getenv('BOT_SERVER_HOST', 'parsinggrouptg-production.up.railway.app')  # Default to localhost
-WEB_SERVER_PORT = os.getenv('BOT_SERVER_PORT', '8080')  # Default to 8081
+WEB_SERVER_HOST = os.getenv('BOT_SERVER_HOST', '127.0.0.1')  # Always use localhost for internal server
+WEB_SERVER_PORT = os.getenv('BOT_SERVER_PORT', '8081')  # Use different port than main server
 
-# Main application URL
-MAIN_APP_URL = os.getenv('PUBLIC_URL', 'https://parsinggrouptg-production.up.railway.app')
+# Main application URL (for external access)
+PUBLIC_URL = os.getenv('PUBLIC_URL', 'https://parsinggrouptg-production.up.railway.app')
+RAILWAY_PUBLIC_DOMAIN = os.getenv('RAILWAY_PUBLIC_DOMAIN', 'parsinggrouptg-production.up.railway.app')
 
 # Telegram bot configuration
 BOT_TOKEN = os.getenv('BOT_TOKEN', '7923260865:AAGWm7t0Zz2PqFPI5PldEVwrOC4HZ_5oP0c')
@@ -43,7 +44,7 @@ API_HASH = os.getenv('API_HASH', 'c839f28bad345082329ec086fca021fa')
 
 # Maintain backwards compatibility with old names
 TOKEN_BOT = BOT_TOKEN  # For backwards compatibility
-ADMIN_ID = 7265248372  # Admin ID in number format
+ADMIN_ID = 574349489  # Admin ID in number format
 BOT_USERNAME = "@Channels_hunt_bot"
 
 # File paths
@@ -54,13 +55,14 @@ CATEGORIES_JSON = 'categories.json'
 MAX_MESSAGES = 100000
 
 # Directory configuration
-BASE_DIR = os.path.dirname(__file__)
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DATA_FOLDER = os.path.join(BASE_DIR, 'data')
 MESSAGES_FOLDER = os.path.join(DATA_FOLDER, 'messages')
+SESSIONS_DIR = os.path.join(DATA_FOLDER, 'sessions')
 
 # Create necessary directories
-os.makedirs(DATA_FOLDER, exist_ok=True)
-os.makedirs(MESSAGES_FOLDER, exist_ok=True)
+for directory in [DATA_FOLDER, MESSAGES_FOLDER, SESSIONS_DIR]:
+    os.makedirs(directory, exist_ok=True)
 
 # Admin configuration
 ADMIN_USERNAME = os.getenv('ADMIN_USERNAME', 'DAndy')

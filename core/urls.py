@@ -23,17 +23,16 @@ from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_GET
 from django.views.decorators.cache import never_cache
 
-@csrf_exempt
-@require_GET
 @never_cache
+@csrf_exempt
 def health_check(request):
     """Simple health check endpoint that always returns OK"""
-    return HttpResponse("OK", content_type="text/plain", status=200)
+    return HttpResponse("OK", content_type="text/plain")
 
 urlpatterns = [
     path('admin/', admin.site.urls),
-    path('', include('admin_panel.urls')),
     path('health/', health_check, name='health_check'),
+    path('', include('tg_bot.urls')),
 ]
 
 # Serve media files in development
