@@ -184,14 +184,28 @@ sleep 5  # Give more time for process cleanup
 
 # Clear any existing session files that might cause conflicts
 echo "Clearing any existing bot sessions..."
-rm -f *.session* || true
+find . -maxdepth 1 -type f -name "*.session*" -delete 2>/dev/null || true
 sleep 2
+
+# Create data persistence directory
+SESSIONS_DIR="/app/sessions"
+mkdir -p $SESSIONS_DIR
 
 # Start the bot with a fresh session
 echo "Starting fresh bot instance..."
+cd /app  # Ensure we're in the app directory
 python run.py & 
 TELEGRAM_PID=$!
 echo $TELEGRAM_PID > .bot.pid
+
+# Create session backup hook
+backup_sessions() {
+    echo "Backing up session files..."
+    find . -maxdepth 1 -type f -name "*.session*" -exec cp {} $SESSIONS_DIR/ \; 2>/dev/null || true
+}
+
+# Register the session backup trap
+trap backup_sessions SIGTERM SIGINT
 
 # Wait for all processes
 wait $GUNICORN_PID $TELEGRAM_PID 
