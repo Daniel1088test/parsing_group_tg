@@ -216,24 +216,50 @@ async def initialize_client(session):
     """Initialize a Telethon client with the session from database"""
     try:
         if session.session_string:
-            # Create client with saved session string
-            client = TelegramClient(
-                StringSession(base64.b64decode(session.session_string).decode()),
-                session.api_id,
-                session.api_hash
-            )
+            try:
+                # Add padding to base64 if needed
+                session_str = session.session_string
+                padding = 4 - (len(session_str) % 4)
+                if padding != 4:
+                    session_str += '=' * padding
+                
+                # Create client with saved session string
+                client = TelegramClient(
+                    StringSession(session_str),
+                    API_ID,
+                    API_HASH,
+                    device_model="Railway Server",
+                    system_version="Linux",
+                    app_version="1.0",
+                    connection_retries=3
+                )
+            except Exception as e:
+                logger.error(f"Error creating client with session string: {e}")
+                return None
         else:
-            # Fallback to file-based session if no string session
-            client = TelegramClient('telethon_session', session.api_id, session.api_hash)
-            
-        await client.connect()
-        
-        if not await client.is_user_authorized():
-            logger.error(f"Session {session.phone} exists but is not authorized")
-            await client.disconnect()
+            logger.error(f"No session string found for {session.phone}")
             return None
             
-        return client
+        try:
+            await client.connect()
+            
+            if not await client.is_user_authorized():
+                logger.error(f"Session {session.phone} exists but is not authorized")
+                await client.disconnect()
+                return None
+                
+            # Test the connection
+            me = await client.get_me()
+            logger.info(f"Successfully authorized as {me.first_name} (@{me.username}) for session {session.phone}")
+            return client
+        except Exception as e:
+            logger.error(f"Error connecting client for session {session.phone}: {e}")
+            try:
+                await client.disconnect()
+            except:
+                pass
+            return None
+            
     except Exception as e:
         logger.error(f"Error initializing client for session {session.phone}: {e}")
         return None
