@@ -7,6 +7,7 @@ annotated-types==0.7.0
 asgiref==3.8.1
 attrs==25.3.0
 certifi==2025.1.31
+dj-database-url==2.1.0
 Django==5.1.7
 frozenlist==1.5.0
 idna==3.10
@@ -15,6 +16,7 @@ multidict==6.2.0
 pillow==11.1.0
 propcache==0.3.0
 psycopg==3.2.6
+psycopg2-binary==2.9.9
 pyaes==1.6.1
 pyasn1==0.6.1
 pydantic==2.10.6

@@ -16,7 +16,6 @@
    - Copy variables from `.env.example` and set appropriate values
    - Make sure to set `DEBUG=False` for production
    - Set `ALLOWED_HOSTS` to include your Railway app domain
-   - Set `DATABASE_URL` (or Railway will provide this automatically)
    
 6. Deploy the application
 7. Once deployed, Railway will automatically run the commands from the Procfile:
@@ -26,19 +25,64 @@
 ## Important Notes
 
 - The first time you deploy, you'll need to authorize Telethon for your Telegram user account
-- Make sure your database migrations are applied before starting the app
+- The migration script will automatically run when deploying to Railway
 - Monitor your app logs in Railway dashboard for any issues
 - Update `SECRET_KEY` to a secure value
 
 ## Database Setup
 
-Railway automatically provisions a PostgreSQL database. To initialize it:
+Railway automatically provisions a PostgreSQL database. It's configured automatically with this connection string:
 
-1. Go to your project in Railway dashboard
-2. Open a shell for your deployed application
-3. Run the following commands:
+```
+postgresql://postgres:urCNhXdwvbqOvvEsJDffIiDUMcLhAvcs@switchback.proxy.rlwy.net:10052/railway
+```
+
+The database connection is preconfigured in the `.env` file. If you need to connect to the database manually, you can use:
+
+- **Host**: switchback.proxy.rlwy.net
+- **Port**: 10052
+- **Database**: railway
+- **Username**: postgres
+- **Password**: urCNhXdwvbqOvvEsJDffIiDUMcLhAvcs
+
+You can also access the database via Railway CLI with:
+
+```
+railway connect Postgres
+```
+
+## Connecting to the database
+
+There are multiple ways to connect to your PostgreSQL database:
+
+1. **Using pgAdmin:**
+   - Add a new server
+   - Fill in the connection details from above
+   - Connect and manage your database
+
+2. **Using psql command-line:**
+   ```
+   PGPASSWORD=urCNhXdwvbqOvvEsJDffIiDUMcLhAvcs psql -h switchback.proxy.rlwy.net -U postgres -p 10052 -d railway
+   ```
+
+3. **Using the test_db_connection.py script:**
+   ```
+   python test_db_connection.py
+   ```
+
+## Migrations
+
+Migrations will run automatically on deployment, but you can also run them manually:
+
 ```
 python manage.py migrate
+```
+
+## Creating a superuser
+
+To create a Django admin superuser:
+
+```
 python manage.py createsuperuser
 ```
 
