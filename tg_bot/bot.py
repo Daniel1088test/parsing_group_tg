@@ -17,9 +17,10 @@ django.setup()
 
 from aiogram import Bot, Dispatcher
 from aiogram.fsm.storage.memory import MemoryStorage
-from tg_bot.config import TOKEN_BOT
+from tg_bot.config import TOKEN_BOT, ADMIN_ID
 from tg_bot.handlers import common_router, admin_router, session_router
 from tg_bot.middlewares import ChannelsDataMiddleware
+from tg_bot.keyboards.main_menu import main_menu_keyboard
 
 # initialize the bot and dispatcher
 bot = Bot(token=TOKEN_BOT)
@@ -31,9 +32,9 @@ dp.message.middleware(ChannelsDataMiddleware())
 dp.callback_query.middleware(ChannelsDataMiddleware())
 
 # register all routers
-dp.include_router(session_router)
-dp.include_router(admin_router)
-dp.include_router(common_router)
+dp.include_router(session_router)  # Session router first to handle auth commands
+dp.include_router(admin_router)    # Then admin router
+dp.include_router(common_router)   # Common router last as fallback
 
 async def main():
     # display information about the bot start
@@ -50,8 +51,14 @@ async def main():
     # start polling
     logger.info("Starting to receive updates...")
     try:
-        await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
+        await dp.start_polling(
+            bot,
+            allowed_updates=dp.resolve_used_update_types(),
+            handle_signals=True
+        )
     except Exception as e:
         logger.error(f"Error during bot operation: {e}")
+        import traceback
+        logger.error(f"Traceback: {traceback.format_exc()}")
     finally:
         logger.info("Bot stopped") 
