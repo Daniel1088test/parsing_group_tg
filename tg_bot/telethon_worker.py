@@ -485,8 +485,8 @@ async def telethon_task(queue, pre_initialized_client=None):
                     
                     try:
                         # Get identifier for the channel
-                        if channel.link:
-                            identifier = channel.link
+                        if channel.url:
+                            identifier = channel.url
                             # Extract username if it's a t.me link
                             username = extract_username_from_link(identifier)
                             if username:
