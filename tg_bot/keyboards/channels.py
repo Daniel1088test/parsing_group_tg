@@ -7,12 +7,22 @@ logger = logging.getLogger('channels_keyboard')
 
 def get_instructions_kb(website_url):
     """
-    Create keyboard with button to add channel through website
+    Create an inline keyboard with buttons for channel management.
+    
+    Parameters:
+    -----------
+    website_url (str): URL of the website
+    
+    Returns:
+    --------
+    InlineKeyboardMarkup: Keyboard with channel management buttons
     """
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="➕ Add via web interface", url=f"{website_url}/admin/channels/add/")],
-        [InlineKeyboardButton(text="🔙 Back", callback_data="back_to_main")]
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="➕ Add via web interface", url=f"{website_url}/admin-panel/channel-create/")],
+        [InlineKeyboardButton(text="📋 View existing channels", url=f"{website_url}/channels-list/")],
     ])
+    
+    return keyboard
 
 @sync_to_async
 def _check_existing_channel(username=None, channel_id=None):

@@ -2,20 +2,122 @@ from aiogram import Router, F
 from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, BufferedInputFile
 from aiogram.filters import Command
 from tg_bot.keyboards.main_menu import main_menu_keyboard
-from tg_bot.config import ADMIN_ID, WEB_SERVER_HOST, WEB_SERVER_PORT
+from tg_bot.config import ADMIN_ID, WEB_SERVER_HOST, WEB_SERVER_PORT, PUBLIC_URL
 from admin_panel.models import Channel, Category
 from asgiref.sync import sync_to_async
 import qrcode
 from io import BytesIO
+import os
+import io
 
 router = Router()
 
 @router.message(Command("start"))
 async def cmd_start(message: Message):
+    # create a message based on user type
+    if message.from_user.id == ADMIN_ID:
+        # message for admin
+        await message.answer(
+            f"Hello, {message.from_user.first_name}!\n"
+            "I am your Telegram Parser Bot. I will help you parse messages from Telegram channels.\n"
+            "Use the buttons below to control me:",
+            reply_markup=admin_menu_keyboard
+        )
+    else:
+        # message for regular user
+        await message.answer(
+            f"Hello, {message.from_user.first_name}!\n"
+            "I am the Telegram Parser Bot.\n"
+            "Use the buttons below to interact with me:",
+            reply_markup=main_menu_keyboard
+        )
+
+@router.message(Command("help"))
+async def cmd_help(message: Message):
+    # show help message
     await message.answer(
-        "Welcome! I am a bot for channel parsing.\n"
-        "Select an option from the menu below:",
-        reply_markup=main_menu_keyboard
+        "This bot allows you to parse messages from Telegram channels.\n"
+        "Available commands:\n"
+        "/start - Start interacting with the bot\n"
+        "/help - Show this help message\n"
+        "/site - Get the link to the site\n"
+        "/qr - Get a QR code for accessing the site"
+    )
+
+@router.message(F.text == "❓ Help")
+async def help_button(message: Message):
+    # call the function for the /help command
+    await cmd_help(message)
+
+@router.message(F.text == "ℹ️ Information")
+async def info_button(message: Message):
+    await message.answer(
+        "This bot is designed to parse messages from Telegram channels.\n"
+        "You can add channels and view parsed messages through the web interface.\n"
+        "If you have any questions, please contact the administrator."
+    )
+
+@router.message(F.text == "👨‍💻 Support")
+async def support_button(message: Message):
+    # create a support message with a link to the developer
+    support_chat = "your_support_username"  # replace with a real support contact
+    await message.answer(
+        "If you need technical support, please contact the administrators:\n"
+        f"👨‍💻 @{support_chat}"
+    )
+
+@router.message(Command("site"))
+async def cmd_site(message: Message):
+    """Show site URL"""
+    # Use the PUBLIC_URL from config, which is set from environment variables
+    website_url = PUBLIC_URL
+    
+    # create a clickable button to go to the site
+    site_button = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="Open site", url=website_url)],
+    ])
+    
+    # send message with button
+    await message.answer(
+        f"The site is available at: {website_url}",
+        reply_markup=site_button
+    )
+
+@router.message(F.text == "🌐 Site")
+async def site_button(message: Message):
+    """Handle site button click"""
+    await cmd_site(message)
+
+@router.message(Command("qr"))
+async def cmd_qr(message: Message):
+    """Generate QR code for site"""
+    # Use the PUBLIC_URL from config
+    website_url = PUBLIC_URL
+    
+    # generate a QR code
+    qr = qrcode.QRCode(
+        version=1,
+        error_correction=qrcode.constants.ERROR_CORRECT_L,
+        box_size=10,
+        border=4,
+    )
+    qr.add_data(website_url)
+    qr.make(fit=True)
+    
+    img = qr.make_image(fill_color="black", back_color="white")
+    
+    # convert to bytes
+    imgByteArr = io.BytesIO()
+    img.save(imgByteArr, format='PNG')
+    imgByteArr.seek(0)
+    
+    # send the QR code as a photo
+    await message.answer_photo(
+        types.BufferedInputFile(
+            imgByteArr.getvalue(),
+            filename="qr_code.png"
+        ),
+        caption=f"QR code for access to the site: {website_url}"
     )
 
 @router.message(F.text == "📎 List of channels")

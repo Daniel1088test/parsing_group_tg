@@ -45,8 +45,9 @@ CATEGORIES_JSON = 'categories.json'
 # Максимальное количество сообщений в папке data
 MAX_MESSAGES = 100000
 # Виправлено формат WEB_SERVER_HOST
-WEB_SERVER_HOST = os.getenv("WEB_SERVER_HOST", "parsinggrouptg-production.up.railway.app")  # Use environment variable or default to 0.0.0.0
-WEB_SERVER_PORT = int(os.getenv("PORT", 8080))  # Use PORT environment variable (Railway sets this)
+WEB_SERVER_HOST = os.getenv("WEB_SERVER_HOST", "0.0.0.0")  # Use environment variable or default to 0.0.0.0
+WEB_SERVER_PORT = int(os.getenv("PORT", 8000))  # Use PORT environment variable (Railway sets this)
+PUBLIC_URL = os.getenv("PUBLIC_URL", "https://parsinggrouptg-production.up.railway.app")  # Public URL for the site
 SECRET_KEY = '/QoXhzTJkyhzSKccxR+XV0pf4T2zqLfXzPlSwegi6Cs='  # Секретный ключ для Flask. Сгенерируйте случайную строку!
 ADMIN_USERNAME = 'DAndy'  # Логин админа для входа на сайт
 ADMIN_PASSWORD = 'Remoreid19976'  # Пароль админа для входа на сайт

@@ -335,6 +335,22 @@ async def initialize_client(session_id=None, session_filename=None):
                 
                 await update_session_info()
             
+            # Add proper session loading with password if needed
+            if client:
+                try:
+                    # Ensure we're properly connected
+                    if not client.is_connected():
+                        await client.connect()
+                        
+                    # Force authorization check
+                    if not await client.is_user_authorized():
+                        logger.error(f"Session exists but not authorized. Try recreating the session.")
+                        # You might need to handle 2FA here if your account has it
+                    else:
+                        logger.info("Successfully authorized with session")
+                except Exception as e:
+                    logger.error(f"Error during client connection: {e}")
+            
             return client, me
         except Exception as e:
             logger.error(f"Error getting account information for session {session_filename}: {e}")

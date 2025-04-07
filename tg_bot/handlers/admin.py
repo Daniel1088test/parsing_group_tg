@@ -2,9 +2,12 @@ from aiogram import types, F, Router, Bot
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-from tg_bot.config import ADMIN_ID, FILE_JSON, CATEGORIES_JSON, DATA_FOLDER, MESSAGES_FOLDER
+from tg_bot.config import ADMIN_ID, FILE_JSON, CATEGORIES_JSON, DATA_FOLDER, MESSAGES_FOLDER, PUBLIC_URL
 from tg_bot.keyboards.main_menu import main_menu_keyboard
 from tg_bot.keyboards.channels_menu import get_channels_keyboard, get_categories_keyboard, get_back_button
+from tg_bot.keyboards.admin_panel import admin_menu_keyboard
+from tg_bot.keyboards.channels import get_instructions_kb
+from tg_bot.keyboards.auth import get_auth_button
 import json
 import os
 import shutil
@@ -94,6 +97,47 @@ class SessionLinkStates(StatesGroup):
     waiting_for_channel = State()
     waiting_for_session = State()
     waiting_for_category = State()
+
+@router.message(F.text == "👤 Admin Panel")
+async def admin_panel(message: types.Message):
+    """Admin panel main menu"""
+    await message.answer(
+        "Admin panel. Select an action:",
+        reply_markup=admin_menu_keyboard
+    )
+
+@router.message(F.text == "📝 Add Channel")
+async def add_channel(message: types.Message):
+    """Instructions for adding a channel"""
+    # Using the PUBLIC_URL from config
+    await message.answer(
+        "To add a channel for parsing, use one of these methods:\n\n"
+        "1. Add through the web interface (recommended)\n"
+        "2. Use a Python script (advanced)\n\n"
+        "For the web interface, click the button below:",
+        reply_markup=get_instructions_kb(PUBLIC_URL)
+    )
+
+@router.message(F.text == "🔐 Authorize Telethon")
+async def authorize_telethon(message: types.Message):
+    """Instructions for authorizing Telethon"""
+    # Using the PUBLIC_URL from config
+    await message.answer(
+        "To authorize Telethon for channel parsing, you need to perform a few steps:\n\n"
+        "1. Click the button below to go to the authorization page\n"
+        "2. Enter your phone number (regular user account, not a bot)\n"
+        "3. Enter the verification code from Telegram\n\n"
+        "After successful authorization, the parser will be able to access channels and collect messages.",
+        reply_markup=get_auth_button(PUBLIC_URL)
+    )
+
+@router.message(F.text == "⚙️ Settings")
+async def settings(message: types.Message):
+    """Bot settings"""
+    await message.answer(
+        "Settings section is under development.\n"
+        "It will be available in future updates."
+    )
 
 @router.message(F.text == "📎 List of channels", F.from_user.id == ADMIN_ID)
 async def manage_channels(message: types.Message, channels_data: dict):

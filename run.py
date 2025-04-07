@@ -152,6 +152,34 @@ def ensure_telethon_session():
     logger.warning("No Telethon session files found!")
     return False
 
+async def initialize_telethon_client(session_name):
+    """Initialize a Telethon client with the given session name"""
+    from telethon import TelegramClient
+    from tg_bot.config import API_ID, API_HASH
+    
+    # Initialize client with longer timeouts
+    client = TelegramClient(session_name, API_ID, API_HASH, 
+                           connection_retries=10, 
+                           retry_delay=5)
+    
+    # Connect and test authorization
+    await client.connect()
+    
+    if not await client.is_user_authorized():
+        logger.error(f"Session {session_name} is not authorized")
+        await client.disconnect()
+        return None
+    
+    # Test with a simple call
+    try:
+        me = await client.get_me()
+        logger.info(f"Successfully authenticated as {me.first_name} (@{me.username})")
+        return client
+    except Exception as e:
+        logger.error(f"Error testing client connection: {e}")
+        await client.disconnect()
+        return None
+
 def run_telethon_parser(message_queue):
     """Start Telethon parser"""
     logger.info("Starting Telethon parser...")
@@ -179,26 +207,36 @@ def run_telethon_parser(message_queue):
         session_names = ['telethon_session', 'telethon_user_session', 'test_session']
         client = None
         
+        # Run the async initialization function
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        
         for session_name in session_names:
             if os.path.exists(f"{session_name}.session"):
-                try:
-                    logger.info(f"Trying session file: {session_name}.session")
-                    client = TelegramClient(session_name, API_ID, API_HASH)
-                    client.connect()
-                    if client.is_user_authorized():
-                        logger.info(f"Successfully authorized with session: {session_name}")
-                        break
-                    else:
-                        logger.warning(f"Session {session_name} exists but authorization failed")
-                        client.disconnect()
-                        client = None
-                except Exception as e:
-                    logger.error(f"Error using session {session_name}: {e}")
-                    if client:
-                        client.disconnect()
-                    client = None
+                logger.info(f"Trying session file: {session_name}.session")
+                
+                # Try multiple times with increasing delays
+                for attempt in range(3):
+                    try:
+                        # Initialize client with async function
+                        client = loop.run_until_complete(initialize_telethon_client(session_name))
+                        if client:
+                            break
+                        
+                        # If client initialization failed, wait before retry
+                        logger.warning(f"Failed to initialize client on attempt {attempt+1}. Retrying...")
+                        time.sleep(5 * (attempt + 1))  # Increasing backoff
+                    except Exception as e:
+                        logger.error(f"Error initializing client on attempt {attempt+1}: {e}")
+                        time.sleep(5 * (attempt + 1))
+                
+                # If we got a valid client, break the session loop
+                if client:
+                    logger.info(f"Successfully initialized client with session: {session_name}")
+                    break
         
-        if not client or not client.is_user_authorized():
+        # Check if we have a valid client
+        if not client:
             logger.error("All session attempts failed. Telethon parser will not start.")
             return
         

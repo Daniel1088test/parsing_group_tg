@@ -28,6 +28,22 @@ export WEB_SERVER_HOST="0.0.0.0"  # Listen on all interfaces
 export WEB_SERVER_PORT="$PORT"
 export DJANGO_SETTINGS_MODULE=core.settings
 
+# Set the PUBLIC_URL variable if running on Railway
+if [ -z "$PUBLIC_URL" ]; then
+    if [ ! -z "$RAILWAY_STATIC_URL" ]; then
+        export PUBLIC_URL="$RAILWAY_STATIC_URL"
+        echo "Setting PUBLIC_URL to $PUBLIC_URL from RAILWAY_STATIC_URL"
+    elif [ ! -z "$RAILWAY_PUBLIC_DOMAIN" ]; then
+        export PUBLIC_URL="https://$RAILWAY_PUBLIC_DOMAIN"
+        echo "Setting PUBLIC_URL to $PUBLIC_URL from RAILWAY_PUBLIC_DOMAIN"
+    else
+        export PUBLIC_URL="https://parsinggrouptg-production.up.railway.app"
+        echo "Setting PUBLIC_URL to default value: $PUBLIC_URL"
+    fi
+else
+    echo "Using existing PUBLIC_URL: $PUBLIC_URL"
+fi
+
 # Create necessary directories
 mkdir -p staticfiles
 mkdir -p media
