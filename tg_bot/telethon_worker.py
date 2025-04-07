@@ -108,14 +108,74 @@ async def get_channel_messages(client, channel_identifier):
     getting messages from the specified channel
     """
     try:
-        await client.get_dialogs()  # update the dialog cache
-        channel = await client.get_entity(channel_identifier)
-        messages = await client.get_messages(channel, 10)  # get the last 10 messages
-        logger.debug(f"Received {len(messages)} messages from channel {getattr(channel, 'title', channel_identifier)}")
-        return messages, channel
+        # Update the dialog cache first to ensure we have the latest channel information
+        await client.get_dialogs()
+        
+        # Try to get the channel entity - handle different formats
+        try:
+            # If it's a URL, extract the username or ID first
+            if channel_identifier.startswith('http'):
+                channel_username = extract_username_from_link(channel_identifier)
+                if not channel_username:
+                    logger.error(f"Could not extract username from URL: {channel_identifier}")
+                    return [], None
+                    
+                if channel_username.startswith('joinchat/'):
+                    # For private invite links, we need to use the full URL
+                    channel = await client.get_entity(channel_identifier)
+                elif channel_username.isdigit():
+                    # For numeric IDs (private channels)
+                    channel = await client.get_entity(int(channel_username))
+                else:
+                    # For usernames
+                    channel = await client.get_entity(channel_username)
+            else:
+                # Direct username or ID
+                channel = await client.get_entity(channel_identifier)
+                
+        except errors.ChannelInvalidError:
+            logger.warning(f"Channel {channel_identifier} not found or unavailable. Trying alternative methods...")
+            
+            # Try different formats if the direct approach fails
+            if channel_identifier.startswith('https://t.me/'):
+                # Try removing any trailing parts
+                base_url = re.sub(r'(/\d+)?$', '', channel_identifier)
+                try:
+                    channel = await client.get_entity(base_url)
+                except Exception as e:
+                    logger.error(f"Alternative method also failed: {e}")
+                    return [], None
+            else:
+                # No more fallbacks, give up
+                return [], None
+                
+        except Exception as e:
+            logger.error(f"Error getting channel entity for {channel_identifier}: {e}")
+            return [], None
+        
+        # Get the messages - handle errors and limits
+        try:
+            # Get the last 10 messages
+            messages = await client.get_messages(channel, limit=10)
+            if not messages:
+                logger.warning(f"No messages found in channel {getattr(channel, 'title', channel_identifier)}")
+                return [], channel
+                
+            logger.debug(f"Received {len(messages)} messages from channel {getattr(channel, 'title', channel_identifier)}")
+            return messages, channel
+            
+        except errors.ChatAdminRequiredError:
+            logger.error(f"Admin rights required to read messages from {getattr(channel, 'title', channel_identifier)}")
+            return [], channel
+            
+        except Exception as e:
+            logger.error(f"Error getting messages from channel entity: {e}")
+            return [], channel
+            
     except errors.ChannelInvalidError:
         logger.warning(f"Channel {channel_identifier} not found or unavailable")
         return [], None
+        
     except Exception as e:
         logger.error(f"Error getting messages from channel {channel_identifier}: {e}")
         return [], None
@@ -141,6 +201,28 @@ async def download_media(client, message, media_dir):
     except Exception as e:
         logger.error(f"Error downloading media: {e}")
         return None
+
+def extract_username_from_link(link):
+    """extract username/channel from telegram link"""
+    if not link:
+        return None
+        
+    # Handle t.me/username format
+    username_match = re.search(r'https?://(?:t|telegram)\.me/([a-zA-Z0-9_]+)(?:/.*)?$', link)
+    if username_match:
+        return username_match.group(1)
+    
+    # Handle joinchat links
+    joinchat_match = re.search(r'https?://(?:t|telegram)\.me/joinchat/([a-zA-Z0-9_-]+)', link)
+    if joinchat_match:
+        return 'joinchat/' + joinchat_match.group(1)
+    
+    # Handle t.me/c/channel_id format (private channels)
+    private_match = re.search(r'https?://(?:t|telegram)\.me/c/(\d+)(?:/.*)?$', link)
+    if private_match:
+        return private_match.group(1)
+    
+    return None
 
 async def save_message_to_data(message, channel, queue, category_id=None, client=None, session=None):
     """
@@ -173,43 +255,59 @@ async def save_message_to_data(message, channel, queue, category_id=None, client
         # get the channel name
         channel_name = getattr(channel, 'title', None) or getattr(channel, 'name', 'Unknown channel')
         
+        # Check if message has a valid channel_id (peer_id can sometimes be None)
+        channel_id = None
+        if hasattr(message, 'peer_id') and message.peer_id and hasattr(message.peer_id, 'channel_id'):
+            channel_id = message.peer_id.channel_id
+        elif hasattr(channel, 'id'):
+            channel_id = channel.id
+        
+        # Fallback if we still don't have a channel_id
+        if not channel_id and hasattr(channel, 'telegram_id'):
+            channel_id = channel.telegram_id
+            
+        # Create message link
+        message_link = ""
+        if channel_id:
+            # Use username for public channels if available
+            if hasattr(channel, 'username') and channel.username:
+                message_link = f"https://t.me/{channel.username}/{message.id}"
+            else:
+                message_link = f"https://t.me/c/{channel_id}/{message.id}"
+        
         # save the message
         message_info = {
-            'text': message.text,
+            'text': message.text or "",  # Handle None case
             'media': "media/messages/" + media_file if media_file else "",
             'media_type': media_type if media_type else None,
             'message_id': message.id,
-            'channel_id': message.peer_id.channel_id,
+            'channel_id': channel_id,
             'channel_name': channel_name,
-            'link': f"https://t.me/c/{message.peer_id.channel_id}/{message.id}",
+            'link': message_link,
             'date': message.date.strftime("%Y-%m-%d %H:%M:%S"),
             'session_used': session
         }
         
         # save to DB
-        await save_message_to_db(message_info)
+        saved_message = await save_message_to_db(message_info)
         
-        # send to queue
-        queue.put({
-            'message_info': message_info, 
-            'category_id': category_id
-        })
-        
-        session_info = f" (via {session.phone})" if session else ""
-        logger.info(f"Saved message {message.id} from channel '{channel_name}'{session_info}")
+        if saved_message:
+            # send to queue
+            queue.put({
+                'message_info': message_info, 
+                'category_id': category_id
+            })
+            
+            session_info = f" (via {session.phone})" if session else ""
+            logger.info(f"Saved message {message.id} from channel '{channel_name}'{session_info}")
+        else:
+            logger.warning(f"Failed to save message {message.id} from channel '{channel_name}' to database")
 
     except Exception as e:
         logger.error(f"Error saving message: {e}")
         import traceback
         error_traceback = traceback.format_exc()
         logger.error(f"Error traceback: {error_traceback}")
-
-def extract_username_from_link(link):
-    """extract username/channel from telegram link"""
-    username_match = re.search(r'https?://(?:t|telegram)\.me/([^/]+)', link)
-    if username_match:
-        return username_match.group(1)
-    return None
 
 async def initialize_client(session_id=None, session_filename=None):
     """Initialize a Telethon client for a specific session"""
@@ -470,21 +568,53 @@ async def telethon_task(queue):
                         # first try to join channel
                         try:
                             # extract username from link
-                            username = extract_username_from_link(channel_link)
-                            if username:
-                                entity = await client.get_entity(username)
-                                await client(JoinChannelRequest(entity))
-                                logger.info(f"Successfully joined channel: @{username}")
+                            username = None
+                            if channel_link.startswith('https://t.me/'):
+                                # Parse different URL formats
+                                if '/joinchat/' in channel_link or '/join/' in channel_link:
+                                    # This is an invite link, use it directly
+                                    entity = await client.get_entity(channel_link)
+                                elif '/c/' in channel_link:
+                                    # This is a private channel with a channel ID
+                                    match = re.search(r'https?://(?:t|telegram)\.me/c/(\d+)', channel_link)
+                                    if match:
+                                        channel_id = int(match.group(1))
+                                        try:
+                                            entity = await client.get_entity(channel_id)
+                                        except Exception as e:
+                                            logger.error(f"Failed to get entity for channel ID {channel_id}: {e}")
+                                            continue
+                                else:
+                                    # This is a public channel with a username
+                                    match = re.search(r'https?://(?:t|telegram)\.me/([a-zA-Z0-9_]+)', channel_link)
+                                    if match:
+                                        username = match.group(1)
+                                        try:
+                                            entity = await client.get_entity(username)
+                                        except Exception as e:
+                                            logger.error(f"Failed to get entity for username @{username}: {e}")
+                                            continue
                             else:
-                                logger.warning(f"Unable to get identifier from link: {channel_link}")
-                        except errors.FloodWaitError as e:
-                            hours, remainder = divmod(e.seconds, 3600)
-                            minutes, seconds = divmod(remainder, 60)
-                            time_str = f"{hours}h {minutes}m {seconds}s" if hours > 0 else f"{minutes}m {seconds}s"
-                            logger.warning(f"Flood wait for {time_str} when joining channel. Skipping.")
-                            continue
+                                logger.warning(f"Channel link format not supported: {channel_link}")
+                                continue
+                            
+                            # Try to join the channel if we have an entity
+                            if 'entity' in locals():
+                                try:
+                                    await client(JoinChannelRequest(entity))
+                                    logger.info(f"Successfully joined channel: {getattr(entity, 'title', username or channel_link)}")
+                                except errors.UserAlreadyParticipantError:
+                                    logger.debug(f"Already a member of channel: {getattr(entity, 'title', username or channel_link)}")
+                                except errors.FloodWaitError as e:
+                                    hours, remainder = divmod(e.seconds, 3600)
+                                    minutes, seconds = divmod(remainder, 60)
+                                    time_str = f"{hours}h {minutes}m {seconds}s" if hours > 0 else f"{minutes}m {seconds}s"
+                                    logger.warning(f"Flood wait for {time_str} when joining channel. Skipping.")
+                                    continue
+                                except Exception as e:
+                                    logger.error(f"Error joining channel {channel_link}: {e}")
                         except Exception as e:
-                            logger.error(f"Error joining channel {channel_link}: {e}")
+                            logger.error(f"Error processing channel link {channel_link}: {e}")
 
                         # Get messages with retry logic
                         retry_count = 0
@@ -510,23 +640,64 @@ async def telethon_task(queue):
                                     await asyncio.sleep(retry_count * 2)
                                 
                         if messages and tg_channel:
-                            # check if message is new
-                            latest_message = messages[0]
-                            channel_identifier = f"{channel_link}_{client_info['session_id'] if client_info['session_id'] else 'default'}"
-                            last_message_id = last_processed_message_ids.get(channel_identifier)
-                            
-                            if not last_message_id or latest_message.id > last_message_id:
-                                # get category id
-                                category_id = None
-                                if hasattr(channel, 'category_id'):
-                                    category_id = await get_category_id(channel)
-                                # send message to save
-                                session_info = f" (via {session.phone})" if session else ""
-                                logger.info(f"New message in channel '{channel.name}' [ID: {latest_message.id}]{session_info}")
-                                await save_message_to_data(latest_message, channel, queue, category_id, client, session)
-                                last_processed_message_ids[channel_identifier] = latest_message.id
-                            else:
-                                logger.debug(f"Message from channel '{channel.name}' already processed")
+                            try:
+                                # Initialize local variable for last message ID
+                                new_last_message_id = None
+                                
+                                # Check if there are any messages
+                                if not messages:
+                                    logger.debug(f"No messages found in channel '{channel.name}'")
+                                    continue
+                                
+                                # Create unique identifier for this channel+session combination
+                                channel_identifier = f"{channel_link}_{client_info['session_id'] if client_info['session_id'] else 'default'}"
+                                
+                                # Get the last processed message ID for this channel
+                                last_message_id = last_processed_message_ids.get(channel_identifier)
+                                
+                                # Process messages (newest first)
+                                new_messages_count = 0
+                                for message in messages:
+                                    # Skip if we've already processed this message
+                                    if last_message_id and message.id <= last_message_id:
+                                        logger.debug(f"Skipping already processed message {message.id} from channel '{channel.name}'")
+                                        continue
+                                        
+                                    # Update the latest message ID for this channel
+                                    if new_last_message_id is None or message.id > new_last_message_id:
+                                        new_last_message_id = message.id
+                                    
+                                    # Get category ID for this channel
+                                    category_id = None
+                                    if hasattr(channel, 'category_id'):
+                                        category_id = await get_category_id(channel)
+                                    
+                                    # Process message
+                                    session_info = f" (via {session.phone})" if session else ""
+                                    logger.info(f"New message in channel '{channel.name}' [ID: {message.id}]{session_info}")
+                                    
+                                    # Save message data
+                                    await save_message_to_data(message, channel, queue, category_id, client, session)
+                                    new_messages_count += 1
+                                    
+                                    # Limit the number of new messages to process at once (to avoid flooding)
+                                    if new_messages_count >= 5:  # Process max 5 new messages at once
+                                        logger.info(f"Reached limit of new messages to process at once for channel '{channel.name}'")
+                                        break
+                                    
+                                # Update the last processed message ID for this channel
+                                if new_last_message_id:
+                                    last_processed_message_ids[channel_identifier] = new_last_message_id
+                                    logger.debug(f"Updated last processed message ID for channel '{channel.name}' to {new_last_message_id}")
+                                    
+                                if new_messages_count > 0:
+                                    logger.info(f"Processed {new_messages_count} new messages from channel '{channel.name}'")
+                                else:
+                                    logger.debug(f"No new messages from channel '{channel.name}'")
+                                
+                            except Exception as e:
+                                logger.error(f"Error processing messages from channel '{channel.name}': {e}")
+                                logger.error(f"Traceback: {traceback.format_exc()}")
                         else:
                             logger.warning(f"Unable to get messages from channel: '{channel.name}'")
 
