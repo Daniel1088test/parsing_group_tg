@@ -26,7 +26,7 @@ WEB_SERVER_HOST = os.getenv("WEB_SERVER_HOST", "0.0.0.0")
 WEB_SERVER_PORT = int(os.getenv("WEB_SERVER_PORT", "8000"))
 
 # For URLs shown to users - use the Railway domain if available
-PUBLIC_HOST = os.getenv("PUBLIC_HOST", "gondola.proxy.rlwy.net:37023")
+PUBLIC_HOST = os.getenv("PUBLIC_HOST", "parsinggrouptg-production.up.railway.app")
 
 SECRET_KEY = os.getenv("SECRET_KEY", '/QoXhzTJkyhzSKccxR+XV0pf4T2zqLfXzPlSwegi6Cs=')
 ADMIN_USERNAME = os.getenv("ADMIN_USERNAME", 'DAndy')

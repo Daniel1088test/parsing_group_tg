@@ -32,7 +32,7 @@ SECRET_KEY = os.getenv('SECRET_KEY', 'django-insecure-+0y690!*z(#c)1a%r8&wasr(%3
 DEBUG = os.getenv('DEBUG', 'True').lower() == 'true'
 
 # Allow the specific Railway domain and any subdomains
-ALLOWED_HOSTS = ['parsinggrouptg-production.up.railway.app', 'parsinggrouptg-production-7718.up.railway.app', 'gondola.proxy.rlwy.net', '.railway.app', 'localhost', '127.0.0.1', '*']
+ALLOWED_HOSTS = ['parsinggrouptg-production.up.railway.app', 'parsinggrouptg-production-7718.up.railway.app', '.railway.app', 'localhost', '127.0.0.1', '*']
 
 # Security settings - enable HTTPS
 SECURE_SSL_REDIRECT = False  # Let Railway handle this
