@@ -94,11 +94,22 @@ DATABASES = {
 DATABASE_URL = os.getenv('DATABASE_URL')
 if DATABASE_URL:
     import dj_database_url
-    DATABASES['default'] = dj_database_url.config(
+    # Configure with SSL for Railway
+    db_config = dj_database_url.config(
         default=DATABASE_URL,
         conn_max_age=600,
         conn_health_checks=True,
+        ssl_require=True,
     )
+    
+    # Ensure we have proper SSL configuration for PostgreSQL
+    if 'OPTIONS' not in db_config:
+        db_config['OPTIONS'] = {}
+    
+    if db_config['ENGINE'] == 'django.db.backends.postgresql':
+        db_config['OPTIONS']['sslmode'] = 'require'
+    
+    DATABASES['default'] = db_config
 
 
 # Password validation

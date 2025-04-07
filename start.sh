@@ -9,9 +9,18 @@ echo "Using PORT: $PORT"
 
 # Database settings - use these if DATABASE_URL is not set
 if [ -z "$DATABASE_URL" ]; then
-    echo "WARNING: DATABASE_URL not found, setting it manually..."
-    echo "This should not happen in production. Make sure to set DATABASE_URL in Railway dashboard!"
-    export DATABASE_URL="postgresql://postgres:urCNhXdwvbqOvvEsJDffIiDUMcLhAvcs@switchback.proxy.rlwy.net:10052/railway"
+    echo "WARNING: DATABASE_URL not found, checking for Railway PostgreSQL service..."
+    
+    # Check if Railway PostgreSQL variables are available
+    if [ ! -z "$PGHOST" ] && [ ! -z "$PGPORT" ] && [ ! -z "$PGDATABASE" ] && [ ! -z "$PGUSER" ] && [ ! -z "$PGPASSWORD" ]; then
+        echo "Found Railway PostgreSQL environment variables, constructing DATABASE_URL..."
+        export DATABASE_URL="postgresql://${PGUSER}:${PGPASSWORD}@${PGHOST}:${PGPORT}/${PGDATABASE}?sslmode=require"
+        echo "DATABASE_URL constructed from Railway PostgreSQL service variables."
+    else
+        echo "WARNING: No PostgreSQL environment variables found. Using fallback value."
+        echo "This should not happen in production. Make sure to set DATABASE_URL in Railway dashboard!"
+        export DATABASE_URL="postgresql://postgres:urCNhXdwvbqOvvEsJDffIiDUMcLhAvcs@switchback.proxy.rlwy.net:10052/railway?sslmode=require"
+    fi
 fi
 
 # Set up web server host and port for Django
@@ -22,6 +31,10 @@ export DJANGO_SETTINGS_MODULE=core.settings
 # Create necessary directories
 mkdir -p staticfiles
 mkdir -p media
+
+# Test database connection
+echo "Testing database connection..."
+python db_test.py || echo "Database connection test failed, but continuing..."
 
 # Run migrations first (with error handling)
 echo "Running database migrations..."
@@ -56,4 +69,5 @@ if [ "$RAILWAY_ENVIRONMENT" = "production" ]; then
     exec gunicorn core.wsgi:application --bind $WEB_SERVER_HOST:$PORT --workers 2 --threads 2 --timeout 120 --access-logfile - --error-logfile -
 else
     # For development, just use the run.py script which starts everything
-    python run.py 
+    python run.py
+fi 
