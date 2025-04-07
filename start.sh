@@ -209,6 +209,15 @@ mkdir -p $SESSIONS_DIR
 export BOT_SERVER_HOST="127.0.0.1"  # Use localhost for the bot's Django server
 export BOT_SERVER_PORT="8081"  # Use a different port than the main Django server
 
+# Set Telegram bot configuration
+export BOT_TOKEN="7896267673:AAFkPv6ro2aIBnlTgXOmzEKVvLo6TRbw-xI"
+export API_ID="20662346"
+export API_HASH="8981176be8754bcd6dbfdb4d9f499b57"
+
+# Create necessary directories
+mkdir -p /app/tg_bot/data
+mkdir -p /app/tg_bot/data/messages
+
 # Start the bot with retries
 MAX_RETRIES=5
 RETRY_COUNT=0

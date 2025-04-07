@@ -65,36 +65,64 @@ async def run_bot():
     logger.info("Starting Telegram bot...")
     try:
         # Make sure Django is fully initialized before starting the bot
-        # as it depends on Django ORM models
         import django
         os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'core.settings')
         django.setup()
         
+        # Import and verify configuration
+        from tg_bot.config import TOKEN_BOT, API_ID, API_HASH
+        
+        if not all([TOKEN_BOT, API_ID, API_HASH]):
+            raise ValueError("Missing required Telegram configuration. Please check TOKEN_BOT, API_ID, and API_HASH in config.py")
+        
         from tg_bot.bot import main
         await main()
+    except ImportError as e:
+        logger.error(f"Import error in bot: {e}")
+        logger.error(f"Traceback: {traceback.format_exc()}")
+        raise
     except Exception as e:
         logger.error(f"Error starting bot: {e}")
         logger.error(f"Traceback: {traceback.format_exc()}")
+        raise
 
 def run_telethon_parser(message_queue):
     """Start Telethon parser"""
     logger.info("Starting Telethon parser...")
     try:
-        # Check if any user session file exists (either from bot or console)
-        if not (os.path.exists('telethon_user_session.session') or os.path.exists('telethon_session.session')):
+        # Initialize Django first
+        import django
+        os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'core.settings')
+        django.setup()
+        
+        # Import configuration
+        from tg_bot.config import DATA_FOLDER
+        
+        # Create session directory if it doesn't exist
+        session_dir = os.path.join(DATA_FOLDER, 'sessions')
+        os.makedirs(session_dir, exist_ok=True)
+        
+        # Check for session files in multiple locations
+        session_paths = [
+            'telethon_user_session.session',
+            'telethon_session.session',
+            os.path.join(session_dir, 'telethon_user_session.session'),
+            os.path.join(session_dir, 'telethon_session.session')
+        ]
+        
+        session_exists = any(os.path.exists(path) for path in session_paths)
+        
+        if not session_exists:
             logger.warning("No Telethon session file found. Please authorize using the Telegram bot (🔐 Authorize Telethon) or run 'python -m tg_bot.auth_telethon'.")
             logger.warning("IMPORTANT: You must use a regular user account, NOT a bot!")
             logger.warning("Telethon parser will not be started.")
             return
             
-        # Make sure Django is fully initialized before starting the parser
-        # as it depends on Django ORM models
-        import django
-        os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'core.settings')
-        django.setup()
-        
         from tg_bot.telethon_worker import telethon_worker_process
         telethon_worker_process(message_queue)
+    except ImportError as e:
+        logger.error(f"Import error in Telethon parser: {e}")
+        logger.error(f"Traceback: {traceback.format_exc()}")
     except Exception as e:
         logger.error(f"Error starting Telethon parser: {e}")
         logger.error(f"Traceback: {traceback.format_exc()}")
