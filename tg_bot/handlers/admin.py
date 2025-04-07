@@ -2,7 +2,7 @@ from aiogram import types, F, Router, Bot
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-from tg_bot.config import ADMIN_ID, FILE_JSON, CATEGORIES_JSON, DATA_FOLDER, MESSAGES_FOLDER
+from tg_bot.config import ADMIN_ID, FILE_JSON, CATEGORIES_JSON, DATA_FOLDER, MESSAGES_FOLDER, API_ID, API_HASH
 from tg_bot.keyboards.main_menu import main_menu_keyboard
 from tg_bot.keyboards.channels_menu import get_channels_keyboard, get_categories_keyboard, get_back_button
 import json
@@ -23,6 +23,13 @@ import asyncio
 logger = logging.getLogger('admin_operations')
 
 router = Router()
+
+# Keyboard for phone number request
+phone_keyboard = types.ReplyKeyboardMarkup(
+    keyboard=[[types.KeyboardButton(text="Send Phone Number", request_contact=True)]],
+    resize_keyboard=True,
+    one_time_keyboard=True
+)
 
 # create a synchronous function, which we will then wrap in async
 def _create_category(name):
@@ -1699,96 +1706,87 @@ async def prepare_categories_keyboard(channels_data, categories):
     keyboard = await sync_to_async(get_categories_keyboard)(channels_data, categories)
     return keyboard
 
-@dp.message_handler(commands=['authorize'], user_id=ADMIN_ID)
+@router.message(Command("authorize"), F.from_user.id == ADMIN_ID)
 async def start_auth(message: types.Message):
-    keyboard = types.ReplyKeyboardMarkup(resize_keyboard=True)
-    keyboard.add(types.KeyboardButton("Send Phone Number", request_contact=True))
-    await message.answer("Please click the button below to share your phone number:", reply_markup=keyboard)
-    await AuthStates.waiting_for_phone.set()
-
-@dp.message_handler(content_types=['contact'], state=AuthStates.waiting_for_phone, user_id=ADMIN_ID)
-async def process_phone(message: types.Message, state: FSMContext):
-    phone = message.contact.phone_number
-    if not phone.startswith('+'):
-        phone = '+' + phone
-    
-    # Store phone in state
-    await state.update_data(phone=phone)
-    
-    # Create or update session in database
-    session, created = TelegramSession.objects.get_or_create(
-        phone=phone,
-        defaults={
-            'api_id': '19840544',
-            'api_hash': 'c839f28bad345082329ec086fca021fa',
-            'is_active': True
-        }
+    """Start the authorization process"""
+    await message.answer(
+        "To authorize, please share your phone number using the button below:",
+        reply_markup=phone_keyboard
     )
-    
-    # Create Telethon client
-    client = TelegramClient(StringSession(), session.api_id, session.api_hash)
-    await client.connect()
-    
-    # Request verification code
-    await client.send_code_request(phone)
-    await client.disconnect()
-    
-    await message.answer("Please enter the verification code you received:", reply_markup=types.ReplyKeyboardRemove())
-    await AuthStates.waiting_for_code.set()
+    await state.set_state(AuthStates.waiting_for_phone)
 
-@dp.message_handler(state=AuthStates.waiting_for_code, user_id=ADMIN_ID)
-async def process_code(message: types.Message, state: FSMContext):
-    code = message.text
-    data = await state.get_data()
-    phone = data.get('phone')
-    
+@router.message(AuthStates.waiting_for_phone, F.contact, F.from_user.id == ADMIN_ID)
+async def process_phone(message: types.Message, state: FSMContext):
+    """Handle the received phone number"""
+    phone = message.contact.phone_number
     try:
-        # Get session from database
-        session = TelegramSession.objects.get(phone=phone)
+        # Create a new session
+        session = StringSession()
+        client = TelegramClient(session, API_ID, API_HASH)
         
-        # Create client and sign in
-        client = TelegramClient(StringSession(), session.api_id, session.api_hash)
+        # Connect and send code request
+        await client.connect()
+        code_request = await client.send_code_request(phone)
+        
+        # Store the phone and hash in the database
+        session_obj, created = await sync_to_async(TelegramSession.objects.get_or_create)(
+            user_id=message.from_user.id,
+            defaults={'phone': phone}
+        )
+        session_obj.phone_hash = code_request.phone_code_hash
+        await sync_to_async(session_obj.save)()
+        
+        await message.answer(
+            "I've sent you a code via Telegram. Please send it to me in the format: /code YOUR_CODE",
+            reply_markup=types.ReplyKeyboardRemove()
+        )
+        await state.set_state(AuthStates.waiting_for_code)
+        
+    except Exception as e:
+        logger.error(f"Error during authorization: {e}")
+        await message.answer(
+            "An error occurred during authorization. Please try again later.",
+            reply_markup=types.ReplyKeyboardRemove()
+        )
+
+@router.message(AuthStates.waiting_for_code, F.text, F.from_user.id == ADMIN_ID)
+async def process_code(message: types.Message, state: FSMContext):
+    """Handle the verification code"""
+    try:
+        code = message.text.split()[1]  # Get the code from message
+        session_obj = await sync_to_async(TelegramSession.objects.get)(user_id=message.from_user.id)
+        
+        # Create session and sign in
+        session = StringSession()
+        client = TelegramClient(session, API_ID, API_HASH)
         await client.connect()
         
-        # Try to sign in
-        await client.sign_in(phone, code)
+        await client.sign_in(
+            phone=session_obj.phone,
+            code=code,
+            phone_code_hash=session_obj.phone_hash
+        )
         
-        # Get the session string
-        session_string = client.session.save()
+        # Save the session string
+        session_obj.session_string = base64.b64encode(client.session.save().encode()).decode()
+        await sync_to_async(session_obj.save)()
+        
+        await message.answer("Successfully authorized! Your session has been saved.")
         await client.disconnect()
+        await state.clear()
         
-        # Save session string to database
-        session.session_string = base64.b64encode(session_string.encode()).decode()
-        session.save()
-        
-        await message.answer("✅ Authorization successful! The session has been saved.")
     except Exception as e:
-        await message.answer(f"❌ Error during authorization: {str(e)}")
-    finally:
-        await state.finish()
+        logger.error(f"Error during code verification: {e}")
+        await message.answer("Failed to verify code. Please try /authorize again.")
 
-# Command to check session status
-@dp.message_handler(commands=['check_session'], user_id=ADMIN_ID)
+@router.message(Command("check_session"), F.from_user.id == ADMIN_ID)
 async def check_session(message: types.Message):
-    sessions = TelegramSession.objects.filter(is_active=True)
-    if not sessions.exists():
-        await message.answer("No active sessions found.")
-        return
-    
-    for session in sessions:
+    """Check if the user has an active session"""
+    try:
+        session = await sync_to_async(TelegramSession.objects.get)(user_id=message.from_user.id)
         if session.session_string:
-            try:
-                # Try to create client with saved session
-                client = TelegramClient(StringSession(base64.b64decode(session.session_string).decode()), 
-                                     session.api_id, session.api_hash)
-                await client.connect()
-                if await client.is_user_authorized():
-                    me = await client.get_me()
-                    await message.answer(f"✅ Session active for {session.phone}\nLogged in as: {me.first_name} (@{me.username})")
-                else:
-                    await message.answer(f"❌ Session exists but not authorized for {session.phone}")
-                await client.disconnect()
-            except Exception as e:
-                await message.answer(f"❌ Error checking session for {session.phone}: {str(e)}")
+            await message.answer("You have an active session.")
         else:
-            await message.answer(f"❌ No session data found for {session.phone}")
+            await message.answer("No active session found. Please use /authorize to create one.")
+    except TelegramSession.DoesNotExist:
+        await message.answer("No session found. Please use /authorize to create one.")
