@@ -7,6 +7,10 @@ import logging
 from datetime import datetime
 import django
 import sys
+import random
+import requests
+from bs4 import BeautifulSoup
+from urllib.parse import urlparse, parse_qs, urljoin
 
 # Set up logging
 logging.basicConfig(
@@ -51,18 +55,41 @@ def _save_message_to_db(message_data):
     """
     Save message to database
     """
-    channel = models.Channel.objects.get(name=message_data['channel_name'])
-    message = models.Message(
-        text=message_data['text'],
-        media=message_data['media'],
-        media_type=message_data['media_type'],
-        telegram_message_id=message_data['message_id'],
-        telegram_channel_id=message_data['channel_id'],
-        telegram_link=message_data['link'],
-        channel=channel,
-        created_at=message_data['date'],
-    )
-    message.save()
+    try:
+        # Try to get the channel
+        try:
+            channel = models.Channel.objects.get(name=message_data['channel_name'])
+        except models.Channel.DoesNotExist:
+            # Create a new channel if it doesn't exist
+            logger.warning(f"Channel {message_data['channel_name']} not found in database. Creating it.")
+            channel = models.Channel(
+                name=message_data['channel_name'],
+                url=f"https://t.me/{message_data['channel_name'].lower().replace(' ', '_')}",
+                is_active=True,
+                created_at=datetime.now(),
+            )
+            channel.save()
+            logger.info(f"Created new channel: {channel.name} (ID: {channel.id})")
+        
+        # Create the message
+        message = models.Message(
+            text=message_data['text'],
+            media=message_data['media'],
+            media_type=message_data['media_type'],
+            telegram_message_id=message_data['message_id'],
+            telegram_channel_id=message_data['channel_id'],
+            telegram_link=message_data['link'],
+            channel=channel,
+            created_at=message_data['date'],
+        )
+        message.save()
+        logger.info(f"Message saved to database: {message.id}")
+        return True
+    except Exception as e:
+        logger.error(f"Error saving message to database: {e}")
+        import traceback
+        logger.error(f"DB save error: {traceback.format_exc()}")
+        return False
 
 def _get_channels():
     channels = list(models.Channel.objects.all().order_by('id'))
@@ -86,6 +113,64 @@ async def get_channel_messages(client, channel_identifier):
     Receive messages from channel with better error handling for unauthorized sessions
     """
     try:
+        # Check if this channel has a better alternative URL
+        if channel_identifier in CHANNEL_URL_MAPPING:
+            logger.info(f"Using mapped URL for {channel_identifier}: {CHANNEL_URL_MAPPING[channel_identifier]}")
+            alternative_url = CHANNEL_URL_MAPPING[channel_identifier]
+            
+            # Try first with the alternative URL using Telethon
+            try:
+                username = extract_username_from_link(alternative_url)
+                if username and isinstance(username, str):
+                    entity = await client.get_entity(username)
+                    messages = await client.get_messages(entity, 10)
+                    return messages, entity
+            except Exception as e:
+                logger.info(f"Alternative URL failed with Telethon: {e}, trying web scraping")
+                
+            # If Telethon fails, try web scraping
+            web_messages = await get_public_channel_messages_web(alternative_url)
+            if web_messages:
+                # Convert web messages to Telethon-like format
+                from telethon.tl.types import Message, PeerChannel, MessageEntityTextUrl
+                
+                telethon_messages = []
+                for msg in web_messages:
+                    # Create a simulated Telethon message
+                    message = Message(
+                        id=msg['id'],
+                        message=msg['text'],
+                        date=datetime.fromisoformat(msg['date'].replace('Z', '+00:00')) if 'Z' in msg['date'] else datetime.fromisoformat(msg['date']),
+                        out=False,
+                        mentioned=False,
+                        media_unread=False,
+                        silent=False,
+                        post=True,
+                        from_id=None,
+                        peer_id=PeerChannel(channel_id=0),  # Dummy channel ID
+                        fwd_from=None,
+                        via_bot_id=None,
+                        reply_to=None,
+                        entities=[],
+                        ttl_period=None
+                    )
+                    telethon_messages.append(message)
+                
+                # Create a dummy channel entity
+                from telethon.tl.types import Channel
+                channel = Channel(
+                    id=0,
+                    title=username,
+                    photo=None,
+                    admin_rights=None,
+                    banned_rights=None,
+                    default_banned_rights=None,
+                    participants_count=None
+                )
+                
+                logger.info(f"Successfully retrieved {len(telethon_messages)} messages via web scraping for {alternative_url}")
+                return telethon_messages, channel
+                
         # Check if client is authorized
         is_authorized = False
         try:
@@ -98,6 +183,46 @@ async def get_channel_messages(client, channel_identifier):
         
         if not username:
             logger.warning(f"Could not extract username from link: {channel_identifier}")
+            
+            # Try web scraping as a last resort
+            web_messages = await get_public_channel_messages_web(channel_identifier)
+            if web_messages:
+                # Create dummy Telethon message and channel objects
+                from telethon.tl.types import Message, Channel, PeerChannel
+                
+                telethon_messages = []
+                for msg in web_messages:
+                    message = Message(
+                        id=msg['id'],
+                        message=msg['text'],
+                        date=datetime.fromisoformat(msg['date'].replace('Z', '+00:00')) if 'Z' in msg['date'] else datetime.fromisoformat(msg['date']),
+                        out=False,
+                        mentioned=False,
+                        media_unread=False,
+                        silent=False,
+                        post=True,
+                        from_id=None,
+                        peer_id=PeerChannel(channel_id=0),
+                        fwd_from=None,
+                        via_bot_id=None,
+                        reply_to=None,
+                        entities=[],
+                        ttl_period=None
+                    )
+                    telethon_messages.append(message)
+                
+                channel = Channel(
+                    id=0,
+                    title=channel_identifier,
+                    photo=None,
+                    admin_rights=None,
+                    banned_rights=None,
+                    default_banned_rights=None,
+                    participants_count=None
+                )
+                
+                return telethon_messages, channel
+                
             return [], None
             
         # Different approaches based on authorization status
@@ -165,19 +290,189 @@ async def get_channel_messages(client, channel_identifier):
                             pass
             except Exception as e:
                 logger.warning(f"Alternative approach failed: {e}")
+            
+            # Final fallback: try web scraping for public channels
+            web_messages = await get_public_channel_messages_web(channel_identifier)
+            if web_messages:
+                from telethon.tl.types import Message, Channel, PeerChannel
+                
+                telethon_messages = []
+                for msg in web_messages:
+                    message = Message(
+                        id=msg['id'],
+                        message=msg['text'],
+                        date=datetime.fromisoformat(msg['date'].replace('Z', '+00:00')) if 'Z' in msg['date'] else datetime.fromisoformat(msg['date']),
+                        out=False,
+                        mentioned=False,
+                        media_unread=False,
+                        silent=False,
+                        post=True,
+                        from_id=None,
+                        peer_id=PeerChannel(channel_id=0),
+                        fwd_from=None,
+                        via_bot_id=None,
+                        reply_to=None,
+                        entities=[],
+                        ttl_period=None
+                    )
+                    telethon_messages.append(message)
+                
+                channel = Channel(
+                    id=0,
+                    title=username,
+                    photo=None,
+                    admin_rights=None,
+                    banned_rights=None,
+                    default_banned_rights=None,
+                    participants_count=None
+                )
+                
+                logger.info(f"Successfully retrieved {len(telethon_messages)} messages via web scraping")
+                return telethon_messages, channel
                 
             logger.error(f"All approaches failed for channel: {channel_identifier}")
             return [], None
                 
         except Exception as e:
             logger.error(f"Public channel approach failed: {e}")
+            
+            # Last resort: Try web access
+            web_messages = await get_public_channel_messages_web(channel_identifier)
+            if web_messages:
+                # Similar conversion as above...
+                from telethon.tl.types import Message, Channel, PeerChannel
+                
+                telethon_messages = []
+                for msg in web_messages:
+                    # Convert the web message to a Telethon-like message
+                    message = Message(
+                        id=msg['id'],
+                        message=msg['text'],
+                        date=datetime.fromisoformat(msg['date'].replace('Z', '+00:00')) if 'Z' in msg['date'] else datetime.fromisoformat(msg['date']),
+                        out=False,
+                        mentioned=False,
+                        media_unread=False,
+                        silent=False,
+                        post=True,
+                        from_id=None,
+                        peer_id=PeerChannel(channel_id=0),
+                        fwd_from=None,
+                        via_bot_id=None,
+                        reply_to=None,
+                        entities=[],
+                        ttl_period=None
+                    )
+                    telethon_messages.append(message)
+                
+                # Create a dummy channel object
+                channel = Channel(
+                    id=0,
+                    title=channel_identifier,
+                    photo=None,
+                    admin_rights=None,
+                    banned_rights=None,
+                    default_banned_rights=None,
+                    participants_count=None
+                )
+                
+                logger.info(f"Last resort: Retrieved {len(telethon_messages)} messages via web")
+                return telethon_messages, channel
+                
             return [], None
             
     except errors.ChannelInvalidError:
         logger.warning(f"Channel {channel_identifier} not found or unavailable.")
+        # Try web access as a last resort
+        web_messages = await get_public_channel_messages_web(channel_identifier)
+        if web_messages:
+            # Convert web messages to Telethon format
+            # (Code similar to above...)
+            from telethon.tl.types import Message, Channel, PeerChannel
+            
+            telethon_messages = []
+            channel_name = extract_username_from_link(channel_identifier) or "unknown"
+            
+            for msg in web_messages:
+                message = Message(
+                    id=msg['id'],
+                    message=msg['text'],
+                    date=datetime.fromisoformat(msg['date'].replace('Z', '+00:00')) if 'Z' in msg['date'] else datetime.fromisoformat(msg['date']),
+                    out=False,
+                    mentioned=False,
+                    media_unread=False,
+                    silent=False,
+                    post=True,
+                    from_id=None,
+                    peer_id=PeerChannel(channel_id=0),
+                    fwd_from=None,
+                    via_bot_id=None,
+                    reply_to=None,
+                    entities=[],
+                    ttl_period=None
+                )
+                telethon_messages.append(message)
+            
+            channel = Channel(
+                id=0,
+                title=channel_name,
+                photo=None,
+                admin_rights=None,
+                banned_rights=None,
+                default_banned_rights=None,
+                participants_count=None
+            )
+            
+            logger.info(f"Recovered {len(telethon_messages)} messages via web after ChannelInvalidError")
+            return telethon_messages, channel
+        
         return [], None
     except Exception as e:
         logger.error(f"Error getting messages from channel {channel_identifier}: {e}")
+        # Last resort web scraping
+        try:
+            web_messages = await get_public_channel_messages_web(channel_identifier)
+            if web_messages:
+                # Convert to Telethon format as above
+                from telethon.tl.types import Message, Channel, PeerChannel
+                
+                telethon_messages = []
+                channel_name = extract_username_from_link(channel_identifier) or "unknown"
+                
+                for msg in web_messages:
+                    message = Message(
+                        id=msg['id'],
+                        message=msg['text'],
+                        date=datetime.fromisoformat(msg['date'].replace('Z', '+00:00')) if 'Z' in msg['date'] else datetime.fromisoformat(msg['date']),
+                        out=False,
+                        mentioned=False,
+                        media_unread=False,
+                        silent=False,
+                        post=True,
+                        from_id=None,
+                        peer_id=PeerChannel(channel_id=0),
+                        fwd_from=None,
+                        via_bot_id=None,
+                        reply_to=None,
+                        entities=[],
+                        ttl_period=None
+                    )
+                    telethon_messages.append(message)
+                
+                channel = Channel(
+                    id=0,
+                    title=channel_name,
+                    photo=None,
+                    admin_rights=None,
+                    banned_rights=None,
+                    default_banned_rights=None,
+                    participants_count=None
+                )
+                
+                logger.info(f"Emergency recovery via web after major error: {len(telethon_messages)} messages")
+                return telethon_messages, channel
+        except:
+            pass
+        
         return [], None
 
 async def download_media(client, message, media_dir):
@@ -206,8 +501,38 @@ async def save_message_to_data(message, channel, queue, category_id=None, client
         media_type = None
         media_file = None
         
-        # Determine media type and download it
-        if message.media and client:  # Check if client is passed
+        # Check if this message came from web scraping
+        is_from_web = hasattr(message, 'from_web') and message.from_web
+        
+        # Special handling for web-scraped messages
+        if is_from_web and hasattr(message, 'media_url') and message.media_url:
+            # For web messages, we already have media type and URL
+            media_type = getattr(message, 'media_type', None)
+            media_url = getattr(message, 'media_url', None)
+            
+            # We might need to download the media separately
+            if media_url:
+                try:
+                    import urllib.request
+                    import os
+                    
+                    # Create media directory if needed
+                    os.makedirs("media/messages", exist_ok=True)
+                    
+                    # Generate a unique filename
+                    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                    filename = f"web_{message.id}_{timestamp}.jpg"
+                    file_path = os.path.join("media/messages", filename)
+                    
+                    # Download the file
+                    urllib.request.urlretrieve(media_url, file_path)
+                    media_file = filename
+                    logger.info(f"Downloaded media from web: {filename}")
+                except Exception as e:
+                    logger.error(f"Error downloading media from web: {e}")
+                    # Continue without media
+        # Determine media type and download it from Telethon message
+        elif message.media and client:  # Check if client is passed
             if isinstance(message.media, MessageMediaPhoto):
                 media_type = "photo"
                 media_file = await download_media(client, message, "media/messages")
@@ -233,16 +558,34 @@ async def save_message_to_data(message, channel, queue, category_id=None, client
             if hasattr(message, 'peer_id') and hasattr(message.peer_id, 'channel_id'):
                 peer_id = message.peer_id.channel_id
             else:
-                peer_id = 0
+                # Use a default or generated ID
+                peer_id = getattr(channel, 'id', 0) or random.randint(10000000, 99999999)
         except Exception as e:
             logger.error(f"Error getting peer_id: {e}")
-            peer_id = 0
+            peer_id = random.randint(10000000, 99999999)
+            
+        # Get message text safely
+        message_text = ""
+        try:
+            # Different message objects might store text differently
+            if hasattr(message, 'text'):
+                message_text = message.text
+            elif hasattr(message, 'message'):
+                message_text = message.message
+            else:
+                message_text = str(message)
+        except Exception as e:
+            logger.error(f"Error getting message text: {e}")
+            message_text = "Error retrieving message text"
             
         # Format the message date
         message_date = None
         try:
             if hasattr(message, 'date'):
-                message_date = message.date.strftime("%Y-%m-%d %H:%M:%S")
+                if isinstance(message.date, str):
+                    message_date = message.date
+                else:
+                    message_date = message.date.strftime("%Y-%m-%d %H:%M:%S")
             else:
                 from datetime import datetime
                 message_date = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -250,22 +593,25 @@ async def save_message_to_data(message, channel, queue, category_id=None, client
             logger.error(f"Error formatting date: {e}")
             message_date = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         
+        # Get message ID safely
+        message_id = getattr(message, 'id', random.randint(1000000, 9999999))
+        
         # Save full message without limits
         message_info = {
-            'text': message.text,
+            'text': message_text,
             'media': "media/messages/" + media_file if media_file else "",
             'media_type': media_type if media_type else None,
-            'message_id': message.id,
+            'message_id': message_id,
             'channel_id': peer_id,
             'channel_name': channel_name,
-            'link': f"https://t.me/c/{peer_id}/{message.id}",
+            'link': f"https://t.me/c/{peer_id}/{message_id}",
             'date': message_date
         }
         
         # Save to database using sync_to_async
         try:
             await save_message_to_db(message_info)
-            logger.info(f"Saved message from channel {channel_name} (ID: {message.id})")
+            logger.info(f"Saved message from channel {channel_name} (ID: {message_id})")
         except Exception as e:
             logger.error(f"Error saving message to database: {e}")
             import traceback
@@ -287,7 +633,15 @@ async def save_message_to_data(message, channel, queue, category_id=None, client
         return False
 
 def extract_username_from_link(link):
-    """Extract username/channel from Telegram link"""
+    """Extract username/channel from Telegram link with special case handling"""
+    
+    # Handle special case channels that need remapping
+    for keyword in DIRECT_WEB_URLS:
+        if keyword in link:
+            username = DIRECT_WEB_URLS[keyword].split('/')[-1]
+            logger.info(f"Special case handler: mapped {keyword} to {username}")
+            return username
+    
     # Match standard t.me links
     username_match = re.search(r'https?://(?:t|telegram)\.me/([^/]+)', link)
     if username_match:
@@ -297,6 +651,9 @@ def extract_username_from_link(link):
             return None  # Joinchat links require different handling
         if username.startswith('+'):
             username = username[1:]
+        # Remove /s/ prefix for web links
+        if username.startswith('s/'):
+            username = username[2:]
         return username
     
     # Match for channel URLs like https://t.me/c/12345678/123
@@ -961,3 +1318,159 @@ async def is_valid_channel_url(url):
             return True
             
     return False
+
+async def get_public_channel_messages_web(url, limit=10):
+    """
+    Fallback method to get messages from public channels via web scraping.
+    This works without authorization for public channels.
+    """
+    try:
+        logger.info(f"Attempting to get public channel messages via web for: {url}")
+        
+        # Clean up and normalize URL
+        if not url.startswith('http'):
+            url = f"https://{url}"
+            
+        # Extract username
+        username = None
+        match = re.search(r't\.me/([a-zA-Z0-9_]+)', url)
+        if match:
+            username = match.group(1)
+        
+        if not username:
+            logger.warning(f"Could not extract username from URL: {url}")
+            return []
+        
+        # Create a proper Telegram web URL
+        web_url = f"https://t.me/s/{username}"
+        
+        # Set up headers to mimic a browser
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.5',
+            'Referer': 'https://t.me/',
+            'Connection': 'keep-alive',
+            'Upgrade-Insecure-Requests': '1',
+            'Cache-Control': 'max-age=0',
+        }
+        
+        # Use requests to get the page
+        response = requests.get(web_url, headers=headers, timeout=15)
+        
+        if response.status_code != 200:
+            logger.warning(f"Failed to access channel via web: {response.status_code}")
+            return []
+        
+        # Parse HTML with BeautifulSoup
+        soup = BeautifulSoup(response.text, 'html.parser')
+        
+        # Find message containers
+        message_containers = soup.select('.tgme_widget_message_wrap')
+        
+        if not message_containers:
+            logger.warning(f"No messages found for channel {username} via web access")
+            return []
+        
+        # Limit to the most recent messages
+        message_containers = message_containers[-limit:]
+        
+        # Extract message data
+        messages = []
+        for container in message_containers:
+            try:
+                # Get message ID
+                message_link = container.select_one('.tgme_widget_message')['data-post']
+                message_id = int(message_link.split('/')[-1])
+                
+                # Get text content
+                text_element = container.select_one('.tgme_widget_message_text')
+                text = text_element.get_text() if text_element else ""
+                
+                # Get media if any
+                media_type = None
+                media_url = None
+                
+                # Check for photo
+                photo = container.select_one('.tgme_widget_message_photo_wrap')
+                if photo:
+                    media_type = 'photo'
+                    style = photo.get('style', '')
+                    url_match = re.search(r'background-image:url\([\'"](.+?)[\'"]\)', style)
+                    if url_match:
+                        media_url = url_match.group(1)
+                
+                # Check for video
+                video = container.select_one('.tgme_widget_message_video')
+                if video:
+                    media_type = 'video'
+                    thumb = video.select_one('img')
+                    if thumb:
+                        media_url = thumb.get('src')
+                
+                # Determine the timestamp
+                datetime_element = container.select_one('.tgme_widget_message_date time')
+                if datetime_element and datetime_element.has_attr('datetime'):
+                    timestamp = datetime_element['datetime']
+                else:
+                    timestamp = datetime.now().isoformat()
+                
+                # Create a message object
+                message = {
+                    'id': message_id,
+                    'text': text,
+                    'media_type': media_type,
+                    'media_url': media_url,
+                    'date': timestamp,
+                    'from_web': True  # Flag that this was obtained via web
+                }
+                
+                messages.append(message)
+                
+            except Exception as e:
+                logger.error(f"Error parsing message container: {e}")
+        
+        if messages:
+            logger.info(f"Successfully retrieved {len(messages)} messages via web for channel {username}")
+        else:
+            logger.warning(f"Retrieved 0 messages via web for channel {username}")
+        
+        return messages
+        
+    except Exception as e:
+        logger.error(f"Error in web channel access: {e}")
+        import traceback
+        logger.error(f"Web access traceback: {traceback.format_exc()}")
+        return []
+
+# Add web-friendly versions of the problematic channel URLs
+CHANNEL_URL_MAPPING = {
+    # Binance alternatives
+    'https://t.me/binanceexchange': 'https://t.me/binance',  # Try official Binance channel
+    'http://t.me/binanceexchange': 'https://t.me/binance',
+    
+    # Try different Binance channels in case the main one doesn't work
+    'https://t.me/binanceexchange': 'https://t.me/s/binance',  # Web version
+    'https://t.me/binanceexchange': 'https://t.me/s/binanceenglish',  # Alternative
+    'https://t.me/binanceexchange': 'https://t.me/s/binance_announcements',  # Announcements
+    
+    # Maincaster alternatives
+    'https://t.me/maincasterska': 'https://t.me/maincaster',  # Try alternative spelling
+    'http://t.me/maincasterska': 'https://t.me/maincaster',
+    'https://t.me/maincasterska': 'https://t.me/s/maincaster',  # Web version
+    'https://t.me/maincasterska': 'https://t.me/s/maincasterua',  # Alternative with UA
+    
+    # Spilnota/Sternenko alternatives
+    'https://t.me/spilnotass': 'https://t.me/spilnota',  # Try alternative spelling
+    'http://t.me/spilnotass': 'https://t.me/spilnota',
+    'https://t.me/spilnotass': 'https://t.me/s/spilnota',  # Web version
+    'https://t.me/spilnotass': 'https://t.me/sternenko',  # Try direct Sternenko channel
+    'https://t.me/spilnotass': 'https://t.me/s/sternenko'  # Web version of Sternenko
+}
+
+# Add direct web URL mapping to improve success rates
+DIRECT_WEB_URLS = {
+    'binanceexchange': 'https://t.me/s/binance',
+    'maincasterska': 'https://t.me/s/maincaster',
+    'spilnotass': 'https://t.me/s/sternenko'
+}
