@@ -164,11 +164,24 @@ async def process_messages(queue):
                 message_info = queue.get_nowait()
                 if message_info and 'message_data' in message_info:
                     message_data = message_info['message_data']
-                    logger.info(f"Received message from Telethon: {message_data}")
+                    category_id = message_info.get('category_id')
+                    
+                    # Log the received message info for debugging
+                    logger.info(f"Received message from Telethon: {message_data['message_id']} from channel {message_data['channel_name']}")
+                    logger.debug(f"Message data: {message_data}")
+                    
+                    # Here you can add additional processing for the message
+                    # For example, send notifications, update statistics, etc.
+                    
+                    # Log success after processing
+                    logger.info(f"Successfully processed message {message_data['message_id']} from {message_data['channel_name']}")
+                else:
+                    logger.warning(f"Received malformed message data from queue: {message_info}")
 
-                  
             except Exception as e:
                 logger.error(f"Error processing message: {e}")
+                import traceback
+                logger.error(f"Error traceback: {traceback.format_exc()}")
     logger.info("Processing messages from queue completed")
 
 async def run_bot_forever():

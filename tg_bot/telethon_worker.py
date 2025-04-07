@@ -37,24 +37,56 @@ def _save_message_to_db(message_data):
     save message to db
     """
     try:
-        channel = models.Channel.objects.get(name=message_data['channel_name'])
-        message = models.Message(
-            text=message_data['text'],
-            media=message_data['media'],
-            media_type=message_data['media_type'],
+        logger.info(f"Saving message to DB: channel '{message_data['channel_name']}', message ID {message_data['message_id']}")
+        
+        # Try to get the channel
+        try:
+            channel = models.Channel.objects.get(name=message_data['channel_name'])
+        except models.Channel.DoesNotExist:
+            logger.error(f"Channel '{message_data['channel_name']}' not found in database")
+            return None
+        except models.Channel.MultipleObjectsReturned:
+            logger.warning(f"Multiple channels found with name '{message_data['channel_name']}'. Using the first one.")
+            channel = models.Channel.objects.filter(name=message_data['channel_name']).first()
+        
+        # Check if message already exists to avoid duplicates
+        existing_message = models.Message.objects.filter(
             telegram_message_id=message_data['message_id'],
-            telegram_channel_id=message_data['channel_id'],
-            telegram_link=message_data['link'],
-            channel=channel,
-            created_at=message_data['date'],
-            session_used=message_data.get('session_used')
-        )
-        message.save()
-        session_info = f" (via {message_data.get('session_used').phone})" if message_data.get('session_used') else ""
-        logger.info(f"Saved message: channel '{channel.name}', message ID {message_data['message_id']}{session_info}")
-        return message
+            telegram_channel_id=message_data['channel_id']
+        ).first()
+        
+        if existing_message:
+            logger.debug(f"Message already exists: {message_data['message_id']} from '{message_data['channel_name']}'")
+            return existing_message
+            
+        # Create the message object
+        try:
+            message = models.Message(
+                text=message_data['text'],
+                media=message_data['media'],
+                media_type=message_data['media_type'],
+                telegram_message_id=message_data['message_id'],
+                telegram_channel_id=message_data['channel_id'],
+                telegram_link=message_data['link'],
+                channel=channel,
+                created_at=message_data['date'],
+                session_used=message_data.get('session_used')
+            )
+            message.save()
+            
+            session_info = f" (via {message_data.get('session_used').phone})" if message_data.get('session_used') else ""
+            logger.info(f"Saved message: channel '{channel.name}', message ID {message_data['message_id']}{session_info}")
+            return message
+        except Exception as e:
+            logger.error(f"Error creating message object: {e}")
+            import traceback
+            logger.error(f"Traceback: {traceback.format_exc()}")
+            return None
+            
     except Exception as e:
         logger.error(f"Error saving message: {e}")
+        import traceback
+        logger.error(f"Traceback: {traceback.format_exc()}")
         return None
 
 def _get_channels():
@@ -108,8 +140,14 @@ async def get_channel_messages(client, channel_identifier):
     getting messages from the specified channel
     """
     try:
+        logger.info(f"Attempting to get messages from: {channel_identifier}")
+        
         # Update the dialog cache first to ensure we have the latest channel information
-        await client.get_dialogs()
+        try:
+            await client.get_dialogs(limit=100)
+            logger.debug("Successfully updated dialogs cache")
+        except Exception as e:
+            logger.warning(f"Error updating dialog cache: {e} - continuing anyway")
         
         # Try to get the channel entity - handle different formats
         try:
@@ -122,15 +160,19 @@ async def get_channel_messages(client, channel_identifier):
                     
                 if channel_username.startswith('joinchat/'):
                     # For private invite links, we need to use the full URL
+                    logger.info(f"Handling private invite link: {channel_identifier}")
                     channel = await client.get_entity(channel_identifier)
                 elif channel_username.isdigit():
                     # For numeric IDs (private channels)
+                    logger.info(f"Handling numeric channel ID: {channel_username}")
                     channel = await client.get_entity(int(channel_username))
                 else:
                     # For usernames
+                    logger.info(f"Handling username: @{channel_username}")
                     channel = await client.get_entity(channel_username)
             else:
                 # Direct username or ID
+                logger.info(f"Handling direct identifier: {channel_identifier}")
                 channel = await client.get_entity(channel_identifier)
                 
         except errors.ChannelInvalidError:
@@ -140,28 +182,41 @@ async def get_channel_messages(client, channel_identifier):
             if channel_identifier.startswith('https://t.me/'):
                 # Try removing any trailing parts
                 base_url = re.sub(r'(/\d+)?$', '', channel_identifier)
+                logger.info(f"Trying alternative URL: {base_url}")
                 try:
                     channel = await client.get_entity(base_url)
+                    logger.info(f"Successfully resolved channel via alternative URL: {base_url}")
                 except Exception as e:
                     logger.error(f"Alternative method also failed: {e}")
                     return [], None
             else:
                 # No more fallbacks, give up
+                logger.error(f"No more fallback methods for: {channel_identifier}")
                 return [], None
                 
         except Exception as e:
             logger.error(f"Error getting channel entity for {channel_identifier}: {e}")
+            import traceback
+            logger.error(f"Traceback: {traceback.format_exc()}")
             return [], None
         
         # Get the messages - handle errors and limits
         try:
+            # Get messages - make sure we have the channel entity
+            if not channel:
+                logger.error(f"Channel entity is empty for {channel_identifier}")
+                return [], None
+                
+            channel_title = getattr(channel, 'title', channel_identifier)
+            logger.info(f"Getting messages from channel: {channel_title} (ID: {getattr(channel, 'id', 'unknown')})")
+            
             # Get the last 10 messages
             messages = await client.get_messages(channel, limit=10)
             if not messages:
-                logger.warning(f"No messages found in channel {getattr(channel, 'title', channel_identifier)}")
+                logger.warning(f"No messages found in channel {channel_title}")
                 return [], channel
                 
-            logger.debug(f"Received {len(messages)} messages from channel {getattr(channel, 'title', channel_identifier)}")
+            logger.info(f"Retrieved {len(messages)} messages from channel {channel_title}")
             return messages, channel
             
         except errors.ChatAdminRequiredError:
@@ -170,6 +225,8 @@ async def get_channel_messages(client, channel_identifier):
             
         except Exception as e:
             logger.error(f"Error getting messages from channel entity: {e}")
+            import traceback
+            logger.error(f"Traceback: {traceback.format_exc()}")
             return [], channel
             
     except errors.ChannelInvalidError:
@@ -178,6 +235,8 @@ async def get_channel_messages(client, channel_identifier):
         
     except Exception as e:
         logger.error(f"Error getting messages from channel {channel_identifier}: {e}")
+        import traceback
+        logger.error(f"Traceback: {traceback.format_exc()}")
         return [], None
 
 async def download_media(client, message, media_dir):
@@ -292,9 +351,9 @@ async def save_message_to_data(message, channel, queue, category_id=None, client
         saved_message = await save_message_to_db(message_info)
         
         if saved_message:
-            # send to queue
+            # send to queue - FIXING: Changed structure to match what's expected in main.py
             queue.put({
-                'message_info': message_info, 
+                'message_data': message_info,  # Changed from 'message_info': message_info
                 'category_id': category_id
             })
             
@@ -524,6 +583,13 @@ async def telethon_task(queue):
                 active_channels = sum(1 for channel in channels if channel.is_active)
                 logger.info(f"Active channels: {active_channels}/{len(channels)}")
                 
+                # Debug: Print details of each channel to help troubleshoot
+                for idx, channel in enumerate(channels, 1):
+                    if channel.is_active:
+                        session_info = f" [Session: {channel.session.phone}]" if hasattr(channel, 'session') and channel.session else " [No session]"
+                        category_info = f" [Category: {channel.category.name}]" if hasattr(channel, 'category') and channel.category else " [No category]"
+                        logger.debug(f"Channel {idx}: {channel.name}{session_info}{category_info} - URL: {channel.url}")
+                
                 for channel in channels:
                     # Check if stop event was set during iteration
                     if stop_event:
@@ -562,8 +628,10 @@ async def telethon_task(queue):
                         channel_link = channel.url
                         
                         if not channel_link or not channel_link.startswith('https://t.me/'):
-                            logger.warning(f"Channel '{channel.name}' has no valid link")
+                            logger.warning(f"Channel '{channel.name}' has no valid link: {channel_link}")
                             continue
+                        
+                        logger.info(f"Trying to fetch messages from channel '{channel.name}' using link: {channel_link}")
                                 
                         # first try to join channel
                         try:
@@ -574,6 +642,7 @@ async def telethon_task(queue):
                                 if '/joinchat/' in channel_link or '/join/' in channel_link:
                                     # This is an invite link, use it directly
                                     entity = await client.get_entity(channel_link)
+                                    logger.info(f"Successfully resolved invite link for channel '{channel.name}'")
                                 elif '/c/' in channel_link:
                                     # This is a private channel with a channel ID
                                     match = re.search(r'https?://(?:t|telegram)\.me/c/(\d+)', channel_link)
@@ -581,9 +650,13 @@ async def telethon_task(queue):
                                         channel_id = int(match.group(1))
                                         try:
                                             entity = await client.get_entity(channel_id)
+                                            logger.info(f"Successfully resolved private channel ID for '{channel.name}'")
                                         except Exception as e:
                                             logger.error(f"Failed to get entity for channel ID {channel_id}: {e}")
                                             continue
+                                    else:
+                                        logger.error(f"Could not extract channel ID from link: {channel_link}")
+                                        continue
                                 else:
                                     # This is a public channel with a username
                                     match = re.search(r'https?://(?:t|telegram)\.me/([a-zA-Z0-9_]+)', channel_link)
@@ -591,9 +664,13 @@ async def telethon_task(queue):
                                         username = match.group(1)
                                         try:
                                             entity = await client.get_entity(username)
+                                            logger.info(f"Successfully resolved username @{username} for channel '{channel.name}'")
                                         except Exception as e:
                                             logger.error(f"Failed to get entity for username @{username}: {e}")
                                             continue
+                                    else:
+                                        logger.error(f"Could not extract username from link: {channel_link}")
+                                        continue
                             else:
                                 logger.warning(f"Channel link format not supported: {channel_link}")
                                 continue
@@ -641,6 +718,8 @@ async def telethon_task(queue):
                                 
                         if messages and tg_channel:
                             try:
+                                logger.info(f"Successfully retrieved {len(messages)} messages from channel '{channel.name}'")
+                                
                                 # Initialize local variable for last message ID
                                 new_last_message_id = None
                                 
@@ -657,11 +736,20 @@ async def telethon_task(queue):
                                 
                                 # Process messages (newest first)
                                 new_messages_count = 0
+                                processed_message_ids = set()  # To avoid duplicates in the same run
+                                
                                 for message in messages:
                                     # Skip if we've already processed this message
                                     if last_message_id and message.id <= last_message_id:
                                         logger.debug(f"Skipping already processed message {message.id} from channel '{channel.name}'")
                                         continue
+                                    
+                                    # Skip if we've already processed this message in this run
+                                    if message.id in processed_message_ids:
+                                        logger.debug(f"Skipping duplicate message {message.id} from channel '{channel.name}'")
+                                        continue
+                                    
+                                    processed_message_ids.add(message.id)
                                         
                                     # Update the latest message ID for this channel
                                     if new_last_message_id is None or message.id > new_last_message_id:
@@ -697,6 +785,7 @@ async def telethon_task(queue):
                                 
                             except Exception as e:
                                 logger.error(f"Error processing messages from channel '{channel.name}': {e}")
+                                import traceback
                                 logger.error(f"Traceback: {traceback.format_exc()}")
                         else:
                             logger.warning(f"Unable to get messages from channel: '{channel.name}'")
@@ -710,6 +799,7 @@ async def telethon_task(queue):
 
                     except Exception as e:
                         logger.error(f"Error in telethon_task for channel '{channel.name}': {e}")
+                        import traceback
                         logger.error(f"Traceback: {traceback.format_exc()}")
 
                     # Small sleep between processing channels to avoid rate limiting
@@ -724,10 +814,13 @@ async def telethon_task(queue):
                 
             except Exception as e:
                 logger.error(f"Error reading or processing channels: {e}")
+                import traceback
+                logger.error(f"Traceback: {traceback.format_exc()}")
                 await asyncio.sleep(30)  # Wait before retrying
                 
     except Exception as e:
         logger.error(f"Error in telethon_task: {e}")
+        import traceback
         logger.error(f"Traceback: {traceback.format_exc()}")
     finally:
         # Ensure all clients are properly disconnected
