@@ -129,6 +129,12 @@ def validate_telethon_session_file(session_file):
 
 def ensure_telethon_session():
     """Ensure Telethon session files exist and are valid"""
+    import os
+    import shutil
+    import base64
+    import logging
+    logger = logging.getLogger('run_script')
+    
     logger.info("Checking for Telethon session...")
 
     # Спочатку перевіряємо існуючі файли сесій, які з більшою ймовірністю будуть дійсними
@@ -136,7 +142,6 @@ def ensure_telethon_session():
     if os.path.exists('test_session.session'):
         logger.info("Found test_session.session file")
         # Copy it to the standard name for consistency
-        import shutil
         try:
             # Перевіряємо чи дійсний файл сесії
             if validate_telethon_session_file('test_session.session'):
@@ -153,7 +158,6 @@ def ensure_telethon_session():
     if os.path.exists('telethon_user_session.session'):
         logger.info("Found telethon_user_session.session file")
         # Copy it to the standard name for consistency
-        import shutil
         try:
             # Перевіряємо чи дійсний файл сесії
             if validate_telethon_session_file('telethon_user_session.session'):
@@ -170,7 +174,6 @@ def ensure_telethon_session():
     if os.path.exists('telethon_session_backup.session'):
         logger.info("Found telethon_session_backup.session file")
         # Copy it to the standard name for consistency
-        import shutil
         try:
             # Перевіряємо чи дійсний файл сесії
             if validate_telethon_session_file('telethon_session_backup.session'):
@@ -194,7 +197,6 @@ def ensure_telethon_session():
             else:
                 logger.warning("telethon_session.session exists but is not valid")
                 # Видаляємо пошкоджений файл
-                import os
                 try:
                     os.remove('telethon_session.session')
                     logger.info("Removed corrupted telethon_session.session")
@@ -504,81 +506,62 @@ async def auth_with_existing_session():
 
 def run_telethon_parser(message_queue):
     """Start Telethon parser"""
+    import os
+    import logging
+    import asyncio
+    from telethon import TelegramClient
+    from tg_bot.config import API_ID, API_HASH
+    
+    logger = logging.getLogger('run_script')
     logger.info("Starting Telethon parser...")
+    
     try:
         # Verify Telethon session exists
         if not ensure_telethon_session():
-            logger.warning("No valid Telethon session file found through standard methods. Trying direct authentication...")
-            
-            # Прямо спробуємо авторизуватись із test_session
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            success = loop.run_until_complete(auth_with_existing_session())
-            
-            if not success:
-                logger.warning("No valid Telethon session found. Please authorize using the Telegram bot (🔐 Authorize Telethon) or run 'python -m tg_bot.auth_telethon'.")
-                logger.warning("IMPORTANT: You must use a regular user account, NOT a bot!")
-                logger.warning("Telethon parser will not be started.")
-                return
-            
-        # Make sure Django is fully initialized before starting the parser
-        # as it depends on Django ORM models
+            logger.warning("No valid Telethon session found. Please authorize using the Telegram bot.")
+            return
+        
+        # Initialize Django
         import django
         os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'core.settings')
         django.setup()
         
-        # Initialize Telethon here, outside of worker process
-        from telethon import TelegramClient
-        from tg_bot.config import API_ID, API_HASH
-        
-        logger.info(f"Initializing Telethon client with API_ID: {API_ID}")
-        
-        # Try with multiple session names in case of issues
-        session_names = ['telethon_session', 'telethon_user_session', 'test_session']
-        client = None
-        
-        # Run the async initialization function
+        # Create event loop
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         
-        for session_name in session_names:
-            if os.path.exists(f"{session_name}.session"):
-                logger.info(f"Trying session file: {session_name}.session")
-                
-                # Try multiple times with increasing delays
-                for attempt in range(3):
-                    try:
-                        # Initialize client with async function
-                        client = loop.run_until_complete(initialize_telethon_client(session_name))
-                        if client:
-                            break
-                        
-                        # If client initialization failed, wait before retry
-                        logger.warning(f"Failed to initialize client on attempt {attempt+1}. Retrying...")
-                        time.sleep(5 * (attempt + 1))  # Increasing backoff
-                    except Exception as e:
-                        logger.error(f"Error initializing client on attempt {attempt+1}: {e}")
-                        time.sleep(5 * (attempt + 1))
-                
-                # If we got a valid client, break the session loop
-                if client:
-                    logger.info(f"Successfully initialized client with session: {session_name}")
-                    break
+        # Initialize Telethon client
+        client = TelegramClient('telethon_session', API_ID, API_HASH)
         
-        # Check if we have a valid client
-        if not client:
-            logger.error("All session attempts failed. Telethon parser will not start.")
-            return
-        
-        # If we got here, we have a working client
-        logger.info("Telethon client successfully connected and authorized")
-        
-        # Pass the initialized client to the worker process
-        from tg_bot.telethon_worker import telethon_worker_process
-        telethon_worker_process(message_queue, client)
-        
+        try:
+            # Connect and check authorization
+            loop.run_until_complete(client.connect())
+            if not loop.run_until_complete(client.is_user_authorized()):
+                logger.error("Telethon client is not authorized!")
+                return
+            
+            # Get me to verify connection
+            me = loop.run_until_complete(client.get_me())
+            logger.info(f"Connected to Telegram as {me.first_name} (@{me.username})")
+            
+            # Start the worker process
+            from tg_bot.telethon_worker import telethon_worker_process
+            telethon_worker_process(message_queue, client)
+            
+        except Exception as e:
+            logger.error(f"Error in Telethon client: {e}")
+            import traceback
+            logger.error(f"Traceback: {traceback.format_exc()}")
+        finally:
+            try:
+                loop.run_until_complete(client.disconnect())
+                loop.close()
+            except:
+                pass
+    
     except Exception as e:
         logger.error(f"Error starting Telethon parser: {e}")
+        import traceback
         logger.error(f"Traceback: {traceback.format_exc()}")
 
 def message_processor(message_queue):

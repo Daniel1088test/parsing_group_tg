@@ -1,4 +1,5 @@
 from django.db import models
+from django.utils import timezone
 
 class TelegramSession(models.Model):
     phone = models.CharField(max_length=20, unique=True)
@@ -19,7 +20,8 @@ class TelegramSession(models.Model):
         ordering = ['-created_at']
 
 class Category(models.Model):
-    name = models.CharField(max_length=255)
+    name = models.CharField(max_length=100)
+    description = models.TextField(blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     session = models.ForeignKey(TelegramSession, on_delete=models.SET_NULL, null=True, blank=True, related_name='categories')
@@ -28,20 +30,22 @@ class Category(models.Model):
         return self.name
     
     class Meta:
-        verbose_name = 'Category'
-        verbose_name_plural = 'Categories'
+        verbose_name = "Category"
+        verbose_name_plural = "Categories"
         ordering = ['name']
     
 class Channel(models.Model):
-    name = models.CharField(max_length=255)
-    url = models.URLField(max_length=255, blank=True)
+    name = models.CharField(max_length=100)
+    url = models.CharField(max_length=100, unique=True)
+    description = models.TextField(blank=True)
+    category = models.ForeignKey(Category, on_delete=models.CASCADE, related_name='channels')
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    last_parsed = models.DateTimeField(null=True, blank=True)
     telegram_id = models.CharField(max_length=255, blank=True, null=True, help_text="Telegram channel ID")
     telegram_username = models.CharField(max_length=255, blank=True, null=True, help_text="Telegram username (without @)")
     title = models.CharField(max_length=255, blank=True, null=True, help_text="Official channel title from Telegram")
-    category = models.ForeignKey(Category, on_delete=models.CASCADE)
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
-    is_active = models.BooleanField(default=True)
     session = models.ForeignKey(TelegramSession, on_delete=models.SET_NULL, null=True, blank=True, related_name='channels')
 
     def __str__(self):
@@ -54,18 +58,19 @@ class Channel(models.Model):
         return self.title or self.name
     
     class Meta:
-        verbose_name = 'Channel'
-        verbose_name_plural = 'Channels'
+        verbose_name = "Channel"
+        verbose_name_plural = "Channels"
         ordering = ['name']
     
 class Message(models.Model):
-    text = models.TextField()
-    media = models.FileField(upload_to='messages/', null=True, blank=True)
-    media_type = models.CharField(max_length=255, null=True, blank=True)
-    telegram_message_id = models.CharField(max_length=255)
-    telegram_channel_id = models.CharField(max_length=255)
-    telegram_link = models.URLField(max_length=255)
-    channel = models.ForeignKey(Channel, on_delete=models.CASCADE)
+    channel = models.ForeignKey(Channel, on_delete=models.CASCADE, related_name='messages')
+    message_id = models.BigIntegerField()
+    date = models.DateTimeField()
+    text = models.TextField(blank=True)
+    has_image = models.BooleanField(default=False)
+    has_video = models.BooleanField(default=False)
+    has_audio = models.BooleanField(default=False)
+    has_document = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     session_used = models.ForeignKey(TelegramSession, on_delete=models.SET_NULL, null=True, blank=True, related_name='messages')
@@ -75,6 +80,10 @@ class Message(models.Model):
         return f"{self.channel.display_name()} - {text_preview}"
     
     class Meta:
-        verbose_name = 'Message'
-        verbose_name_plural = 'Messages'
-        ordering = ['-created_at']
+        verbose_name = "Message"
+        verbose_name_plural = "Messages"
+        unique_together = ('channel', 'message_id')
+        indexes = [
+            models.Index(fields=['channel', 'date']),
+            models.Index(fields=['message_id']),
+        ]

@@ -7,8 +7,9 @@ import logging
 from datetime import datetime
 import django
 from typing import Dict, Optional, Tuple
+from django.utils import timezone
 
-from telethon import TelegramClient, errors, client
+from telethon import TelegramClient, errors, client, events
 from telethon.tl.functions.channels import JoinChannelRequest
 from telethon.tl.types import MessageMediaPhoto, MessageMediaDocument, MessageMediaWebPage
 from asgiref.sync import sync_to_async
@@ -31,6 +32,7 @@ django.setup()
 
 # import models
 from admin_panel import models
+from admin_panel.models import Channel, Message, Category
 
 def _save_message_to_db(message_data):
     """
@@ -525,7 +527,7 @@ async def telethon_task(queue, pre_initialized_client=None):
         # If we don't have any clients yet (or pre-init processing failed), proceed with normal initialization
         if not telethon_clients:
         # Get all active sessions from the database
-        sessions = await get_telegram_sessions()
+            sessions = await get_telegram_sessions()
         
         if not sessions:
             logger.warning("No active Telegram sessions found in the database")
@@ -558,7 +560,7 @@ async def telethon_task(queue, pre_initialized_client=None):
             
             # If no clients were initialized, try with default session
             if not telethon_clients:
-                    logger.warning("No clients were initialized from sessions. Trying default session.")
+                logger.warning("No clients were initialized from sessions. Trying default session.")
                 default_client, default_me = await initialize_client()
                 if default_client:
                     telethon_clients['default'] = {
@@ -619,7 +621,7 @@ async def telethon_task(queue, pre_initialized_client=None):
                             if username:
                                 identifier = username
                             else:
-                            identifier = channel.name
+                                identifier = channel.name
                             
                         logger.debug(f"Getting messages for channel: {identifier}")
                         
@@ -785,3 +787,43 @@ def telethon_worker_process(queue, pre_initialized_client=None):
         logger.error(f"Traceback: {traceback.format_exc()}")
     finally:
             loop.close()
+
+async def process_message(event, channel_db):
+    """Process and save a new message"""
+    try:
+        # Get the message
+        message = event.message
+        
+        # Extract message info
+        message_info = {
+            'message_id': message.id,
+            'date': timezone.make_aware(message.date),
+            'text': message.text if message.text else '',
+            'channel_id': channel_db.id,
+        }
+        
+        # Handle media
+        if message.media:
+            if hasattr(message.media, 'photo'):
+                message_info['has_image'] = True
+            if hasattr(message.media, 'document'):
+                message_info['has_document'] = True
+                if hasattr(message.media.document, 'mime_type'):
+                    if message.media.document.mime_type.startswith('video'):
+                        message_info['has_video'] = True
+                    elif message.media.document.mime_type.startswith('audio'):
+                        message_info['has_audio'] = True
+        
+        # Save message to database
+        @sync_to_async
+        def save_message():
+            try:
+                Message.objects.create(**message_info)
+                logger.info(f"Saved message {message.id} from channel {channel_db.name}")
+            except Exception as e:
+                logger.error(f"Error saving message: {e}")
+        
+        await save_message()
+        
+    except Exception as e:
+        logger.error(f"Error processing message: {e}")
