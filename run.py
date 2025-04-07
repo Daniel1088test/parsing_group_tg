@@ -34,10 +34,13 @@ def run_django():
     logger.info("Starting Django server...")
     try:
         from tg_bot.config import WEB_SERVER_HOST, WEB_SERVER_PORT
-        # Use 127.0.0.1 instead of localhost to avoid IPv6 issues
-        host = "parsinggrouptg-production.up.railway.app" if WEB_SERVER_HOST == "localhost" else WEB_SERVER_HOST
+        
+        # Always use 127.0.0.1 for the bot's internal Django server
+        host = "127.0.0.1"
+        port = WEB_SERVER_PORT
+        
         django_process = subprocess.Popen(
-            [sys.executable, 'manage.py', 'runserver', f"{host}:{WEB_SERVER_PORT}"],
+            [sys.executable, 'manage.py', 'runserver', f"{host}:{port}"],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             universal_newlines=True

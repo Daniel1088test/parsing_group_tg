@@ -172,13 +172,25 @@ echo "Starting Telegram bot..."
 
 # Kill ALL Python processes (except this script)
 echo "Killing all Python processes..."
-CURRENT_PID=$$
-for pid in $(ps aux | grep python | grep -v grep | awk '{print $2}'); do
-    if [ "$pid" != "$CURRENT_PID" ]; then
-        echo "Killing Python process $pid"
-        kill -9 $pid 2>/dev/null || true
-    fi
-done
+# Use pgrep if available, otherwise fallback to simpler method
+if command -v pgrep >/dev/null 2>&1; then
+    for pid in $(pgrep python); do
+        if [ "$pid" != "$$" ]; then
+            echo "Killing Python process $pid"
+            kill -9 $pid 2>/dev/null || true
+        fi
+    done
+else
+    # Fallback method using /proc
+    echo "ps command not found, using alternative method..."
+    for pid in /proc/[0-9]*; do
+        pid=${pid##*/}
+        if [ "$pid" != "$$" ] && grep -q "python" "/proc/$pid/cmdline" 2>/dev/null; then
+            echo "Killing Python process $pid"
+            kill -9 $pid 2>/dev/null || true
+        fi
+    done
+fi
 
 # Remove any existing PID files
 rm -f .*.pid .bot.pid *.pid 2>/dev/null || true
@@ -193,6 +205,10 @@ sleep 5
 SESSIONS_DIR="/app/sessions"
 mkdir -p $SESSIONS_DIR
 
+# Export bot-specific environment variables
+export BOT_SERVER_HOST="127.0.0.1"  # Use localhost for the bot's Django server
+export BOT_SERVER_PORT="8081"  # Use a different port than the main Django server
+
 # Start the bot with retries
 MAX_RETRIES=5
 RETRY_COUNT=0
@@ -203,15 +219,24 @@ while [ $RETRY_COUNT -lt $MAX_RETRIES ] && [ "$BOT_STARTED" = false ]; do
     
     # Start the bot
     cd /app  # Ensure we're in the app directory
-    python run.py &
+    PYTHONPATH=/app python run.py &
     TELEGRAM_PID=$!
     echo $TELEGRAM_PID > .bot.pid
     
     # Wait longer to see if the bot stays up
-    sleep 10
+    sleep 15  # Increased wait time to ensure proper startup
     if kill -0 $TELEGRAM_PID 2>/dev/null; then
-        BOT_STARTED=true
-        echo "Bot started successfully"
+        # Check if process is actually running and not just a zombie
+        if grep -q "zombie" "/proc/$TELEGRAM_PID/status" 2>/dev/null; then
+            echo "Bot process is zombie, considering as failed"
+            kill -9 $TELEGRAM_PID 2>/dev/null || true
+            rm -f .bot.pid
+            RETRY_COUNT=$((RETRY_COUNT + 1))
+            sleep 10
+        else
+            BOT_STARTED=true
+            echo "Bot started successfully"
+        fi
     else
         echo "Bot failed to start, retrying..."
         kill -9 $TELEGRAM_PID 2>/dev/null || true
