@@ -362,10 +362,16 @@ def run_services():
     start_time = datetime.now()
     logger.info(f"====== Starting services {start_time.strftime('%Y-%m-%d %H:%M:%S')} ======")
     
-    # Create a queue for inter-process communication
-    message_queue = multiprocessing.Queue()
+    # Initialize process variables to None
+    django_process = None
+    telethon_process = None
+    processor_process = None
+    message_queue = None
     
     try:
+        # Create a queue for inter-process communication
+        message_queue = multiprocessing.Queue()
+        
         # Start Django server first - if this fails, we'll exit early
         django_process = run_django()
         if not django_process:
@@ -376,22 +382,32 @@ def run_services():
         time.sleep(3)
         
         # Start message processor
-        processor_process = multiprocessing.Process(
-            target=message_processor,
-            args=(message_queue,)
-        )
-        processor_process.daemon = True
-        processor_process.start()
-        logger.info(f"Message processor process started (PID: {processor_process.pid})")
+        try:
+            processor_process = multiprocessing.Process(
+                target=message_processor,
+                args=(message_queue,)
+            )
+            processor_process.daemon = True
+            processor_process.start()
+            logger.info(f"Message processor process started (PID: {processor_process.pid})")
+        except Exception as e:
+            logger.error(f"Failed to start message processor: {e}")
+            shutdown_services()
+            return
         
         # Start Telethon parser
-        telethon_process = multiprocessing.Process(
-            target=run_telethon_parser,
-            args=(message_queue,)
-        )
-        telethon_process.daemon = True
-        telethon_process.start()
-        logger.info(f"Telethon parser process started (PID: {telethon_process.pid})")
+        try:
+            telethon_process = multiprocessing.Process(
+                target=run_telethon_parser,
+                args=(message_queue,)
+            )
+            telethon_process.daemon = True
+            telethon_process.start()
+            logger.info(f"Telethon parser process started (PID: {telethon_process.pid})")
+        except Exception as e:
+            logger.error(f"Failed to start Telethon parser: {e}")
+            shutdown_services()
+            return
         
         # Start bot in event loop
         try:
@@ -440,43 +456,59 @@ def shutdown_services():
     logger.info("Stopping services...")
     
     # Stop Telethon parser
-    if telethon_process and telethon_process.is_alive():
-        logger.info("Stopping Telethon parser...")
-        telethon_process.terminate()
-        telethon_process.join(timeout=5)
-        if telethon_process.is_alive():
-            logger.warning("Telethon parser did not terminate gracefully, forcing...")
-            if sys.platform == 'win32':
-                telethon_process.kill()
-            else:
-                os.kill(telethon_process.pid, signal.SIGKILL)
+    logger.info("Stopping Telethon parser...")
+    if telethon_process is not None:
+        try:
+            if telethon_process.is_alive():
+                telethon_process.terminate()
+                telethon_process.join(timeout=5)
+                if telethon_process.is_alive():
+                    logger.warning("Telethon parser did not terminate gracefully, forcing...")
+                    if sys.platform == 'win32':
+                        telethon_process.kill()
+                    else:
+                        os.kill(telethon_process.pid, signal.SIGKILL)
+        except Exception as e:
+            logger.error(f"Error stopping Telethon parser: {e}")
     
     # Stop message processor
-    if processor_process and processor_process.is_alive():
-        logger.info("Stopping message processor...")
-        processor_process.terminate()
-        processor_process.join(timeout=5)
-        if processor_process.is_alive():
-            logger.warning("Message processor did not terminate gracefully, forcing...")
-            if sys.platform == 'win32':
-                processor_process.kill()
-            else:
-                os.kill(processor_process.pid, signal.SIGKILL)
+    logger.info("Stopping message processor...")
+    if processor_process is not None:
+        try:
+            if processor_process.is_alive():
+                processor_process.terminate()
+                processor_process.join(timeout=5)
+                if processor_process.is_alive():
+                    logger.warning("Message processor did not terminate gracefully, forcing...")
+                    if sys.platform == 'win32':
+                        processor_process.kill()
+                    else:
+                        os.kill(processor_process.pid, signal.SIGKILL)
+        except Exception as e:
+            logger.error(f"Error stopping message processor: {e}")
     
     # Stop Django server
-    if django_process:
-        logger.info("Stopping Django server...")
-        if sys.platform == 'win32':
-            subprocess.call(['taskkill', '/F', '/T', '/PID', str(django_process.pid)])
-        else:
-            django_process.terminate()
-            django_process.wait(timeout=5)
+    logger.info("Stopping Django server...")
+    if django_process is not None:
+        try:
+            if sys.platform == 'win32':
+                subprocess.call(['taskkill', '/F', '/T', '/PID', str(django_process.pid)])
+            else:
+                django_process.terminate()
+                django_process.wait(timeout=5)
+        except Exception as e:
+            logger.error(f"Error stopping Django server: {e}")
 
 def signal_handler(signum, frame):
     """Handle termination signals"""
     logger.info(f"Received signal {signum}. Initiating shutdown...")
-    shutdown_services()
-    sys.exit(0)
+    try:
+        shutdown_services()
+    except Exception as e:
+        logger.error(f"Error during shutdown: {e}")
+        logger.error(f"Traceback: {traceback.format_exc()}")
+    finally:
+        sys.exit(0)
 
 if __name__ == "__main__":
     # Set the limit on the number of open files for Windows
@@ -484,11 +516,16 @@ if __name__ == "__main__":
         try:
             import win32file
             win32file._setmaxstdio(2048)
-        except:
-            pass
+        except ImportError:
+            logger.warning("Could not import win32file. File handle limit not adjusted.")
+        except Exception as e:
+            logger.error(f"Error setting file handle limit: {e}")
     
     # Set up signal handlers
-    signal.signal(signal.SIGINT, signal_handler)
-    signal.signal(signal.SIGTERM, signal_handler)
+    try:
+        signal.signal(signal.SIGINT, signal_handler)
+        signal.signal(signal.SIGTERM, signal_handler)
+    except Exception as e:
+        logger.error(f"Error setting up signal handlers: {e}")
     
     run_services() 
