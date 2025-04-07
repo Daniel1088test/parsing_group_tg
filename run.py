@@ -34,10 +34,13 @@ def run_django():
     logger.info("Starting Django server...")
     try:
         from tg_bot.config import WEB_SERVER_HOST, WEB_SERVER_PORT
-        # Use 127.0.0.1 instead of localhost to avoid IPv6 issues
-        host = "127.0.0.1" if WEB_SERVER_HOST == "localhost" else WEB_SERVER_HOST
+        # Use 0.0.0.0 to listen on all interfaces in production
+        host = WEB_SERVER_HOST
+        port = WEB_SERVER_PORT
+        logger.info(f"Django server configured to run on {host}:{port}")
+        
         django_process = subprocess.Popen(
-            [sys.executable, 'manage.py', 'runserver', f"{host}:{WEB_SERVER_PORT}"],
+            [sys.executable, 'manage.py', 'runserver', f"{host}:{port}"],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             universal_newlines=True
@@ -55,6 +58,7 @@ def run_django():
         return django_process
     except Exception as e:
         logger.error(f"Error starting Django server: {e}")
+        logger.error(f"Traceback: {traceback.format_exc()}")
         return None
 
 async def run_bot():
@@ -77,8 +81,18 @@ def run_telethon_parser(message_queue):
     """Start Telethon parser"""
     logger.info("Starting Telethon parser...")
     try:
+        # Check if telethon session exists in environment variables first
+        session_data = os.getenv('TELETHON_SESSION')
+        if session_data:
+            logger.info("Found Telethon session in environment variables. Using it.")
+            # Write session data to file
+            with open('telethon_session.session', 'wb') as f:
+                import base64
+                f.write(base64.b64decode(session_data))
+        
         # Check if any user session file exists (either from bot or console)
-        if not (os.path.exists('telethon_user_session.session') or os.path.exists('telethon_session.session')):
+        if not (os.path.exists('telethon_user_session.session') or 
+                os.path.exists('telethon_session.session')):
             logger.warning("No Telethon session file found. Please authorize using the Telegram bot (🔐 Authorize Telethon) or run 'python -m tg_bot.auth_telethon'.")
             logger.warning("IMPORTANT: You must use a regular user account, NOT a bot!")
             logger.warning("Telethon parser will not be started.")

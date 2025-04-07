@@ -1,0 +1,53 @@
+# Git
+.git
+.gitignore
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual Environment
+venv/
+ENV/
+env/
+
+# IDE files
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Local development files
+.env
+.env.local
+*.log
+db.sqlite3
+
+# Session files (will be recreated from environment variables)
+*.session
+*.session-journal
+
+# Static and media files (will be collected during build)
+staticfiles/
+
+# Docker files
+.dockerignore
+Dockerfile 
