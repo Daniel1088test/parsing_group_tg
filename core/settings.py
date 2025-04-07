@@ -32,12 +32,25 @@ SECRET_KEY = os.getenv('SECRET_KEY', 'django-insecure-+0y690!*z(#c)1a%r8&wasr(%3
 DEBUG = os.getenv('DEBUG', 'True').lower() == 'true'
 
 # Allow the specific Railway domain and any subdomains
-ALLOWED_HOSTS = ['parsinggrouptg-production.up.railway.app', 'parsinggrouptg-production-7718.up.railway.app', '.railway.app', 'localhost', '127.0.0.1', '*']
+ALLOWED_HOSTS = ['parsinggrouptg-production.up.railway.app', 'parsinggrouptg-production-7718.up.railway.app', 'gondola.proxy.rlwy.net', '.railway.app', 'localhost', '127.0.0.1', '*']
+
+# CSRF settings - add trusted origins
+CSRF_TRUSTED_ORIGINS = [
+    'https://parsinggrouptg-production.up.railway.app',
+    'https://parsinggrouptg-production-7718.up.railway.app', 
+    'https://gondola.proxy.rlwy.net',
+    'http://parsinggrouptg-production.up.railway.app',
+    'http://parsinggrouptg-production-7718.up.railway.app',
+    'http://gondola.proxy.rlwy.net',
+]
 
 # Security settings - enable HTTPS
 SECURE_SSL_REDIRECT = False  # Let Railway handle this
 SESSION_COOKIE_SECURE = True
 CSRF_COOKIE_SECURE = True
+CSRF_COOKIE_HTTPONLY = True
+CSRF_USE_SESSIONS = True
+CSRF_COOKIE_SAMESITE = 'Lax'
 SECURE_HSTS_SECONDS = 3600  # 1 hour
 SECURE_HSTS_INCLUDE_SUBDOMAINS = True
 SECURE_HSTS_PRELOAD = True

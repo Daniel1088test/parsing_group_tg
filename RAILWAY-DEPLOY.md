@@ -24,7 +24,7 @@ Your project is already configured for Railway deployment with the following fil
 3. Add the following environment variables:
 
 ```
-DATABASE_URL=postgresql://postgres:urCNhXdwvbqOvvEsJDffIiDUMcLhAvcs@switchback.proxy.rlwy.net:10052/railway
+DATABASE_URL=postgresql://postgres:urCNhXdwvbqOvvEGMFkdJnBcpWIx@roundhouse.proxy.rlwy.net:29349/railway
 DEBUG=False
 SECRET_KEY=your-secure-secret-key
 ALLOWED_HOSTS=.railway.app,parsinggrouptg-production.up.railway.app
@@ -34,6 +34,10 @@ API_HASH=your_telegram_api_hash
 PUBLIC_HOST=parsinggrouptg-production.up.railway.app
 SESSION_COOKIE_SECURE=True
 CSRF_COOKIE_SECURE=True
+CSRF_COOKIE_HTTPONLY=True
+CSRF_USE_SESSIONS=True
+CSRF_COOKIE_SAMESITE=Lax
+CSRF_TRUSTED_ORIGINS=https://parsinggrouptg-production.up.railway.app,http://parsinggrouptg-production.up.railway.app
 ```
 
 Replace the values with your actual values.
