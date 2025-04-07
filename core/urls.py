@@ -20,7 +20,11 @@ from django.conf import settings
 from django.conf.urls.static import static
 from django.http import HttpResponse, JsonResponse
 from django.db import connection
+from django.views.decorators.csrf import csrf_exempt
+from django.views.decorators.http import require_GET
 
+@csrf_exempt
+@require_GET
 def health_check(request):
     try:
         # Test database connection
@@ -28,18 +32,11 @@ def health_check(request):
             cursor.execute("SELECT 1")
             cursor.fetchone()
         
-        # Return success response
-        return JsonResponse({
-            "status": "healthy",
-            "database": "connected",
-            "version": "1.0.0"
-        })
+        # Return success response with minimal processing
+        return HttpResponse("OK", content_type="text/plain")
     except Exception as e:
         # Return error response
-        return JsonResponse({
-            "status": "unhealthy",
-            "error": str(e)
-        }, status=500)
+        return HttpResponse("Error: " + str(e), status=500, content_type="text/plain")
 
 urlpatterns = [
     path('admin/', admin.site.urls),

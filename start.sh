@@ -172,6 +172,18 @@ echo "Starting Telegram bot..."
 
 # Try to kill any existing Python processes running the bot
 echo "Checking for existing bot processes..."
+
+# Kill any process using the bot token (more reliable than PID file)
+BOT_TOKEN=$(grep -r "bot_token" . | grep -oE "[0-9]{8,10}:[a-zA-Z0-9_-]{35}" || true)
+if [ ! -z "$BOT_TOKEN" ]; then
+    echo "Found bot token, checking for existing processes..."
+    for pid in $(ps aux | grep "$BOT_TOKEN" | grep -v grep | awk '{print $2}'); do
+        echo "Killing process $pid"
+        kill -9 $pid 2>/dev/null || true
+    done
+fi
+
+# Also check PID file as backup
 if [ -f ".bot.pid" ]; then
     OLD_PID=$(cat .bot.pid)
     if [ -n "$OLD_PID" ]; then
@@ -180,7 +192,8 @@ if [ -f ".bot.pid" ]; then
     fi
     rm -f .bot.pid
 fi
-sleep 5  # Give more time for process cleanup
+
+sleep 10  # Give more time for process cleanup and token release
 
 # Clear any existing session files that might cause conflicts
 echo "Clearing any existing bot sessions..."
@@ -191,12 +204,42 @@ sleep 2
 SESSIONS_DIR="/app/sessions"
 mkdir -p $SESSIONS_DIR
 
+# Restore any backed up sessions
+if [ -d "$SESSIONS_DIR" ]; then
+    echo "Restoring session files..."
+    cp $SESSIONS_DIR/*.session* . 2>/dev/null || true
+fi
+
 # Start the bot with a fresh session
 echo "Starting fresh bot instance..."
 cd /app  # Ensure we're in the app directory
-python run.py & 
-TELEGRAM_PID=$!
-echo $TELEGRAM_PID > .bot.pid
+
+# Start the bot with retries
+MAX_RETRIES=3
+RETRY_COUNT=0
+BOT_STARTED=false
+
+while [ $RETRY_COUNT -lt $MAX_RETRIES ] && [ "$BOT_STARTED" = false ]; do
+    python run.py &
+    TELEGRAM_PID=$!
+    echo $TELEGRAM_PID > .bot.pid
+    
+    # Wait a bit to see if the bot stays up
+    sleep 5
+    if kill -0 $TELEGRAM_PID 2>/dev/null; then
+        BOT_STARTED=true
+        echo "Bot started successfully"
+    else
+        echo "Bot failed to start, retrying..."
+        RETRY_COUNT=$((RETRY_COUNT + 1))
+        sleep 5
+    fi
+done
+
+if [ "$BOT_STARTED" = false ]; then
+    echo "Failed to start bot after $MAX_RETRIES attempts"
+    exit 1
+fi
 
 # Create session backup hook
 backup_sessions() {

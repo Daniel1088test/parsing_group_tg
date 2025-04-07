@@ -39,7 +39,13 @@ CSRF_TRUSTED_ORIGINS = [
 CSRF_COOKIE_SECURE = True
 SESSION_COOKIE_SECURE = True
 SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+
+# Only enable SSL redirect if not a health check
+def is_health_check(request):
+    return request and request.path.startswith('/health')
+
 SECURE_SSL_REDIRECT = True
+SECURE_SSL_REDIRECT_EXEMPT = [r'^health/']
 SECURE_HSTS_SECONDS = 31536000
 SECURE_HSTS_INCLUDE_SUBDOMAINS = True
 SECURE_HSTS_PRELOAD = True
