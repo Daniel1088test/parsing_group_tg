@@ -87,6 +87,12 @@ def ensure_telethon_session():
     if session_data:
         try:
             logger.info("Found Telethon session in environment variables. Using it.")
+            # Fix padding for base64 if necessary
+            if len(session_data) % 4 != 0:
+                padding = 4 - (len(session_data) % 4)
+                session_data += "=" * padding
+                logger.info(f"Fixed base64 padding (added {padding} padding characters)")
+            
             # Write session data to file
             with open('telethon_session.session', 'wb') as f:
                 f.write(base64.b64decode(session_data))
@@ -94,6 +100,7 @@ def ensure_telethon_session():
             return True
         except Exception as e:
             logger.error(f"Error writing Telethon session from environment: {e}")
+            logger.error(f"Session data might be corrupted. Check your TELETHON_SESSION environment variable.")
     
     # Check Django database for session data
     try:
@@ -115,6 +122,12 @@ def ensure_telethon_session():
             try:
                 # Decode and write to file
                 session_data = session.session_data
+                # Fix padding for base64 if necessary
+                if len(session_data) % 4 != 0:
+                    padding = 4 - (len(session_data) % 4)
+                    session_data += "=" * padding
+                    logger.info(f"Fixed base64 padding from database (added {padding} padding characters)")
+                
                 with open('telethon_session.session', 'wb') as f:
                     f.write(base64.b64decode(session_data))
                 logger.info("Telethon session written from database")

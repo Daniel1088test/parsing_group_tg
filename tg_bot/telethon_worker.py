@@ -624,8 +624,33 @@ def telethon_worker_process(queue, pre_initialized_client=None):
     asyncio.set_event_loop(loop)
     
     try:
-        # Run the telethon task
-        loop.run_until_complete(telethon_task(queue, pre_initialized_client))
+        if pre_initialized_client:
+            logger.info("Using pre-initialized client from run.py")
+            try:
+                # We need to recreate a new client in this process
+                # because event loops can't be shared between processes
+                client_disconnected = False
+                try:
+                    # Try to disconnect the pre-initialized client gracefully
+                    loop.run_until_complete(pre_initialized_client.disconnect())
+                    client_disconnected = True
+                except Exception as e:
+                    logger.error(f"Error disconnecting pre-initialized client: {e}")
+                
+                # Extract session info from the pre-initialized client
+                session_name = pre_initialized_client.session.filename
+                logger.info(f"Using session file: {session_name}")
+                
+                # Run the telethon task with no pre-initialized client
+                # it will create its own client with the correct event loop
+                loop.run_until_complete(telethon_task(queue, None))
+            except Exception as e:
+                logger.error(f"Error getting info for pre-initialized client: {e}")
+                # Fallback - run without pre-initialized client
+                loop.run_until_complete(telethon_task(queue, None))
+        else:
+            # Run the telethon task normally
+            loop.run_until_complete(telethon_task(queue, None))
     except KeyboardInterrupt:
         logger.info("Interrupted")
     except Exception as e:
