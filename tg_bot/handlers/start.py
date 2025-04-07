@@ -45,9 +45,8 @@ async def command_start(message: Message):
 @router.callback_query(F.data == "add_channel")
 async def add_channel_callback(callback: CallbackQuery):
     """Handler for the 'Add channel' callback"""
-    # Check if HTTP or HTTPS
-    protocol = "https" if PUBLIC_HOST.startswith(("https://", "gondola.proxy.rlwy.net")) else "http"
-    website_url = f"{protocol}://{PUBLIC_HOST}"
+    # Always use HTTP for Railway domains
+    website_url = f"http://{PUBLIC_HOST}"
     
     message = (
         "📱 <b>Инструкция по добавлению канала:</b>\n\n"
@@ -65,9 +64,8 @@ async def add_channel_callback(callback: CallbackQuery):
 @router.callback_query(F.data == "auth_telethon")
 async def auth_telethon_callback(callback: CallbackQuery):
     """Handler for authorization of Telethon"""
-    # Check if HTTP or HTTPS
-    protocol = "https" if PUBLIC_HOST.startswith(("https://", "gondola.proxy.rlwy.net")) else "http"
-    website_url = f"{protocol}://{PUBLIC_HOST}"
+    # Always use HTTP for Railway domains
+    website_url = f"http://{PUBLIC_HOST}"
     
     await callback.message.edit_text(
         "🔐 <b>Авторизация пользовательского аккаунта для Telethon</b>\n\n"
@@ -99,9 +97,8 @@ async def cmd_start(message: types.Message):
 
 @router.message(F.text == "🌐 Go to the website")   
 async def website(message: types.Message):
-    # Use the PUBLIC_HOST from configuration
-    protocol = "https" if PUBLIC_HOST.startswith(("https://", "gondola.proxy.rlwy.net")) else "http"
-    website_url = f"{protocol}://{PUBLIC_HOST}"
+    # Always use HTTP for Railway domains
+    website_url = f"http://{PUBLIC_HOST}"
     
     # Create inline keyboard with button to go to the website
     keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
@@ -113,8 +110,8 @@ async def website(message: types.Message):
 
 @router.callback_query(F.data == "get_qr_code")
 async def send_qr_code(callback: types.CallbackQuery):
-    protocol = "https" if PUBLIC_HOST.startswith(("https://", "gondola.proxy.rlwy.net")) else "http"
-    website_url = f"{protocol}://{PUBLIC_HOST}"
+    # Always use HTTP for Railway domains
+    website_url = f"http://{PUBLIC_HOST}"
     
     try:
         # Create QR code for the website

@@ -34,8 +34,17 @@ DEBUG = os.getenv('DEBUG', 'True').lower() == 'true'
 # Allow the specific Railway domain and any subdomains
 ALLOWED_HOSTS = ['gondola.proxy.rlwy.net', '.railway.app', 'localhost', '127.0.0.1', '*']
 
+# Security settings - disable HTTPS/SSL-related security for Railway deployment
+SECURE_SSL_REDIRECT = False
+SESSION_COOKIE_SECURE = False
+CSRF_COOKIE_SECURE = False
+SECURE_HSTS_SECONDS = 0
+SECURE_HSTS_INCLUDE_SUBDOMAINS = False
+SECURE_HSTS_PRELOAD = False
+
 SESSION_ENGINE = 'django.contrib.sessions.backends.db'
 SESSION_COOKIE_AGE = 60 * 24 * 14
+
 # Application definition
 
 INSTALLED_APPS = [
