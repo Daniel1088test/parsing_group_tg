@@ -9,7 +9,6 @@ import queue
 import time
 import traceback
 from datetime import datetime
-from concurrent.futures import ThreadPoolExecutor
 
 # Configuration of logging for the entire project
 logging.basicConfig(
@@ -69,18 +68,8 @@ async def run_bot():
         os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'core.settings')
         django.setup()
         
-        # Import and verify configuration
-        from tg_bot.config import TOKEN_BOT, API_ID, API_HASH
-        
-        if not all([TOKEN_BOT, API_ID, API_HASH]):
-            raise ValueError("Missing required Telegram configuration. Please check TOKEN_BOT, API_ID, and API_HASH in config.py")
-        
         from tg_bot.bot import main
         await main()
-    except ImportError as e:
-        logger.error(f"Import error in bot: {e}")
-        logger.error(f"Traceback: {traceback.format_exc()}")
-        raise
     except Exception as e:
         logger.error(f"Error starting bot: {e}")
         logger.error(f"Traceback: {traceback.format_exc()}")
@@ -120,9 +109,6 @@ def run_telethon_parser(message_queue):
             
         from tg_bot.telethon_worker import telethon_worker_process
         telethon_worker_process(message_queue)
-    except ImportError as e:
-        logger.error(f"Import error in Telethon parser: {e}")
-        logger.error(f"Traceback: {traceback.format_exc()}")
     except Exception as e:
         logger.error(f"Error starting Telethon parser: {e}")
         logger.error(f"Traceback: {traceback.format_exc()}")
@@ -149,7 +135,7 @@ def message_processor(message_queue):
         logger.error(f"Fatal error in message processor: {e}")
         logger.error(f"Traceback: {traceback.format_exc()}")
 
-def run_services():
+async def run_services():
     """Main function to run all services"""
     global django_process, telethon_process, processor_process, message_queue
     
@@ -167,7 +153,7 @@ def run_services():
             return
         
         # Allow Django to fully initialize before starting other services
-        time.sleep(3)
+        await asyncio.sleep(3)
         
         # Start message processor
         processor_process = multiprocessing.Process(
@@ -187,31 +173,9 @@ def run_services():
         telethon_process.start()
         logger.info(f"Telethon parser process started (PID: {telethon_process.pid})")
         
-        # Start bot in event loop
-        try:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            loop.run_until_complete(run_bot())
-        except KeyboardInterrupt:
-            logger.info("\nReceived termination signal (KeyboardInterrupt)")
-        except Exception as e:
-            logger.error(f"Error in bot event loop: {e}")
-            logger.error(f"Traceback: {traceback.format_exc()}")
-        finally:
-            if loop and not loop.is_closed():
-                # Cancel all remaining tasks
-                for task in asyncio.all_tasks(loop):
-                    task.cancel()
-                
-                # Run the event loop once more to let it process the cancellations
-                try:
-                    loop.run_until_complete(asyncio.sleep(0.1))
-                except asyncio.CancelledError:
-                    pass
-                
-                loop.close()
-                logger.info("Event loop closed")
-    
+        # Start bot
+        await run_bot()
+        
     except KeyboardInterrupt:
         logger.info("\nReceived termination signal (KeyboardInterrupt)")
     except Exception as e:
@@ -219,7 +183,7 @@ def run_services():
         logger.error(f"Traceback: {traceback.format_exc()}")
     finally:
         # Always ensure proper shutdown
-        shutdown_services()
+        await shutdown_services()
         
         # Log runtime information
         end_time = datetime.now()
@@ -227,7 +191,7 @@ def run_services():
         logger.info(f"Services stopped. Runtime: {runtime}")
         logger.info("====== End ======")
 
-def shutdown_services():
+async def shutdown_services():
     """Shutdown all services cleanly"""
     global django_process, telethon_process, processor_process
     
@@ -240,10 +204,7 @@ def shutdown_services():
         telethon_process.join(timeout=5)
         if telethon_process.is_alive():
             logger.warning("Telethon parser did not terminate gracefully, forcing...")
-            if sys.platform == 'win32':
-                telethon_process.kill()
-            else:
-                os.kill(telethon_process.pid, signal.SIGKILL)
+            os.kill(telethon_process.pid, signal.SIGKILL)
     
     # Stop message processor
     if processor_process and processor_process.is_alive():
@@ -252,37 +213,27 @@ def shutdown_services():
         processor_process.join(timeout=5)
         if processor_process.is_alive():
             logger.warning("Message processor did not terminate gracefully, forcing...")
-            if sys.platform == 'win32':
-                processor_process.kill()
-            else:
-                os.kill(processor_process.pid, signal.SIGKILL)
+            os.kill(processor_process.pid, signal.SIGKILL)
     
     # Stop Django server
     if django_process:
         logger.info("Stopping Django server...")
-        if sys.platform == 'win32':
-            subprocess.call(['taskkill', '/F', '/T', '/PID', str(django_process.pid)])
-        else:
-            django_process.terminate()
+        django_process.terminate()
+        try:
             django_process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            os.kill(django_process.pid, signal.SIGKILL)
 
 def signal_handler(signum, frame):
     """Handle termination signals"""
     logger.info(f"Received signal {signum}. Initiating shutdown...")
-    shutdown_services()
+    asyncio.run(shutdown_services())
     sys.exit(0)
 
 if __name__ == "__main__":
-    # Set the limit on the number of open files for Windows
-    if sys.platform.startswith('win'):
-        try:
-            import win32file
-            win32file._setmaxstdio(2048)
-        except:
-            pass
-    
-    # Set up signal handlers
-    signal.signal(signal.SIGINT, signal_handler)
+    # Register signal handlers
     signal.signal(signal.SIGTERM, signal_handler)
+    signal.signal(signal.SIGINT, signal_handler)
     
-    run_services() 
+    # Run the main service
+    asyncio.run(run_services()) 

@@ -17,34 +17,28 @@ django.setup()
 
 from aiogram import Bot, Dispatcher, types
 from aiogram.fsm.storage.memory import MemoryStorage
-from aiogram.utils import executor
+from aiogram.filters import Command
+from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
 from tg_bot.config import TOKEN_BOT, BOT_USERNAME, PUBLIC_URL
 from tg_bot.handlers import common_router, admin_router, session_router
-from tg_bot.middlewares import ChannelsDataMiddleware
 
 # initialize the bot and dispatcher
 bot = Bot(token=TOKEN_BOT)
-storage = MemoryStorage()
-dp = Dispatcher(storage=storage)
-
-# add middleware for channel data
-dp.message.middleware(ChannelsDataMiddleware())
-dp.callback_query.middleware(ChannelsDataMiddleware())
+dp = Dispatcher(storage=MemoryStorage())
 
 # register all routers
 dp.include_router(session_router)
 dp.include_router(admin_router)
 dp.include_router(common_router)
 
-@dp.message_handler(commands=['start'])
-async def start_command(message: types.Message):
+@dp.message(Command('start'))
+async def start_command(message: Message):
     """Handle the /start command"""
-    keyboard = types.InlineKeyboardMarkup()
-    url_button = types.InlineKeyboardButton(
-        text="🌐 Відкрити сайт", 
-        url=PUBLIC_URL
+    keyboard = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="🌐 Відкрити сайт", url=PUBLIC_URL)]
+        ]
     )
-    keyboard.add(url_button)
     
     welcome_text = (
         f"👋 Вітаю у {BOT_USERNAME}!\n\n"
@@ -76,8 +70,14 @@ async def main():
     logger.info(f"Run polling for bot {BOT_USERNAME} id={me.id} - '{me.first_name}'")
     
     try:
-        await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
+        # Start the bot
+        await dp.start_polling(bot)
     except Exception as e:
         logger.error(f"Error during bot operation: {e}")
+        raise
     finally:
-        logger.info("Bot stopped") 
+        logger.info("Bot stopped")
+        await bot.session.close()
+
+if __name__ == "__main__":
+    asyncio.run(main()) 
