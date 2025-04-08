@@ -20,23 +20,24 @@ WEB_SERVER_PORT = 8000  # Internal server port
 WEB_SERVER_HOST2 = "108.181.154.114"
 
 # Public URL for the bot
-PUBLIC_URL = os.getenv('RAILWAY_STATIC_URL', 'https://parsinggrouptg-production.up.railway.app')
+PUBLIC_URL = os.getenv('PUBLIC_URL', 'https://parsinggrouptg-production.up.railway.app')
 if not PUBLIC_URL.startswith('http'):
     PUBLIC_URL = f"https://{PUBLIC_URL}"
 
 # Security configuration
-SECRET_KEY = '/QoXhzTJkyhzSKccxR+XV0pf4T2zqLfXzPlSwegi6Cs='
+SECRET_KEY = os.getenv('SECRET_KEY', '/QoXhzTJkyhzSKccxR+XV0pf4T2zqLfXzPlSwegi6Cs=')
 ADMIN_USERNAME = 'DAndy'
 ADMIN_PASSWORD = 'Remoreid19976'
 
 # Directory structure
-BASE_DIR = os.path.dirname(__file__)
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DATA_FOLDER = os.path.join(BASE_DIR, 'data')
 MESSAGES_FOLDER = os.path.join(DATA_FOLDER, 'messages')
+SESSIONS_DIR = os.path.join(DATA_FOLDER, 'sessions')
 
 # Create necessary directories
-os.makedirs(DATA_FOLDER, exist_ok=True)
-os.makedirs(MESSAGES_FOLDER, exist_ok=True)
+for directory in [DATA_FOLDER, MESSAGES_FOLDER, SESSIONS_DIR]:
+    os.makedirs(directory, exist_ok=True)
 
 # Database configuration (from Railway)
 DATABASE_URL = os.getenv('DATABASE_URL', 'postgresql://postgres:urCNhXdwvbqOvvEsJDffIiDUMcLhAvcs@switchback.proxy.rlwy.net:10052/railway')

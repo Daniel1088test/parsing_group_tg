@@ -16,6 +16,7 @@ os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'core.settings')
 django.setup()
 
 from aiogram import Bot, Dispatcher, types
+from aiogram.client.default import DefaultBotProperties
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.filters import Command
 from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
@@ -23,7 +24,7 @@ from tg_bot.config import TOKEN_BOT, BOT_USERNAME, PUBLIC_URL
 from tg_bot.handlers import common_router, admin_router, session_router
 
 # initialize the bot and dispatcher
-bot = Bot(token=TOKEN_BOT, parse_mode="HTML")
+bot = Bot(token=TOKEN_BOT, default=DefaultBotProperties(parse_mode="HTML"))
 dp = Dispatcher(storage=MemoryStorage())
 
 # register all routers

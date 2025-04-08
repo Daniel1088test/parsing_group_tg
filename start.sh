@@ -156,158 +156,75 @@ if [ -n "$DJANGO_SUPERUSER_USERNAME" ] && [ -n "$DJANGO_SUPERUSER_PASSWORD" ] &&
     python manage.py createsuperuser --noinput || true
 fi
 
-# Start server
-echo "Starting server..."
-if command -v gunicorn &> /dev/null; then
-    gunicorn core.wsgi:application --bind 0.0.0.0:$PORT --timeout 120 --workers 2 &
-    GUNICORN_PID=$!
-else
-    echo "Gunicorn not found, using Django development server..."
-    python manage.py runserver 0.0.0.0:$PORT &
-    GUNICORN_PID=$!
-fi
-
-# Start background tasks (in this case the Telegram bot)
-echo "Starting Telegram bot..."
-
-# Kill ALL Python processes (except this script)
-echo "Killing all Python processes..."
-# Use pgrep if available, otherwise fallback to simpler method
-if command -v pgrep >/dev/null 2>&1; then
-    for pid in $(pgrep python); do
-        if [ "$pid" != "$$" ]; then
-            echo "Killing Python process $pid"
-            kill -9 $pid 2>/dev/null || true
-        fi
-    done
-else
-    # Fallback method using /proc
-    echo "ps command not found, using alternative method..."
-    for pid in /proc/[0-9]*; do
-        pid=${pid##*/}
-        if [ "$pid" != "$$" ] && grep -q "python" "/proc/$pid/cmdline" 2>/dev/null; then
-            echo "Killing Python process $pid"
-            kill -9 $pid 2>/dev/null || true
-        fi
-    done
-fi
-
-# Remove any existing PID files
-rm -f .*.pid .bot.pid *.pid 2>/dev/null || true
-
-# Clear any existing session files that might cause conflicts
-echo "Clearing any existing bot sessions..."
-find . -type f -name "*.session*" -delete 2>/dev/null || true
-find /app -type f -name "*.session*" -delete 2>/dev/null || true
-sleep 5
-
-# Create data persistence directory
-SESSIONS_DIR="/app/sessions"
-mkdir -p $SESSIONS_DIR
-
 # Export bot-specific environment variables
 export BOT_SERVER_HOST="127.0.0.1"  # Use localhost for the bot's Django server
 export BOT_SERVER_PORT="8081"  # Use a different port than the main Django server
 
+# Export important environment variables for Railway
+export PUBLIC_URL="https://parsinggrouptg-production.up.railway.app"
+export SECRET_KEY="/QoXhzTJkyhzSKccxR+XV0pf4T2zqLfXzPlSwegi6Cs="
+
 # Set Telegram bot configuration from Railway variables or defaults
-export BOT_TOKEN="${BOT_TOKEN:-7896267673:AAFkPv6ro2aIBnlTgXOmzEKVvLo6TRbw-xI}"
-export API_ID="${API_ID:-20662346}"
-export API_HASH="${API_HASH:-8981176be8754bcd6dbfdb4d9f499b57}"
-export PUBLIC_URL="${PUBLIC_URL:-https://parsinggrouptg-production.up.railway.app}"
+export BOT_TOKEN="${BOT_TOKEN:-7923260865:AAGWm7t0Zz2PqFPI5PldEVwrOC4HZ_5oP0c}"
+export API_ID="${API_ID:-19840544}"
+export API_HASH="${API_HASH:-c839f28bad345082329ec086fca021fa}"
 
-# Kill any existing bot processes more aggressively
-echo "Killing any existing bot processes..."
-if [ -f ".bot.pid" ]; then
-    OLD_PID=$(cat .bot.pid)
-    if [ -n "$OLD_PID" ]; then
-        echo "Found old bot process (PID: $OLD_PID), terminating..."
-        kill -9 $OLD_PID 2>/dev/null || true
-    fi
-fi
-
-# Also try to kill any process using our bot token
-if [ -n "$BOT_TOKEN" ]; then
-    echo "Checking for processes using our bot token..."
-    for pid in $(grep -l "$BOT_TOKEN" /proc/*/environ 2>/dev/null); do
-        pid=$(echo "$pid" | cut -d/ -f3)
+# Aggressively terminate any existing bot processes
+echo "Terminating any existing bot processes..."
+(
+  # Try to find any existing processes using our token and terminate them
+  if [ -n "$BOT_TOKEN" ]; then
+    if grep -r "$BOT_TOKEN" /proc/*/environ >/dev/null 2>&1; then
+      echo "Found processes using our bot token, terminating..."
+      for pid in $(grep -l "$BOT_TOKEN" /proc/*/environ 2>/dev/null | sed 's/\/proc\/\([0-9]*\)\/environ/\1/'); do
         if [ "$pid" != "$$" ] && [ -e "/proc/$pid" ]; then
-            echo "Killing process $pid that was using our bot token"
-            kill -9 $pid 2>/dev/null || true
+          echo "Killing process $pid (bot token conflict)"
+          kill -9 $pid >/dev/null 2>&1 || true
         fi
-    done
-fi
+      done
+    fi
+  fi
 
-# Remove any existing PID files
-rm -f .*.pid .bot.pid *.pid 2>/dev/null || true
+  # Kill any Python processes that might be running bots
+  for pid in $(find /proc -maxdepth 1 -name "[0-9]*" 2>/dev/null); do
+    pid=$(basename $pid)
+    if [ "$pid" != "$$" ] && [ -e "/proc/$pid/cmdline" ]; then
+      if grep -q "python" "/proc/$pid/cmdline" 2>/dev/null && grep -q "bot.py\|run.py" "/proc/$pid/cmdline" 2>/dev/null; then
+        echo "Killing Python bot process $pid"
+        kill -9 $pid >/dev/null 2>&1 || true
+      fi
+    fi
+  done
+) || echo "Process cleanup failed, but continuing..."
 
 # Clear any existing session files that might cause conflicts
 echo "Clearing any existing bot sessions..."
 find . -type f -name "*.session*" -delete 2>/dev/null || true
 find /app -type f -name "*.session*" -delete 2>/dev/null || true
-sleep 5
 
 # Create necessary directories
-mkdir -p /app/tg_bot/data/sessions
-mkdir -p /app/tg_bot/data/messages
+mkdir -p /app/data
+mkdir -p /app/data/messages
+mkdir -p /app/data/sessions
 
-# Start the bot with retries
-MAX_RETRIES=5
-RETRY_COUNT=0
-BOT_STARTED=false
+# Wait to ensure all processes are terminated and resources released
+sleep 10
 
-while [ $RETRY_COUNT -lt $MAX_RETRIES ] && [ "$BOT_STARTED" = false ]; do
-    echo "Starting bot attempt $((RETRY_COUNT + 1))/$MAX_RETRIES"
-    
-    # Start the bot
-    cd /app  # Ensure we're in the app directory
-    PYTHONPATH=/app python run.py &
-    TELEGRAM_PID=$!
-    echo $TELEGRAM_PID > .bot.pid
-    
-    # Wait longer to see if the bot stays up
-    sleep 20  # Increased wait time to ensure proper startup
-    if kill -0 $TELEGRAM_PID 2>/dev/null; then
-        if grep -q "zombie" "/proc/$TELEGRAM_PID/status" 2>/dev/null; then
-            echo "Bot process is zombie, considering as failed"
-            kill -9 $TELEGRAM_PID 2>/dev/null || true
-            rm -f .bot.pid
-            RETRY_COUNT=$((RETRY_COUNT + 1))
-            sleep 15  # Increased sleep between retries
-        else
-            BOT_STARTED=true
-            echo "Bot started successfully"
-        fi
-    else
-        echo "Bot failed to start, retrying..."
-        kill -9 $TELEGRAM_PID 2>/dev/null || true
-        rm -f .bot.pid
-        RETRY_COUNT=$((RETRY_COUNT + 1))
-        sleep 15  # Increased sleep between retries
-    fi
-done
+echo "Starting the application..."
 
-if [ "$BOT_STARTED" = false ]; then
-    echo "Failed to start bot after $MAX_RETRIES attempts"
-    exit 1
-fi
+# Start the main application with gunicorn
+gunicorn core.wsgi:application --bind 0.0.0.0:$PORT --timeout 300 --workers 2 --preload &
+GUNICORN_PID=$!
 
-# Create session backup hook
-backup_sessions() {
-    echo "Backing up session files..."
-    mkdir -p $SESSIONS_DIR
-    find . -type f -name "*.session*" -exec cp {} $SESSIONS_DIR/ \; 2>/dev/null || true
-}
+# Wait for gunicorn to start
+sleep 10
+echo "Main application started"
 
-# Register cleanup for shutdown
-cleanup() {
-    echo "Cleaning up..."
-    backup_sessions
-    kill -9 $TELEGRAM_PID 2>/dev/null || true
-    rm -f .bot.pid
-}
+# Start our bot in a separate process
+cd /app
+python run.py &
+BOT_PID=$!
+echo "Bot started (PID: $BOT_PID)"
 
-# Register the cleanup trap
-trap cleanup SIGTERM SIGINT
-
-# Wait for all processes
-wait $GUNICORN_PID $TELEGRAM_PID 
+# Wait for both processes
+wait $GUNICORN_PID $BOT_PID 
