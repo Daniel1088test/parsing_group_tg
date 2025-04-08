@@ -25,12 +25,24 @@ RAILWAY_TCP_PROXY_DOMAIN = os.environ.get('RAILWAY_TCP_PROXY_DOMAIN', 'switchbac
 RAILWAY_TCP_PROXY_PORT = os.environ.get('RAILWAY_TCP_PROXY_PORT', '10052')
 
 # Public URL for the bot
-PUBLIC_URL = os.environ.get('PUBLIC_URL', f'https://{RAILWAY_PUBLIC_DOMAIN}')
+# Default to RAILWAY_PUBLIC_DOMAIN if available, otherwise hardcoded URL
+if os.environ.get('PUBLIC_URL'):
+    PUBLIC_URL = os.environ.get('PUBLIC_URL')
+elif os.environ.get('RAILWAY_STATIC_URL'):
+    PUBLIC_URL = f"https://{os.environ.get('RAILWAY_STATIC_URL')}"
+elif os.environ.get('RAILWAY_PUBLIC_DOMAIN'):
+    PUBLIC_URL = f"https://{os.environ.get('RAILWAY_PUBLIC_DOMAIN')}"
+else:
+    PUBLIC_URL = "https://parsinggrouptg-production.up.railway.app"
+
+# Always ensure URL starts with https://
 if not PUBLIC_URL.startswith('http'):
     PUBLIC_URL = f"https://{PUBLIC_URL}"
 
+print(f"Bot will use PUBLIC_URL: {PUBLIC_URL}")
+
 # Database configuration from Railway
-DATABASE_URL = os.environ.get('DATABASE_URL', 'postgresql://postgres:urCNhXdwvbqOvvEsJDffIiDUMcLhAvcs@postgres.railway.internal:5432/railway')
+DATABASE_URL = os.environ.get('DATABASE_URL', '')
 PGHOST = os.environ.get('PGHOST', 'postgres.railway.internal')
 PGPORT = os.environ.get('PGPORT', '5432')
 PGDATABASE = os.environ.get('PGDATABASE', 'railway')

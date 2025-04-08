@@ -22,6 +22,7 @@ from django.http import HttpResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_GET
 from django.views.decorators.cache import never_cache
+from django.shortcuts import redirect
 
 @never_cache
 @csrf_exempt
@@ -35,11 +36,16 @@ def railway_health(request):
     """Simplified health check for Railway"""
     return HttpResponse("OK")
 
+# Redirect root to admin interface
+def root_redirect(request):
+    """Redirect root to admin interface"""
+    return redirect('admin/')
+
 urlpatterns = [
     path('admin/', admin.site.urls),
     path('health/', health_check, name='health_check'),  # Main health check endpoint
-    path('', railway_health),  # Root path for Railway health checks
-    path('api/', include('tg_bot.urls')),  # Include your app's URLs
+    path('', root_redirect, name='root'),  # Root redirects to admin
+    path('api/', include('tg_bot.urls')),  # API endpoints
 ]
 
 # Serve media files in development
