@@ -28,6 +28,7 @@ class AddSessionStates(StatesGroup):
     waiting_for_api_id = State()
     waiting_for_api_hash = State()
     waiting_for_code = State()
+    waiting_for_2fa = State()
 
 # keyboard with the cancel button
 cancel_keyboard = ReplyKeyboardMarkup(
@@ -449,18 +450,16 @@ async def process_code(message: Message, state: FSMContext):
         except errors.SessionPasswordNeededError:
             # Two-factor authentication is enabled
             await message.answer(
-                "Для цього аккаунту увімкнена двофакторна автентифікація.\n"
-                "Двофакторна автентифікація через інтерфейс бота не підтримується.\n"
-                "Будь ласка, створіть новий сеанс через команду: python -m tg_bot.auth_telethon",
-                reply_markup=main_menu_keyboard
+                "🔒 Виявлено двофакторну автентифікацію.\n\n"
+                "Будь ласка, введіть ваш пароль двофакторної автентифікації Telegram:",
+                reply_markup=cancel_keyboard
             )
             
-            # Clean up and clear state
-            if telethon_client:
-                await telethon_client.disconnect()
-                telethon_client = None
-                telethon_phone = None
-            await state.clear()
+            # Set state for 2FA password
+            await state.set_state(AddSessionStates.waiting_for_2fa)
+            
+            # We'll keep the client and phone for the next state
+            return
             
         except errors.PhoneCodeInvalidError:
             await message.answer(
@@ -675,4 +674,159 @@ async def back_to_sessions_list(callback: CallbackQuery):
     await callback.message.edit_text(
         "Select a session:",
         reply_markup=get_sessions_list_keyboard(sessions)
-    ) 
+    )
+
+@router.message(AddSessionStates.waiting_for_2fa)
+async def process_2fa_password(message: Message, state: FSMContext):
+    """Processing the 2FA password for Telethon authentication"""
+    global telethon_client, telethon_phone
+    
+    if message.text == "❌ Cancel":
+        # Clean up
+        if telethon_client:
+            await telethon_client.disconnect()
+            telethon_client = None
+            telethon_phone = None
+        await cancel_action(message, state)
+        return
+    
+    password = message.text.strip()
+    
+    try:
+        # Try to sign in with the 2FA password
+        await message.answer(
+            "⏳ Верифікація паролю двофакторної автентифікації...",
+            reply_markup=cancel_keyboard
+        )
+        
+        try:
+            # Sign in with the password
+            await telethon_client.sign_in(password=password)
+            
+            # Get user info
+            me = await telethon_client.get_me()
+            
+            # Update the database
+            @sync_to_async
+            def update_session_in_database():
+                try:
+                    # Find session by phone number
+                    session = TelegramSession.objects.get(phone=telethon_phone)
+                    
+                    # Update session file
+                    session_name = f"telethon_session_{telethon_phone.replace('+', '')}"
+                    session.session_file = session_name
+                    
+                    # Mark as authenticated
+                    if hasattr(session, 'needs_auth'):
+                        session.needs_auth = False
+                    
+                    # Make sure it's active
+                    session.is_active = True
+                    session.save()
+                    
+                    logger.info(f"Updated session in database for {telethon_phone}: needs_auth=False, session_file={session_name}")
+                    return True
+                except TelegramSession.DoesNotExist:
+                    logger.error(f"Session for phone {telethon_phone} not found in database")
+                    return False
+                except Exception as e:
+                    logger.error(f"Error updating session in database: {e}")
+                    return False
+            
+            # Update database and log result
+            db_updated = await update_session_in_database()
+            
+            # Copy session file to data/sessions directory for redundancy
+            src_file = f"telethon_user_session.session"
+            dst_dir = "data/sessions"
+            os.makedirs(dst_dir, exist_ok=True)
+            dst_file = f"{dst_dir}/telethon_session_{telethon_phone.replace('+', '')}.session"
+            
+            if os.path.exists(src_file):
+                import shutil
+                try:
+                    shutil.copy2(src_file, dst_file)
+                    logger.info(f"Session file copied to {dst_file}")
+                except Exception as e:
+                    logger.error(f"Error copying session file: {e}")
+            
+            # Success message
+            auth_status = "і оновлено в базі даних" if db_updated else "але не вдалося оновити базу даних"
+            await message.answer(
+                f"✅ Успішна авторизація як {me.first_name} (@{me.username or 'None'})! {auth_status}\n"
+                f"Файл сесії створено. Тепер ви можете використовувати парсинг Telethon.",
+                reply_markup=main_menu_keyboard
+            )
+            
+            # Start the parser in background
+            await message.answer("🔄 Запускаю парсер для отримання повідомлень з каналів...")
+            
+            # Run command to start parser in separate process
+            import subprocess
+            import sys
+            
+            try:
+                # Create command to run parser
+                python_executable = sys.executable
+                command = [python_executable, "manage.py", "runtelethon"]
+                
+                # Run parser as separate process
+                subprocess.Popen(
+                    command,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    shell=False,
+                    close_fds=True
+                )
+                
+                await message.answer(
+                    "✅ Парсер запущено! Повідомлення будуть автоматично завантажуватися до бази даних.",
+                    reply_markup=main_menu_keyboard
+                )
+                
+                # Clear the state to ensure the conversation ends
+                await state.clear()
+                
+                # Reset Telethon client variables
+                telethon_client = None
+                telethon_phone = None
+                
+            except Exception as e:
+                await message.answer(
+                    f"❌ Помилка запуску парсера: {str(e)}\n"
+                    f"Ви можете запустити його вручну командою: python manage.py runtelethon",
+                    reply_markup=main_menu_keyboard
+                )
+                
+                # Clean up and clear state
+                if telethon_client:
+                    await telethon_client.disconnect()
+                    telethon_client = None
+                    telethon_phone = None
+                
+                await state.clear()
+                
+        except errors.PasswordHashInvalidError:
+            await message.answer(
+                "❌ Невірний пароль двофакторної автентифікації. Спробуйте ще раз:",
+                reply_markup=cancel_keyboard
+            )
+            # Stay in the same state to try again
+            return
+        except Exception as e:
+            await message.answer(
+                f"❌ Помилка входу: {str(e)}",
+                reply_markup=main_menu_keyboard
+            )
+            
+            # Clean up and clear state
+            if telethon_client:
+                await telethon_client.disconnect()
+                telethon_client = None
+                telethon_phone = None
+            await state.clear()
+    finally:
+        # We don't need to do anything more in the finally block
+        # since we've added proper cleanup in each case above
+        pass 
