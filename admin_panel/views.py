@@ -7,58 +7,68 @@ from django.contrib.auth.forms import AuthenticationForm
 from .models import Category, Message, Channel, TelegramSession
 from .forms import ChannelForm, CategoryForm, MessageForm, UserRegistrationForm
 from django.http import HttpResponse
+import logging
+import traceback
+import os
+from django.conf import settings
+
+logger = logging.getLogger(__name__)
 
 def index_view(request):
+    """Головна сторінка сайту"""
     try:
+        # Логуємо початок виконання
+        logger.info("Початок виконання index_view")
+        
+        # Отримуємо параметри фільтрації
         category_id = request.GET.get('category')
         count = int(request.GET.get('count', 5))
         session_filter = request.GET.get('session')
         
-        # Безпечно отримуємо категорії - якщо виникне помилка, повертаємо порожній список
+        # Завантажуємо категорії
         try:
             categories = Category.objects.all()
+            logger.info(f"Завантажено {len(categories)} категорій")
         except Exception as e:
             categories = []
-            print(f"Error loading categories: {str(e)}")
+            logger.error(f"Помилка завантаження категорій: {str(e)}")
         
-        # Base query - з обробкою помилок
+        # Завантажуємо повідомлення
         try:
             messages_query = Message.objects.select_related('channel', 'session_used', 'channel__session').order_by('-created_at')
             
-            # Apply filters
+            # Фільтруємо за категорією, якщо вона вказана
             if category_id and category_id != 'None' and category_id != 'undefined':
                 try:
-                    # Convert to integer to ensure it's a valid ID
-                    int(category_id)
-                    # If a category is specified, filter messages
+                    category_id = int(category_id)
                     messages_query = messages_query.filter(channel__category_id=category_id)
                 except (ValueError, TypeError):
-                    # If conversion fails, don't apply the filter
                     pass
             
+            # Фільтруємо за сесією, якщо вона вказана
             if session_filter and session_filter != 'None' and session_filter != 'undefined':
                 try:
-                    # Convert to integer to ensure it's a valid ID
-                    int(session_filter)
-                    # If a session is specified, filter messages
-                    messages_query = messages_query.filter(session_used_id=session_filter)
+                    session_id = int(session_filter)
+                    messages_query = messages_query.filter(session_used_id=session_id)
                 except (ValueError, TypeError):
-                    # If conversion fails, don't apply the filter
                     pass
             
-            # Get final limited result
+            # Обмежуємо кількість повідомлень
             messages_list = messages_query[:count]
+            logger.info(f"Завантажено {len(messages_list)} повідомлень")
         except Exception as e:
             messages_list = []
-            print(f"Error loading messages: {str(e)}")
+            logger.error(f"Помилка завантаження повідомлень: {str(e)}")
         
-        # Get all active sessions for filter dropdown - з обробкою помилок
+        # Завантажуємо активні сесії
         try:
             sessions = TelegramSession.objects.filter(is_active=True).order_by('phone')
+            logger.info(f"Завантажено {len(sessions)} сесій")
         except Exception as e:
             sessions = []
-            print(f"Error loading sessions: {str(e)}")
+            logger.error(f"Помилка завантаження сесій: {str(e)}")
         
+        # Формуємо контекст для шаблону
         context = {
             'categories': categories,
             'messages': messages_list,
@@ -68,36 +78,63 @@ def index_view(request):
             'current_count': count
         }
         
+        # Перевіряємо, чи існує шаблон
+        template_path = os.path.join(settings.BASE_DIR, 'templates', 'admin_panel', 'index.html')
+        if os.path.exists(template_path):
+            logger.info(f"Шаблон знайдено: {template_path}")
+        else:
+            logger.error(f"Шаблон не знайдено: {template_path}")
+            # Спробуємо знайти будь-який шаблон в папці admin_panel
+            template_dir = os.path.join(settings.BASE_DIR, 'templates', 'admin_panel')
+            if os.path.exists(template_dir):
+                templates = [f for f in os.listdir(template_dir) if f.endswith('.html')]
+                logger.info(f"Доступні шаблони: {templates}")
+        
+        # Рендеримо шаблон
+        logger.info("Рендеримо шаблон index.html")
         return render(request, 'admin_panel/index.html', context)
+        
     except Exception as e:
-        print(f"Error in index_view: {str(e)}")
-        # В разі помилки повертаємо просту статичну сторінку
-        error_html = f"""
+        logger.error(f"Критична помилка в index_view: {str(e)}\n{traceback.format_exc()}")
+        
+        # Повертаємо просту HTML-сторінку
+        return HttpResponse(f"""
         <!DOCTYPE html>
-        <html>
+        <html lang="uk">
         <head>
-            <title>Telegram Parser</title>
             <meta charset="UTF-8">
             <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>Telegram Parser</title>
+            <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
             <style>
-                body {{ font-family: Arial, sans-serif; line-height: 1.6; padding: 20px; max-width: 800px; margin: 0 auto; }}
-                a {{ display: inline-block; margin: 10px 0; padding: 10px 15px; background: #0088cc; color: white; text-decoration: none; border-radius: 4px; }}
-                h1 {{ color: #0088cc; }}
+                body {{ padding: 20px; }}
+                .error {{ color: red; background: #ffeeee; padding: 10px; border-radius: 5px; margin: 20px 0; }}
             </style>
         </head>
         <body>
-            <h1>Telegram Channel Parser</h1>
-            <p>The application is running, but there was an error loading the full page.</p>
-            <div>
-                <a href="/admin/">Go to Admin Panel</a>
+            <div class="container">
+                <div class="row">
+                    <div class="col-md-8 offset-md-2">
+                        <h1 class="text-primary mt-5">Telegram Channel Parser</h1>
+                        <p class="lead">Додаток працює, але виникла помилка при завантаженні повної сторінки.</p>
+                        
+                        <div class="error">
+                            <h4>Деталі помилки:</h4>
+                            <p>{str(e)}</p>
+                        </div>
+                        
+                        <div class="d-grid gap-3 col-md-6 mx-auto mt-4">
+                            <a href="/admin/" class="btn btn-primary">Адмін-панель Django</a>
+                            <a href="https://t.me/Channels_hunt_bot" class="btn btn-info">Відкрити Telegram бот</a>
+                        </div>
+                    </div>
+                </div>
             </div>
-            <div>
-                <a href="https://t.me/Channels_hunt_bot" target="_blank">Open Telegram Bot</a>
-            </div>
+            
+            <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
         </body>
         </html>
-        """
-        return HttpResponse(error_html)
+        """)
 
 
 def login_view(request):

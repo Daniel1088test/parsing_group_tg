@@ -27,7 +27,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 SECRET_KEY = os.environ.get('SECRET_KEY', 'django-insecure-ke3r=i9e97_*@6!^5%5g@^s-@oj0t*xq-pf0gf$i6y$)loi&va')
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = os.environ.get('DEBUG', 'False').lower() == 'true'
+DEBUG = True
 
 # Application domain settings
 RAILWAY_PUBLIC_DOMAIN = os.environ.get('RAILWAY_PUBLIC_DOMAIN', 'parsinggrouptg-production.up.railway.app')
@@ -66,8 +66,8 @@ def CSRF_TRUSTED_ORIGINS_CALLBACK(request):
 
 SESSION_ENGINE = 'django.contrib.sessions.backends.db'
 SESSION_COOKIE_AGE = 60 * 24 * 14
-# Application definition
 
+# Application definition
 INSTALLED_APPS = [
     'django.contrib.admin',
     'django.contrib.auth',
@@ -96,7 +96,9 @@ ROOT_URLCONF = 'core.urls'
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
-        'DIRS': [],
+        'DIRS': [
+            os.path.join(BASE_DIR, 'templates'),
+        ],
         'APP_DIRS': True,
         'OPTIONS': {
             'context_processors': [
@@ -111,10 +113,7 @@ TEMPLATES = [
 
 WSGI_APPLICATION = 'core.wsgi.application'
 
-
-# Database
-# https://docs.djangoproject.com/en/5.0/ref/settings/#databases
-
+# Database Configuration
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.sqlite3',
@@ -122,122 +121,44 @@ DATABASES = {
     }
 }
 
-# Railway PostgreSQL configuration
-DATABASE_URL = os.environ.get('DATABASE_URL')
-RAILWAY_POSTGRES_CONNECTION_STRING = os.environ.get('DATABASE_PUBLIC_URL')
-
-# Try all possible PostgreSQL connection strings
-db_connection_urls = [
-    DATABASE_URL,
-    RAILWAY_POSTGRES_CONNECTION_STRING,
-    os.environ.get('POSTGRES_URL'),
-    os.environ.get('DATABASE_URL')
-]
-
-# Construct DATABASE_URL from individual PostgreSQL variables if needed
-if not any(db_connection_urls) and all([
-    os.environ.get('PGUSER'),
-    os.environ.get('PGPASSWORD'),
-    os.environ.get('PGHOST'),
-    os.environ.get('PGPORT'),
-    os.environ.get('PGDATABASE')
-]):
-    # Use Railway TCP Proxy if available
-    if os.environ.get('RAILWAY_TCP_PROXY_DOMAIN') and os.environ.get('RAILWAY_TCP_PROXY_PORT'):
-        db_connection_urls.append(
-            f"postgresql://{os.environ.get('PGUSER')}:{os.environ.get('PGPASSWORD')}@"
-            f"{os.environ.get('RAILWAY_TCP_PROXY_DOMAIN')}:{os.environ.get('RAILWAY_TCP_PROXY_PORT')}/"
-            f"{os.environ.get('PGDATABASE')}?sslmode=require"
-        )
-    else:
-        # Direct connection
-        db_connection_urls.append(
-            f"postgresql://{os.environ.get('PGUSER')}:{os.environ.get('PGPASSWORD')}@"
-            f"{os.environ.get('PGHOST')}:{os.environ.get('PGPORT')}/"
-            f"{os.environ.get('PGDATABASE')}"
-        )
-
-# Use the first valid connection URL
-for url in db_connection_urls:
-    if url:
-        try:
-            import dj_database_url
-            DATABASES['default'] = dj_database_url.parse(url)
-            print(f"Using database connection: {url.replace(os.environ.get('PGPASSWORD', ''), '********')}")
-            break
-        except ImportError:
-            print("WARNING: dj-database-url package not found. Install with: pip install dj-database-url")
-        except Exception as e:
-            print(f"Error parsing database URL: {e}")
-
-
-# Password validation
-# https://docs.djangoproject.com/en/5.0/ref/settings/#auth-password-validators
-
-AUTH_PASSWORD_VALIDATORS = [
-    {
-        'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator',
-    },
-    {
-        'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator',
-    },
-    {
-        'NAME': 'django.contrib.auth.password_validation.CommonPasswordValidator',
-    },
-    {
-        'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator',
-    },
-]
-
-
-# Internationalization
-# https://docs.djangoproject.com/en/5.0/topics/i18n/
-
-LANGUAGE_CODE = 'en-us'
-
-TIME_ZONE = 'UTC'
-
-USE_I18N = True
-
-USE_TZ = True
-
-
-# Static files (CSS, JavaScript, Images)
-# https://docs.djangoproject.com/en/5.0/howto/static-files/
-
+# Static files configuration
 STATIC_URL = '/static/'
 STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
-STATICFILES_DIRS = []  # Start with empty list
+STATICFILES_DIRS = []
 
-# Only add static dir if it exists
+# Add these directories if they exist
 if os.path.exists(os.path.join(BASE_DIR, 'static')):
     STATICFILES_DIRS.append(os.path.join(BASE_DIR, 'static'))
-
-# Whitenoise configuration
-STATICFILES_STORAGE = 'whitenoise.storage.CompressedStaticFilesStorage'  # Simpler storage backend
-WHITENOISE_USE_FINDERS = True
-WHITENOISE_MANIFEST_STRICT = False
-WHITENOISE_ALLOW_ALL_ORIGINS = True
-WHITENOISE_MAX_AGE = 31536000  # 1 year in seconds
 
 # Media files
 MEDIA_URL = '/media/'
 MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
 
-# Telegram bot settings from environment variables
-BOT_TOKEN = os.environ.get('BOT_TOKEN', '7923260865:AAGWm7t0Zz2PqFPI5PldEVwrOC4HZ_5oP0c')
-API_ID = os.environ.get('API_ID', '19840544')
-API_HASH = os.environ.get('API_HASH', 'c839f28bad345082329ec086fca021fa')
-ADMIN_ID = os.environ.get('ADMIN_ID', '574349489')
-BOT_USERNAME = os.environ.get('BOT_USERNAME', '@Channels_hunt_bot')
+# Whitenoise settings
+STATICFILES_STORAGE = 'whitenoise.storage.CompressedStaticFilesStorage'
+WHITENOISE_USE_FINDERS = True
+WHITENOISE_MANIFEST_STRICT = False
+WHITENOISE_ALLOW_ALL_ORIGINS = True
 
-# Logging configuration
+# Configure logging
 LOGGING = {
     'version': 1,
     'disable_existing_loggers': False,
+    'formatters': {
+        'verbose': {
+            'format': '{levelname} {asctime} {module} {process:d} {thread:d} {message}',
+            'style': '{',
+        },
+        'simple': {
+            'format': '{levelname} {message}',
+            'style': '{',
+        },
+    },
     'handlers': {
         'console': {
+            'level': 'DEBUG',
             'class': 'logging.StreamHandler',
+            'formatter': 'verbose',
         },
     },
     'root': {
@@ -248,7 +169,12 @@ LOGGING = {
         'django': {
             'handlers': ['console'],
             'level': 'INFO',
-            'propagate': False,
+            'propagate': True,
+        },
+        'admin_panel': {
+            'handlers': ['console'],
+            'level': 'DEBUG',
+            'propagate': True,
         },
     },
 }
