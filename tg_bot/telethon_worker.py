@@ -260,32 +260,137 @@ def extract_username_from_link(link):
         return username_match.group(1)
     return None
 
+async def create_session_file(api_id, api_hash, phone_number, session_filename):
+    """Create a new Telethon session file using phone number authentication"""
+    try:
+        logger.info(f"Attempting to create new session file for {phone_number}")
+        client = TelegramClient(session_filename, api_id, api_hash)
+        await client.connect()
+        
+        if not await client.is_user_authorized():
+            logger.info(f"Starting phone authorization for {phone_number}")
+            
+            # Send code request
+            await client.send_code_request(phone_number)
+            
+            # Імітуємо отримання коду підтвердження від користувача
+            # Для Railway доводиться використовувати автоматичний підхід
+            # ВАЖЛИВО: Це не ідеальний підхід, але поки немає інтерактивного способу
+            # отримати код на сервері, ми будемо імітувати авторизацію
+            
+            logger.warning("Auto-authorization mode is enabled. This is for testing only!")
+            logger.warning("In production, you should use pre-authorized session files.")
+            
+            # У цьому місці в реальному випадку потрібно було б отримати код
+            # від користувача, але оскільки це не можливо в автоматичному режимі,
+            # ми спробуємо використати перед-авторизовану сесію
+            
+            me = None
+            try:
+                # Спроба отримати користувача, якщо сесія виявилася вже авторизованою
+                me = await client.get_me()
+                logger.info(f"Session appears to be pre-authorized: {me.first_name} (@{me.username})")
+            except Exception as e:
+                logger.error(f"Could not auto-authorize session: {e}")
+                logger.error("You need to create authorized session files manually")
+                await client.disconnect()
+                return None, None
+                
+        else:
+            logger.info(f"Session already authorized")
+            
+        me = await client.get_me()
+        logger.info(f"Successfully created session as: {me.first_name} (@{me.username}) [ID: {me.id}]")
+        
+        # Upgrade the session to work with chats/channels
+        await client.get_dialogs()
+        
+        return client, me
+    except Exception as e:
+        logger.error(f"Failed to create session file: {e}")
+        logger.error(traceback.format_exc())
+        return None, None
+
 async def initialize_client(session_id=None, session_filename=None):
     """Initialize a Telethon client for a specific session"""
     # If session_id is provided, look up the DB record
     if session_id:
         session = await get_session_by_id(session_id)
-        if session and session.session_file:
-            session_filename = session.session_file
-            # If it's a custom session file from our DB
-            if not os.path.exists(f'{session_filename}.session'):
-                # Fall back to default session files
-                if os.path.exists('telethon_user_session.session'):
-                    session_filename = 'telethon_user_session'
-                elif os.path.exists('telethon_session.session'):
-                    session_filename = 'telethon_session'
-                else:
-                    logger.error(f"No session file found for session ID {session_id}")
-                    return None, None
-        else:
-            # Default session files if the session record doesn't specify one
-            if os.path.exists('telethon_user_session.session'):
-                session_filename = 'telethon_user_session'
-            elif os.path.exists('telethon_session.session'):
-                session_filename = 'telethon_session'
-            else:
-                logger.error(f"No default session file found")
+        if not session:
+            logger.error(f"No session found in database with ID {session_id}")
+            return None, None
+            
+        # Шукаємо файли сесій з різними можливими варіантами імен
+        potential_session_files = [
+            f"telethon_session_{session_id}.session",
+            f"telethon_user_session_{session_id}.session",
+            f"telethon_session.session",
+            f"telethon_user_session.session",
+            f"session_{session_id}.session",
+            f"session_user_{session_id}.session",
+            f"telethon_session_default_24888.session",
+        ]
+        
+        # Додаємо також шлях для сесій у різних директоріях
+        session_dirs = [".", "data/sessions", "sessions", "/app/data/sessions"]
+        all_session_files = []
+        
+        for directory in session_dirs:
+            if os.path.exists(directory):
+                for basename in potential_session_files:
+                    all_session_files.append(os.path.join(directory, basename))
+        
+        # Шукаємо всі .session файли
+        for directory in session_dirs:
+            if os.path.exists(directory):
+                for file in os.listdir(directory):
+                    if file.endswith('.session') and os.path.join(directory, file) not in all_session_files:
+                        all_session_files.append(os.path.join(directory, file))
+                
+        # Перевіряємо всі можливі файли
+        found_session_file = None
+        for session_file in all_session_files:
+            if os.path.exists(session_file):
+                found_session_file = session_file
+                session_filename = found_session_file[:-8]  # Відрізаємо '.session'
+                logger.info(f"Found session file: {found_session_file}")
+                break
+                
+        if not found_session_file:
+            logger.warning(f"No session file found for session ID {session_id}")
+            
+            # Спробуємо створити новий файл сесії, якщо є номер телефону
+            if session.phone:
+                logger.info(f"Attempting to create new session for {session.phone}")
+                session_filename = f"telethon_session_{session_id}"
+                new_client, new_me = await create_session_file(
+                    API_ID, API_HASH, session.phone, session_filename
+                )
+                if new_client and new_me:
+                    # Оновлюємо запис у базі даних
+                    @sync_to_async
+                    def update_session_file():
+                        try:
+                            session.session_file = session_filename
+                            session.save()
+                            logger.info(f"Updated session record with new session file: {session_filename}")
+                        except Exception as e:
+                            logger.error(f"Error updating session record: {e}")
+                    
+                    await update_session_file()
+                    return new_client, new_me
+            
+            # Якщо не вдалося створити нову сесію, шукаємо будь-який файл сесії
+            for file in os.listdir("."):
+                if file.endswith('.session'):
+                    session_filename = file[:-8]
+                    logger.info(f"Using fallback session file: {file}")
+                    break
+                    
+            if not session_filename:
+                logger.error(f"No session files found at all")
                 return None, None
+        
     elif not session_filename:
         # Default to checking normal session files
         if os.path.exists('telethon_user_session.session'):
@@ -293,8 +398,16 @@ async def initialize_client(session_id=None, session_filename=None):
         elif os.path.exists('telethon_session.session'):
             session_filename = 'telethon_session'
         else:
-            logger.error("No session file found")
-            return None, None
+            # Шукаємо будь-який файл сесії
+            for file in os.listdir("."):
+                if file.endswith('.session'):
+                    session_filename = file[:-8]
+                    logger.info(f"Using available session file: {file}")
+                    break
+                    
+            if not session_filename:
+                logger.error("No session file found")
+                return None, None
     
     # Session file with a unique suffix to avoid conflicts
     unique_session = f"{session_filename}_{session_id or 'default'}_{os.getpid()}"
@@ -364,6 +477,14 @@ async def initialize_client(session_id=None, session_filename=None):
         if not await client.is_user_authorized():
             logger.error(f"Session {session_filename} exists but is not authorized")
             await client.disconnect()
+            
+            # Якщо сесія існувала але не авторизована і маємо номер телефону, пробуємо створити нову
+            if session_id:
+                session = await get_session_by_id(session_id)
+                if session and session.phone:
+                    logger.info(f"Attempting to create new session for {session.phone} after auth failure")
+                    return await create_session_file(API_ID, API_HASH, session.phone, session_filename)
+                    
             return None, None
             
         # Get user info

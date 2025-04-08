@@ -13,6 +13,7 @@ import logging
 from asgiref.sync import async_to_sync, sync_to_async
 from admin_panel import models
 from admin_panel.models import Channel, Category, TelegramSession
+import traceback
 
 # Налаштування логування
 logger = logging.getLogger('admin_operations')
@@ -1221,7 +1222,7 @@ async def create_category_with_data(message: types.Message, state: FSMContext, c
             category_data = {
                 'name': name,
                 'description': '',  # Додаємо порожній рядок як значення за замовчуванням
-                'is_active': True
+                'is_active': True   # Явно встановлюємо значення is_active
             }
             
             if session_id:
@@ -1238,6 +1239,7 @@ async def create_category_with_data(message: types.Message, state: FSMContext, c
             return category.id, session_info
         except Exception as e:
             logger.error(f"Error creating the category '{name}': {e}")
+            logger.error(traceback.format_exc())
             return None, ""
 
     result = await create_category_in_db(category_name, session_id)

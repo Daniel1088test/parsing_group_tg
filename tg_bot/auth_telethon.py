@@ -4,6 +4,10 @@ import logging
 import argparse
 from telethon import TelegramClient, errors
 from tg_bot.config import API_ID, API_HASH
+import sys
+import traceback
+from telethon.errors import SessionPasswordNeededError
+from admin_panel.models import TelegramSession
 
 # Set up logging
 logging.basicConfig(
@@ -13,106 +17,135 @@ logging.basicConfig(
 )
 logger = logging.getLogger('telethon_auth')
 
-async def authorize_telethon(delete_existing=False):
+# Налаштування Django для доступу до моделей
+os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'core.settings')
+import django
+django.setup()
+
+async def create_session_file(phone, api_id=None, api_hash=None, session_name=None):
     """
-    Authorize Telethon by creating a new session or using an existing one.
-    This function needs to be run interactively to handle phone number input and verification code.
-    IMPORTANT: You must use a regular user account, NOT a bot account!
-    
-    Args:
-        delete_existing: If True, delete existing session file if it exists
+    Create a new Telethon session file with authorization
     """
-    logger.info("Starting Telethon authorization process...")
-    logger.info(f"API ID: {API_ID}")
-    logger.info(f"API HASH: {API_HASH[:4]}...{API_HASH[-4:]}")  # Show only first and last 4 characters for security
+    if not api_id:
+        api_id = API_ID
+    if not api_hash:
+        api_hash = API_HASH
+    if not session_name:
+        session_name = 'telethon_session'
+        
+    # Створюємо директорії, якщо вони не існують
+    os.makedirs('data/sessions', exist_ok=True)
     
-    # Use a different session file name to avoid conflicts with bot
-    session_file = 'telethon_user_session'
+    # Шляхи для файлів сесій
+    main_session_path = f"{session_name}.session"
+    session_copy_path = f"data/sessions/{session_name}.session"
     
-    # Check if session file exists and delete if requested
-    if os.path.exists(f'{session_file}.session'):
-        if delete_existing:
-            try:
-                os.remove(f'{session_file}.session')
-                logger.info(f"Existing session file '{session_file}.session' deleted.")
-            except Exception as e:
-                logger.error(f"Error deleting session file: {e}")
-                return False
-        else:
-            logger.info(f"Session file '{session_file}.session' already exists.")
-    
-    client = TelegramClient(session_file, API_ID, API_HASH)
+    logger.info(f"Creating new Telethon session for {phone}")
+    client = TelegramClient(session_name, api_id, api_hash)
     
     try:
         await client.connect()
         
-        if await client.is_user_authorized():
-            logger.info("Already authorized! Session file exists and is valid.")
-            me = await client.get_me()
-            logger.info(f"Authorized as: {me.first_name} (@{me.username}) [ID: {me.id}]")
-        else:
-            logger.info("Authorization required. Please follow the prompts:")
-            logger.info("IMPORTANT: You must use a regular user account phone number, NOT a bot!")
+        if not await client.is_user_authorized():
+            logger.info(f"Session not authorized. Starting authorization for {phone}")
+            
+            # Відправляємо запит на код авторизації
+            await client.send_code_request(phone)
+            
+            # Отримуємо код від користувача
+            auth_code = input(f'Enter the code you received for {phone}: ')
             
             try:
-                # Start the client which will prompt for phone number and code
-                await client.start()
+                # Авторизуємось з введеним кодом
+                await client.sign_in(phone, auth_code)
+            except SessionPasswordNeededError:
+                # Якщо потрібний пароль двофакторної автентифікації
+                password = input("Two-factor authentication is enabled. Please enter your password: ")
+                await client.sign_in(password=password)
                 
-                me = await client.get_me()
-                logger.info(f"Successfully authorized as: {me.first_name} (@{me.username}) [ID: {me.id}]")
-            except errors.FloodWaitError as e:
-                # Calculate time in more human-readable format
-                hours, remainder = divmod(e.seconds, 3600)
-                minutes, seconds = divmod(remainder, 60)
-                
-                time_str = ""
-                if hours > 0:
-                    time_str += f"{hours} hours "
-                if minutes > 0:
-                    time_str += f"{minutes} minutes "
-                if seconds > 0 or (hours == 0 and minutes == 0):
-                    time_str += f"{seconds} seconds"
-                
-                logger.error(f"Too many auth attempts! Telegram requires waiting {time_str} before trying again.")
-                logger.error("Try again later or use a different phone number.")
-                return False
+        # Отримуємо інформацію про авторизованого користувача
+        me = await client.get_me()
+        logger.info(f"Successfully authorized as: {me.first_name} (@{me.username}) [ID: {me.id}]")
         
-        logger.info("Telethon authorization completed successfully!")
+        # Завантажуємо діалоги для кращої роботи з каналами
+        logger.info("Loading dialogs...")
+        await client.get_dialogs()
+        logger.info("Dialogs loaded")
+        
+        # Створюємо або оновлюємо запис у базі даних
+        try:
+            session, created = TelegramSession.objects.get_or_create(
+                phone=phone,
+                defaults={
+                    'api_id': api_id,
+                    'api_hash': api_hash,
+                    'is_active': True,
+                    'session_file': session_name
+                }
+            )
+            
+            if not created:
+                session.api_id = api_id
+                session.api_hash = api_hash
+                session.is_active = True
+                session.session_file = session_name
+                session.save()
+                
+            logger.info(f"{'Created' if created else 'Updated'} session record in database")
+        except Exception as e:
+            logger.error(f"Error updating database: {e}")
+            logger.error(traceback.format_exc())
+        
+        # Закриваємо підключення
+        await client.disconnect()
+        
+        # Копіюємо файл сесії в директорію data/sessions
+        if os.path.exists(main_session_path) and os.path.isfile(main_session_path):
+            import shutil
+            try:
+                shutil.copy2(main_session_path, session_copy_path)
+                logger.info(f"Session file copied to {session_copy_path}")
+            except Exception as e:
+                logger.error(f"Error copying session file: {e}")
+        
+        logger.info(f"Session creation completed successfully")
+        return True
     except Exception as e:
-        logger.error(f"Error during authorization: {e}")
+        logger.error(f"Error creating session: {e}")
+        logger.error(traceback.format_exc())
         return False
     finally:
-        await client.disconnect()
+        # Ensure client is disconnected
+        try:
+            if client and client.is_connected():
+                await client.disconnect()
+        except:
+            pass
+
+async def main():
+    """
+    Main function to run the script
+    """
+    print("\n=== Telethon Session Creator ===\n")
     
-    return True
+    # Перевіряємо аргументи командного рядка
+    if len(sys.argv) > 1:
+        phone = sys.argv[1]
+    else:
+        phone = input("Enter phone number (with country code, e.g. +380123456789): ")
+    
+    # Створюємо сесію
+    success = await create_session_file(phone)
+    
+    if success:
+        print("\n✅ Session created successfully!")
+        print(f"The session file has been created and the session is registered in the database.")
+        print(f"You can now use this session for parsing messages from Telegram channels.")
+    else:
+        print("\n❌ Failed to create session.")
+        print("Please check the logs for more information.")
 
 if __name__ == "__main__":
-    # Parse command line arguments
-    parser = argparse.ArgumentParser(description='Authorize Telethon client')
-    parser.add_argument('--delete', action='store_true', help='Delete existing session file before authorization')
-    args = parser.parse_args()
-    
-    # This script should be run directly: python -m tg_bot.auth_telethon
-    try:
-        print("=== Telethon Authorization Process ===")
-        print(f"This will create or update your session file for API ID: {API_ID}")
-        print("IMPORTANT: You must use a regular user account, NOT a bot!")
-        print("You'll need your phone number and may need to enter a verification code.")
-        
-        if args.delete:
-            print("WARNING: The --delete flag is set. Any existing session file will be deleted.")
-            
-        print("Press Ctrl+C at any time to cancel.\n")
-        
-        success = asyncio.run(authorize_telethon(args.delete))
-        
-        if success:
-            print("\n=== Authorization Successful ===")
-            print("You can now run the main application.")
-        else:
-            print("\n=== Authorization Failed ===")
-            print("Please check your internet connection and Telegram API credentials.")
-    except KeyboardInterrupt:
-        print("\nAuthorization process cancelled by user.")
+    asyncio.run(main())
 
 
