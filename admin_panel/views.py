@@ -12,49 +12,42 @@ from .forms import TelegramSessionForm
 from .models import BotSettings
 
 def index_view(request):
+    # Get filtering parameters from the request
     category_id = request.GET.get('category')
-    count = int(request.GET.get('count', 5))
     session_filter = request.GET.get('session')
+    count = int(request.GET.get('count', 5))  # Default to 5 messages
     
-    categories = Category.objects.all()
+    # Get messages with filtering
+    messages_query = Message.objects.all().order_by('-created_at').select_related('channel', 'channel__category')
     
-    # Base query
-    messages_query = Message.objects.select_related('channel', 'session_used', 'channel__session').order_by('-created_at')
-    
-    # Apply filters
+    # Apply filters if provided
     if category_id and category_id != 'None' and category_id != 'undefined':
-        try:
-            # Convert to integer to ensure it's a valid ID
-            int(category_id)
-            # If a category is specified, filter messages
-            messages_query = messages_query.filter(channel__category_id=category_id)
-        except (ValueError, TypeError):
-            # If conversion fails, don't apply the filter
-            pass
+        messages_query = messages_query.filter(channel__category_id=category_id)
     
     if session_filter and session_filter != 'None' and session_filter != 'undefined':
-        try:
-            # Convert to integer to ensure it's a valid ID
-            int(session_filter)
-            # If a session is specified, filter messages
-            messages_query = messages_query.filter(session_used_id=session_filter)
-        except (ValueError, TypeError):
-            # If conversion fails, don't apply the filter
-            pass
+        messages_query = messages_query.filter(channel__session_id=session_filter)
     
-    # Get final limited result
-    messages_list = messages_query[:count]
+    # Limit the number of messages
+    messages = messages_query[:count]
     
-    # Get all active sessions for filter dropdown
-    sessions = TelegramSession.objects.filter(is_active=True).order_by('phone')
+    # Get categories for the filter
+    categories = Category.objects.all().order_by('name')
     
+    # Get sessions for filter dropdown (handle missing fields safely)
+    try:
+        sessions = TelegramSession.objects.all().order_by('phone').only('id', 'phone', 'is_active')
+    except Exception as e:
+        # If there's any issue with the TelegramSession model fields, return empty list
+        sessions = []
+        
+    # Build context for template
     context = {
+        'messages': messages,
         'categories': categories,
-        'messages': messages_list,
         'sessions': sessions,
         'selected_category': category_id if category_id and category_id != 'None' and category_id != 'undefined' else '',
         'selected_session': session_filter if session_filter and session_filter != 'None' and session_filter != 'undefined' else '',
-        'current_count': count
+        'current_count': count,
     }
     
     return render(request, 'admin_panel/index.html', context)

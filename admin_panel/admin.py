@@ -1,57 +1,74 @@
 from django.contrib import admin
-from .models import Category, Channel, Message, TelegramSession
+from .models import Category, Channel, Message, TelegramSession, BotSettings
 
-# Sessions admin
-class TelegramSessionAdmin(admin.ModelAdmin):
-    list_display = ('phone', 'is_active', 'session_file', 'created_at')
-    list_filter = ('is_active',)
-    search_fields = ('phone',)
-    readonly_fields = ('created_at', 'updated_at')
-
-# Category admin with session filtering
+@admin.register(Category)
 class CategoryAdmin(admin.ModelAdmin):
-    list_display = ('name', 'get_session_phone', 'channel_count', 'created_at')
-    list_filter = ('session',)
+    list_display = ('name', 'created_at', 'updated_at')
     search_fields = ('name',)
-    readonly_fields = ('created_at', 'updated_at')
-    
-    def get_session_phone(self, obj):
-        return obj.session.phone if obj.session else "No session"
-    get_session_phone.short_description = 'Session'
-    
-    def channel_count(self, obj):
-        return obj.channels.count()
-    channel_count.short_description = 'Channels'
 
-# Channel admin with session filtering
+@admin.register(Channel)
 class ChannelAdmin(admin.ModelAdmin):
-    list_display = ('name', 'url', 'category', 'get_session_phone', 'is_active')
-    list_filter = ('is_active', 'category', 'session')
+    list_display = ('name', 'url', 'category', 'session', 'is_active', 'created_at')
+    list_filter = ('category', 'is_active', 'session')
     search_fields = ('name', 'url')
-    readonly_fields = ('created_at', 'updated_at')
-    
-    def get_session_phone(self, obj):
-        return obj.session.phone if obj.session else "No session"
-    get_session_phone.short_description = 'Session'
 
-# Message admin with enhanced filtering
+@admin.register(Message)
 class MessageAdmin(admin.ModelAdmin):
-    list_display = ('short_text', 'channel', 'media_type', 'get_session_used', 'created_at')
-    list_filter = ('channel', 'media_type', 'session_used')
+    list_display = ('id', 'channel', 'created_at', 'media_type')
+    list_filter = ('channel', 'channel__category', 'media_type')
     search_fields = ('text', 'channel__name')
-    readonly_fields = ('created_at', 'updated_at', 'telegram_message_id', 'telegram_channel_id', 'telegram_link')
-    
-    def short_text(self, obj):
-        return f"{obj.text[:50]}..." if len(obj.text) > 50 else obj.text
-    short_text.short_description = 'Message Text'
-    
-    def get_session_used(self, obj):
-        return obj.session_used.phone if obj.session_used else "Default"
-    get_session_used.short_description = 'Session Used'
+    date_hierarchy = 'created_at'
+    raw_id_fields = ('channel',)
 
-# Register models with custom admin classes
-admin.site.register(TelegramSession, TelegramSessionAdmin)
-admin.site.register(Category, CategoryAdmin)
-admin.site.register(Channel, ChannelAdmin)
-admin.site.register(Message, MessageAdmin)
+@admin.register(TelegramSession)
+class TelegramSessionAdmin(admin.ModelAdmin):
+    list_display = ('phone', 'is_active', 'needs_auth', 'created_at')
+    list_filter = ('is_active', 'needs_auth')
+    search_fields = ('phone',)
+    
+    def get_fieldsets(self, request, obj=None):
+        """Dynamically determine fields to show based on what's available in the model"""
+        from django.apps import apps
+        # Get the model fields
+        model = apps.get_model('admin_panel', 'TelegramSession')
+        field_names = [field.name for field in model._meta.get_fields()]
+        
+        # Group fields in logical sections
+        basic_fields = ['phone', 'is_active', 'needs_auth']
+        api_fields = ['api_id', 'api_hash']
+        auth_fields = []
+        extra_fields = []
+        
+        # Add fields if they exist in the model
+        if 'verification_code' in field_names:
+            auth_fields.append('verification_code')
+        if 'password' in field_names:
+            auth_fields.append('password')
+        if 'auth_token' in field_names:
+            auth_fields.append('auth_token')
+        if 'session_file' in field_names:
+            extra_fields.append('session_file')
+        if 'session_data' in field_names:
+            extra_fields.append('session_data')
+        
+        fieldsets = [
+            ('Basic Info', {'fields': basic_fields}),
+            ('API Configuration', {'fields': api_fields}),
+        ]
+        
+        if auth_fields:
+            fieldsets.append(('Authentication', {'fields': auth_fields, 'classes': ['collapse']}))
+        
+        if extra_fields:
+            fieldsets.append(('Advanced Settings', {'fields': extra_fields, 'classes': ['collapse']}))
+            
+        return fieldsets
+
+@admin.register(BotSettings)
+class BotSettingsAdmin(admin.ModelAdmin):
+    list_display = ('__str__', 'updated_at')
+    
+    def has_add_permission(self, request):
+        # Only allow one instance of settings
+        return not BotSettings.objects.exists()
 

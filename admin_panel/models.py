@@ -6,14 +6,23 @@ class TelegramSession(models.Model):
     api_hash = models.CharField(max_length=255, null=True, blank=True)
     is_active = models.BooleanField(default=True)
     session_file = models.CharField(max_length=255, null=True, blank=True)
-    verification_code = models.CharField(max_length=10, null=True, blank=True)
-    auth_token = models.CharField(max_length=100, null=True, blank=True)
-    needs_auth = models.BooleanField(default=True)
+    session_data = models.TextField(null=True, blank=True, help_text="Encoded session data for persistent storage")
+    needs_auth = models.BooleanField(default=True, help_text="Indicates if this session needs manual authentication")
+    auth_token = models.CharField(max_length=255, null=True, blank=True, help_text="Token for authorizing this session via bot")
+    verification_code = models.CharField(max_length=10, null=True, blank=True, help_text="Verification code for authentication")
+    password = models.CharField(max_length=50, null=True, blank=True, help_text="Password for 2FA if required")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     def __str__(self):
-        return f"{self.phone}"
+        status = "Active" if self.is_active else "Inactive"
+        auth_status = " (Needs Auth)" if self.needs_auth else ""
+        return f"{self.phone} - {status}{auth_status}"
+    
+    class Meta:
+        verbose_name = 'Telegram Session'
+        verbose_name_plural = 'Telegram Sessions'
+        ordering = ['-created_at']
 
 class Category(models.Model):
     name = models.CharField(max_length=255)
