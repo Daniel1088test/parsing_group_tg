@@ -24,7 +24,7 @@ get_channels = sync_to_async(_get_channels)
 async def cmd_start(message: types.Message):
     await message.answer("Hello! I am a bot for parsing messages from Telegram channels.", reply_markup=main_menu_keyboard)
 
-@router.message(F.text == "🌐 Go to the website")   
+@router.message(F.text == "🌐 Go to the site")   
 async def website(message: types.Message):
     # Use external IP address or domain name, if it is configured
     website_url = f"http://192.168.0.237:{WEB_SERVER_PORT}"  # Changed to IP that is displayed when Flask starts

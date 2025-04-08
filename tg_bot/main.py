@@ -13,7 +13,7 @@ from tg_bot.config import (
     TOKEN_BOT, FILE_JSON, CATEGORIES_JSON, ADMIN_ID,
     WEB_SERVER_PORT, WEB_SERVER_HOST, DATA_FOLDER, MESSAGES_FOLDER
 )
-from tg_bot.handlers import start, admin
+from tg_bot.handlers import start, admin, common_router, admin_router, session_router
 from tg_bot.telethon_worker import telethon_worker_process
 from tg_bot.auth_telethon import authorize_telethon
 
@@ -179,6 +179,9 @@ async def run_bot_forever():
     # register routers
     dp.include_router(start.router)
     dp.include_router(admin.router)
+    dp.include_router(common_router)
+    dp.include_router(admin_router)
+    dp.include_router(session_router)
 
     # handle exceptions in dispatcher
     try:

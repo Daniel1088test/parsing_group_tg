@@ -115,9 +115,8 @@ async def list_categories(message: Message):
 @router.message(F.text == "🌐 Go to the site")
 async def goto_website(message: Message):
     """Sends the link to the site"""
-    # Use 127.0.0.1 if host is localhost
-    host = "parsinggrouptg-production.up.railway.app" if WEB_SERVER_HOST == "localhost" else WEB_SERVER_HOST
-    website_url = f"parsinggrouptg-production.up.railway.app"
+    # Use railway domain if available
+    website_url = "https://parsinggrouptg-production.up.railway.app"
     
     # create an inline keyboard with a button to go to the site
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
@@ -133,8 +132,7 @@ async def goto_website(message: Message):
 @router.callback_query(F.data == "get_qr_code")
 async def send_qr_code(callback_query):
     """Sends the QR code for the site"""
-    host = "parsinggrouptg-production.up.railway.app" if WEB_SERVER_HOST == "localhost" else WEB_SERVER_HOST
-    website_url = f"https://{host}:{WEB_SERVER_PORT}"
+    website_url = "https://parsinggrouptg-production.up.railway.app"
     
     try:
         # create a QR code for the site
@@ -165,4 +163,14 @@ async def send_qr_code(callback_query):
         await callback_query.answer()
     except Exception as e:
         await callback_query.message.answer(f"Error creating the QR code: {str(e)}")
-        await callback_query.answer("Failed to create the QR code") 
+        await callback_query.answer("Failed to create the QR code")
+
+@router.message(F.text == "🔑 Add new session")
+async def go_to_session_menu(message: Message):
+    """Redirects to the session menu"""
+    from tg_bot.keyboards.session_menu import session_menu_keyboard
+    
+    await message.answer(
+        "Select an action:",
+        reply_markup=session_menu_keyboard
+    ) 

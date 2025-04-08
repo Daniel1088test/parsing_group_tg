@@ -318,10 +318,42 @@ async def process_code(message: Message, state: FSMContext):
             me = await telethon_client.get_me()
             
             await message.answer(
-                f"✅ Успішна авторизація як {me.first_name} (@{me.username})!\n"
+                f"✅ Успішна авторизація як {me.first_name} (@{me.username or 'None'})!\n"
                 f"Файл сесії створено. Тепер ви можете використовувати парсинг Telethon.",
                 reply_markup=main_menu_keyboard
             )
+            
+            # Запуск парсера в фоновому режимі
+            await message.answer("🔄 Запускаю парсер для отримання повідомлень з каналів...")
+            
+            # Виконуємо команду для запуску парсера в окремому процесі
+            import subprocess
+            import sys
+            
+            try:
+                # Створюємо команду для запуску парсера
+                python_executable = sys.executable
+                command = [python_executable, "manage.py", "runtelethon"]
+                
+                # Запускаємо парсер як окремий процес
+                subprocess.Popen(
+                    command,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    shell=False,
+                    close_fds=True
+                )
+                
+                await message.answer(
+                    "✅ Парсер запущено! Повідомлення будуть автоматично завантажуватися до бази даних.",
+                    reply_markup=main_menu_keyboard
+                )
+            except Exception as e:
+                await message.answer(
+                    f"❌ Помилка запуску парсера: {str(e)}\n"
+                    f"Ви можете запустити його вручну командою: python manage.py runtelethon",
+                    reply_markup=main_menu_keyboard
+                )
             
         except errors.SessionPasswordNeededError:
             # Two-factor authentication is enabled
