@@ -8,9 +8,12 @@ class TelegramSession(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     session_file = models.CharField(max_length=255, blank=True, null=True)
+    needs_auth = models.BooleanField(default=False, help_text="Indicates if this session needs manual authentication")
 
     def __str__(self):
-        return f"{self.phone} - {'Active' if self.is_active else 'Inactive'}"
+        status = "Active" if self.is_active else "Inactive"
+        auth_status = " (Needs Auth)" if self.needs_auth else ""
+        return f"{self.phone} - {status}{auth_status}"
 
     class Meta:
         verbose_name = 'Telegram Session'

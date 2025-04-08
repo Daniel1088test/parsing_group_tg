@@ -180,6 +180,7 @@ def admin_panel_view(request):
     categories_count = Category.objects.count()
     active_channels_count = Channel.objects.filter(is_active=True).count()
     messages_count = Message.objects.count()
+    sessions_count = TelegramSession.objects.count()
     latest_messages = Message.objects.order_by('-created_at')
     return render(
         request, 
@@ -188,6 +189,7 @@ def admin_panel_view(request):
          'categories_count': categories_count, 
          'active_channels_count': active_channels_count, 
          'messages_count': messages_count,
+         'sessions_count': sessions_count,
          'latest_messages': latest_messages})
 
 @login_required
@@ -319,3 +321,95 @@ def message_delete_view(request, message_id):
     message = get_object_or_404(Message, pk=message_id)
     message.delete()
     return redirect('messages_list')
+
+@login_required
+def sessions_list_view(request):
+    """View for managing Telegram sessions"""
+    sessions = TelegramSession.objects.all().order_by('id')
+    
+    # Count sessions that need authentication
+    needs_auth_count = TelegramSession.objects.filter(needs_auth=True).count()
+    
+    # Check how many channels use each session
+    for session in sessions:
+        session.channels_count = Channel.objects.filter(session=session).count()
+        session.messages_count = Message.objects.filter(session_used=session).count()
+    
+    context = {
+        'sessions': sessions,
+        'needs_auth_count': needs_auth_count,
+        'title': 'Telegram Sessions'
+    }
+    
+    return render(request, 'admin_panel/sessions_list.html', context)
+
+@login_required
+def session_create_view(request):
+    """View for creating a new Telegram session"""
+    if request.method == 'POST':
+        phone = request.POST.get('phone')
+        api_id = request.POST.get('api_id', '')
+        api_hash = request.POST.get('api_hash', '')
+        
+        if not phone:
+            messages.error(request, 'Phone number is required')
+            return redirect('sessions_list')
+        
+        # Create the session
+        try:
+            session = TelegramSession(
+                phone=phone,
+                api_id=api_id or settings.TELEGRAM_API_ID,
+                api_hash=api_hash or settings.TELEGRAM_API_HASH,
+                is_active=True,
+                needs_auth=True
+            )
+            session.save()
+            
+            messages.success(request, f'Session created for {phone}. Please authenticate it using the command:')
+            messages.info(request, f'python manage.py authsession --auth {session.id}')
+            
+        except Exception as e:
+            messages.error(request, f'Error creating session: {str(e)}')
+            
+    return redirect('sessions_list')
+
+@login_required
+def session_update_view(request, session_id):
+    """View for updating a Telegram session"""
+    session = get_object_or_404(TelegramSession, pk=session_id)
+    
+    if request.method == 'POST':
+        session.phone = request.POST.get('phone', session.phone)
+        session.api_id = request.POST.get('api_id', session.api_id)
+        session.api_hash = request.POST.get('api_hash', session.api_hash)
+        session.is_active = request.POST.get('is_active') == 'on'
+        session.save()
+        
+        messages.success(request, f'Session {session.phone} updated')
+        
+    return redirect('sessions_list')
+
+@login_required
+def session_delete_view(request, session_id):
+    """View for deleting a Telegram session"""
+    session = get_object_or_404(TelegramSession, pk=session_id)
+    
+    # Check if this session is in use
+    if Channel.objects.filter(session=session).exists():
+        messages.error(request, f'Cannot delete session {session.phone} as it is used by channels')
+        return redirect('sessions_list')
+        
+    if Message.objects.filter(session_used=session).exists():
+        messages.warning(request, f'Deleting session {session.phone} which has associated messages')
+    
+    # Delete the session
+    session.delete()
+    messages.success(request, f'Session {session.phone} deleted')
+    
+    return redirect('sessions_list')
+
+@login_required
+def auth_help_view(request):
+    """View for the Telegram authentication help page"""
+    return render(request, 'admin_panel/auth_help.html')

@@ -7,7 +7,8 @@ from tg_bot.config import API_ID, API_HASH
 import sys
 import traceback
 from telethon.errors import SessionPasswordNeededError
-from admin_panel.models import TelegramSession
+import django
+from asgiref.sync import sync_to_async
 
 # Set up logging
 logging.basicConfig(
@@ -17,26 +18,98 @@ logging.basicConfig(
 )
 logger = logging.getLogger('telethon_auth')
 
-# Налаштування Django для доступу до моделей
+# Configure Django for model access
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'core.settings')
-import django
 django.setup()
 
-async def create_session_file(phone, api_id=None, api_hash=None, session_name=None):
+from admin_panel.models import TelegramSession
+
+async def verify_session(session_path, api_id=None, api_hash=None):
+    """
+    Verify if a session file is properly authorized
+    
+    Args:
+        session_path: Path to the session file without .session extension
+        api_id: Telegram API ID
+        api_hash: Telegram API Hash
+        
+    Returns:
+        tuple: (bool is_authorized, dict user_info or None)
+    """
+    if not api_id:
+        api_id = API_ID
+    if not api_hash:
+        api_hash = API_HASH
+        
+    # Get just the filename without path or extension
+    session_name = os.path.basename(session_path)
+    if session_name.endswith('.session'):
+        session_name = session_name[:-8]
+        
+    logger.info(f"Verifying session: {session_path}")
+    
+    if not os.path.exists(f"{session_path}.session"):
+        logger.warning(f"Session file not found: {session_path}.session")
+        return False, None
+        
+    client = TelegramClient(session_path, api_id, api_hash)
+    
+    try:
+        await client.connect()
+        
+        if not await client.is_user_authorized():
+            logger.warning(f"Session file exists but is not authorized: {session_path}")
+            await client.disconnect()
+            return False, None
+            
+        # Get user info
+        me = await client.get_me()
+        user_info = {
+            'id': me.id,
+            'first_name': me.first_name,
+            'last_name': getattr(me, 'last_name', ''),
+            'username': getattr(me, 'username', ''),
+            'phone': getattr(me, 'phone', '')
+        }
+        
+        logger.info(f"Session verified: {session_path} is authorized as @{user_info.get('username')}")
+        await client.disconnect()
+        return True, user_info
+        
+    except Exception as e:
+        logger.error(f"Error verifying session {session_path}: {e}")
+        logger.error(traceback.format_exc())
+        try:
+            await client.disconnect()
+        except:
+            pass
+        return False, None
+
+async def create_session_file(phone, api_id=None, api_hash=None, session_name=None, interactive=True):
     """
     Create a new Telethon session file with authorization
+    
+    Args:
+        phone: Phone number with country code (e.g. +380667264351)
+        api_id: Telegram API ID
+        api_hash: Telegram API Hash
+        session_name: Custom session name (default: telethon_session)
+        interactive: Whether to ask for code interactively
+        
+    Returns:
+        bool: Success or failure
     """
     if not api_id:
         api_id = API_ID
     if not api_hash:
         api_hash = API_HASH
     if not session_name:
-        session_name = 'telethon_session'
+        session_name = f'telethon_session_{phone.replace("+", "")}'
         
-    # Створюємо директорії, якщо вони не існують
+    # Create directories if they don't exist
     os.makedirs('data/sessions', exist_ok=True)
     
-    # Шляхи для файлів сесій
+    # Session file paths
     main_session_path = f"{session_name}.session"
     session_copy_path = f"data/sessions/{session_name}.session"
     
@@ -49,57 +122,75 @@ async def create_session_file(phone, api_id=None, api_hash=None, session_name=No
         if not await client.is_user_authorized():
             logger.info(f"Session not authorized. Starting authorization for {phone}")
             
-            # Відправляємо запит на код авторизації
+            # Send authorization code request
             await client.send_code_request(phone)
             
-            # Отримуємо код від користувача
-            auth_code = input(f'Enter the code you received for {phone}: ')
-            
-            try:
-                # Авторизуємось з введеним кодом
-                await client.sign_in(phone, auth_code)
-            except SessionPasswordNeededError:
-                # Якщо потрібний пароль двофакторної автентифікації
-                password = input("Two-factor authentication is enabled. Please enter your password: ")
-                await client.sign_in(password=password)
+            if interactive:
+                # Get verification code from user
+                auth_code = input(f'Enter the code you received for {phone}: ')
                 
-        # Отримуємо інформацію про авторизованого користувача
+                try:
+                    # Sign in with the code
+                    await client.sign_in(phone, auth_code)
+                except SessionPasswordNeededError:
+                    # If two-factor authentication is enabled
+                    password = input("Two-factor authentication is enabled. Please enter your password: ")
+                    await client.sign_in(password=password)
+            else:
+                logger.error("Non-interactive mode: Cannot request verification code. Please run in interactive mode.")
+                await client.disconnect()
+                return False
+                
+        # Get user information
         me = await client.get_me()
-        logger.info(f"Successfully authorized as: {me.first_name} (@{me.username}) [ID: {me.id}]")
+        if not me:
+            logger.error(f"Failed to get user info after authorization")
+            await client.disconnect()
+            return False
+            
+        logger.info(f"Successfully authorized as: {me.first_name} (@{me.username or 'No username'}) [ID: {me.id}]")
         
-        # Завантажуємо діалоги для кращої роботи з каналами
+        # Load dialogs for better channel handling
         logger.info("Loading dialogs...")
         await client.get_dialogs()
         logger.info("Dialogs loaded")
         
-        # Створюємо або оновлюємо запис у базі даних
+        # Create or update database record using sync_to_async
         try:
-            session, created = TelegramSession.objects.get_or_create(
-                phone=phone,
-                defaults={
-                    'api_id': api_id,
-                    'api_hash': api_hash,
-                    'is_active': True,
-                    'session_file': session_name
-                }
-            )
-            
-            if not created:
-                session.api_id = api_id
-                session.api_hash = api_hash
-                session.is_active = True
-                session.session_file = session_name
-                session.save()
+            @sync_to_async
+            def update_session_in_db():
+                session, created = TelegramSession.objects.get_or_create(
+                    phone=phone,
+                    defaults={
+                        'api_id': api_id,
+                        'api_hash': api_hash,
+                        'is_active': True,
+                        'session_file': session_name,
+                        'needs_auth': False
+                    }
+                )
                 
-            logger.info(f"{'Created' if created else 'Updated'} session record in database")
+                if not created:
+                    session.api_id = api_id
+                    session.api_hash = api_hash
+                    session.is_active = True
+                    session.session_file = session_name
+                    session.needs_auth = False
+                    session.save()
+                
+                return created
+            
+            created = await update_session_in_db()
+            logger.info(f"{'Created' if created else 'Updated'} session record in database for {phone}")
+            
         except Exception as e:
             logger.error(f"Error updating database: {e}")
             logger.error(traceback.format_exc())
         
-        # Закриваємо підключення
+        # Close the connection
         await client.disconnect()
         
-        # Копіюємо файл сесії в директорію data/sessions
+        # Copy session file to data/sessions directory
         if os.path.exists(main_session_path) and os.path.isfile(main_session_path):
             import shutil
             try:
@@ -108,10 +199,10 @@ async def create_session_file(phone, api_id=None, api_hash=None, session_name=No
             except Exception as e:
                 logger.error(f"Error copying session file: {e}")
         
-        logger.info(f"Session creation completed successfully")
+        logger.info(f"Session creation completed successfully for {phone}")
         return True
     except Exception as e:
-        logger.error(f"Error creating session: {e}")
+        logger.error(f"Error creating session for {phone}: {e}")
         logger.error(traceback.format_exc())
         return False
     finally:
@@ -122,19 +213,99 @@ async def create_session_file(phone, api_id=None, api_hash=None, session_name=No
         except:
             pass
 
+async def verify_all_sessions_in_db():
+    """Verify all sessions in the database and update their status"""
+    
+    @sync_to_async
+    def get_active_sessions():
+        return list(TelegramSession.objects.filter(is_active=True))
+    
+    @sync_to_async
+    def update_session(session, path):
+        session.session_file = path
+        session.needs_auth = False
+        session.save()
+        
+    @sync_to_async
+    def mark_session_needs_auth(session):
+        session.needs_auth = True
+        session.save()
+    
+    sessions = await get_active_sessions()
+    logger.info(f"Verifying {len(sessions)} active sessions from database")
+    
+    results = []
+    
+    for session in sessions:
+        # Define possible session paths
+        session_name = session.session_file or f"telethon_session_{session.id}"
+        possible_paths = [
+            session_name,
+            f"data/sessions/{session_name}",
+            f"telethon_session_{session.id}",
+            f"data/sessions/telethon_session_{session.id}",
+            f"telethon_session_{session.phone.replace('+', '')}"
+        ]
+        
+        # Try each path
+        authorized = False
+        user_info = None
+        
+        for path in possible_paths:
+            if os.path.exists(f"{path}.session"):
+                is_auth, info = await verify_session(path, session.api_id, session.api_hash)
+                if is_auth:
+                    authorized = True
+                    user_info = info
+                    await update_session(session, path)
+                    break
+        
+        if not authorized:
+            logger.warning(f"Session {session.id} ({session.phone}) is not properly authorized")
+            await mark_session_needs_auth(session)
+        else:
+            logger.info(f"Session {session.id} ({session.phone}) is valid")
+            
+        results.append({
+            'session_id': session.id,
+            'phone': session.phone,
+            'authorized': authorized,
+            'user_info': user_info
+        })
+    
+    return results
+
 async def main():
-    """
-    Main function to run the script
-    """
-    print("\n=== Telethon Session Creator ===\n")
+    """Main function to run the script with command-line arguments"""
+    parser = argparse.ArgumentParser(description='Telegram Session Creator and Verifier')
+    parser.add_argument('--phone', type=str, help='Phone number with country code (e.g. +380667264351)')
+    parser.add_argument('--verify', action='store_true', help='Verify all sessions in database')
+    parser.add_argument('--verify-file', type=str, help='Verify a specific session file')
+    args = parser.parse_args()
     
-    # Перевіряємо аргументи командного рядка
-    if len(sys.argv) > 1:
-        phone = sys.argv[1]
-    else:
-        phone = input("Enter phone number (with country code, e.g. +380123456789): ")
+    print("\n=== Telethon Session Manager ===\n")
     
-    # Створюємо сесію
+    if args.verify:
+        results = await verify_all_sessions_in_db()
+        print(f"\nVerified {len(results)} sessions:")
+        for result in results:
+            status = "✅ Authorized" if result['authorized'] else "❌ Not authorized"
+            phone = result['phone']
+            print(f"- Session ID {result['session_id']} ({phone}): {status}")
+        return
+    
+    if args.verify_file:
+        is_auth, user_info = await verify_session(args.verify_file)
+        if is_auth:
+            print(f"\n✅ Session {args.verify_file} is authorized")
+            print(f"User: {user_info['first_name']} {user_info['last_name']} (@{user_info['username']})")
+        else:
+            print(f"\n❌ Session {args.verify_file} is NOT authorized")
+        return
+        
+    # Create a new session
+    phone = args.phone if args.phone else input("Enter phone number (with country code, e.g. +380123456789): ")
+    
     success = await create_session_file(phone)
     
     if success:

@@ -29,7 +29,7 @@ SECRET_KEY = os.environ.get('SECRET_KEY', 'django-insecure-ke3r=i9e97_*@6!^5%5g@
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-# Application domain settings
+# Application domain settings'
 RAILWAY_PUBLIC_DOMAIN = os.environ.get('RAILWAY_PUBLIC_DOMAIN', 'parsinggrouptg-production.up.railway.app')
 ALLOWED_HOSTS = ['*', RAILWAY_PUBLIC_DOMAIN, 'localhost', '127.0.0.1']
 

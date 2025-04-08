@@ -23,4 +23,10 @@ urlpatterns = [
     path('messages-list/', views.messages_list_view, name='messages_list'),
     path('message-detail/<int:message_id>/', views.message_detail_view, name='message_detail'),
     path('message-delete/<int:message_id>/', views.message_delete_view, name='message_delete'),
+    # Telegram Sessions
+    path('sessions-list/', views.sessions_list_view, name='sessions_list'),
+    path('session-create/', views.session_create_view, name='session_create'),
+    path('session-update/<int:session_id>/', views.session_update_view, name='session_update'),
+    path('session-delete/<int:session_id>/', views.session_delete_view, name='session_delete'),
+    path('auth-help/', views.auth_help_view, name='auth_help'),
 ]
