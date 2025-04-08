@@ -352,6 +352,25 @@
             }
         }
     </style>
+
+    <!-- Start additional head code -->
+    <script>
+        // Global function to handle media errors
+        function handleImageError(img) {
+            img.onerror = null;
+            img.src = '/staticfiles/img/placeholder-image.png';
+            return true;
+        }
+        
+        function handleVideoError(video) {
+            var placeholder = document.createElement('img');
+            placeholder.src = '/staticfiles/img/placeholder-video.png';
+            placeholder.className = 'img-fluid rounded shadow-sm';
+            placeholder.alt = 'Video thumbnail';
+            video.parentNode.replaceChild(placeholder, video);
+        }
+    </script>
+    <!-- End additional head code -->
 </head>
 <body>
     <!-- Loading indicator -->
@@ -465,7 +484,7 @@
                                                 </div>
                                             {% elif message.media %}
                                                 <img src="{{ MEDIA_URL|default:'/media/' }}{{ message.media }}" 
-                                                     onerror="this.onerror=null; this.src='/staticfiles/img/placeholder-image.png';"
+                                                     onerror="handleImageError(this)"
                                                      class="img-fluid rounded shadow-sm" alt="Image">
                                             {% else %}
                                                 <!-- Fallback for no media or URL -->
@@ -487,17 +506,14 @@
                                                 <div class="ratio ratio-16x9">
                                                     <video class="rounded shadow-sm" controls preload="metadata"
                                                            poster="/staticfiles/img/placeholder-video.png"
-                                                           onerror="this.style.display='none'; this.parentNode.innerHTML='<img src=\'/staticfiles/img/placeholder-video.png\' class=\'img-fluid rounded shadow-sm\' alt=\'Video thumbnail\'>'">
+                                                           onerror="handleVideoError(this)">
                                                         <source src="{{ MEDIA_URL|default:'/media/' }}{{ message.media }}" type="video/mp4">
                                                         Your browser does not support video.
                                                     </video>
                                                 </div>
                                             {% else %}
                                                 <!-- Fallback for no media or URL -->
-                                                <div class="alert alert-warning text-center">
-                                                    <i class="fas fa-film fa-2x mb-2"></i><br>
-                                                    Video not available
-                                                </div>
+                                                <img src="/staticfiles/img/placeholder-video.png" class="img-fluid rounded shadow-sm" alt="Video thumbnail">
                                             {% endif %}
                                             <div class="mt-2 text-center">
                                                 <a href="{{ message.telegram_link }}" class="btn btn-sm btn-primary" target="_blank">
@@ -514,14 +530,11 @@
                                                 </div>
                                             {% elif message.media %}
                                                 <img src="{{ MEDIA_URL|default:'/media/' }}{{ message.media }}" 
-                                                     onerror="this.onerror=null; this.src='/staticfiles/img/placeholder-image.png';"
+                                                     onerror="handleImageError(this)"
                                                      class="img-fluid rounded shadow-sm" alt="GIF">
                                             {% else %}
                                                 <!-- Fallback for no media or URL -->
-                                                <div class="alert alert-warning text-center">
-                                                    <i class="fas fa-image fa-2x mb-2"></i><br>
-                                                    GIF not available
-                                                </div>
+                                                <img src="/staticfiles/img/placeholder-image.png" class="img-fluid rounded shadow-sm" alt="GIF placeholder">
                                             {% endif %}
                                         {% elif message.media_type == 'document' %}
                                             <div class="document-container p-3 bg-light rounded shadow-sm">
@@ -545,7 +558,7 @@
                                                 </div>
                                             {% elif message.media %}
                                                 <img src="{{ MEDIA_URL|default:'/media/' }}{{ message.media }}" 
-                                                     onerror="this.onerror=null; this.src='/staticfiles/img/placeholder-image.png';"
+                                                     onerror="handleImageError(this)"
                                                      class="img-fluid rounded shadow-sm" alt="Webpage preview">
                                             {% else %}
                                                 <div class="alert alert-info text-center">
@@ -679,19 +692,55 @@
             
             // Fix broken images and videos
             function checkMediaElements() {
-                // Set fallback for broken images
+                // Preload placeholder images to ensure they're in cache
+                const imagePreloader = new Image();
+                imagePreloader.src = '/staticfiles/img/placeholder-image.png';
+                
+                const videoPreloader = new Image();
+                videoPreloader.src = '/staticfiles/img/placeholder-video.png';
+                
+                // Set fallback for broken images - additional backup
                 $('img').on('error', function() {
-                    $(this).attr('src', '/staticfiles/img/placeholder-image.png');
+                    if (this.src !== '/staticfiles/img/placeholder-image.png' && 
+                        this.src !== '/staticfiles/img/placeholder-video.png') {
+                        if ($(this).closest('.media-container').find('video').length > 0) {
+                            this.src = '/staticfiles/img/placeholder-video.png';
+                        } else {
+                            this.src = '/staticfiles/img/placeholder-image.png';
+                        }
+                    }
                 });
                 
-                // Fix video elements that fail to load
+                // Fix video elements that fail to load - additional backup
                 $('video').on('error', function() {
-                    $(this).parent().html('<img src="/staticfiles/img/placeholder-video.png" class="img-fluid rounded shadow-sm" alt="Video thumbnail">');
+                    const container = $(this).parent();
+                    container.html('<img src="/staticfiles/img/placeholder-video.png" class="img-fluid rounded shadow-sm" alt="Video thumbnail">');
                 });
+                
+                // Check for Railway environment and apply special fixes
+                if (window.location.hostname.includes('railway.app')) {
+                    console.log('Railway environment detected, applying special fixes');
+                    // Replace all media URLs to use absolute paths
+                    $('img[src^="/media/"]').each(function() {
+                        const originalSrc = $(this).attr('src');
+                        $(this).attr('data-original-src', originalSrc);
+                        $(this).attr('src', '/staticfiles/img/placeholder-image.png');
+                    });
+                    
+                    $('video source[src^="/media/"]').each(function() {
+                        const videoElement = $(this).closest('video')[0];
+                        handleVideoError(videoElement);
+                    });
+                }
             }
             
             // Run on page load
             checkMediaElements();
+            
+            // Additional check after page is fully loaded
+            $(window).on('load', function() {
+                setTimeout(checkMediaElements, 500);
+            });
         });
     </script>
 </body>
