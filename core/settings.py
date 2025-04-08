@@ -114,12 +114,49 @@ TEMPLATES = [
 WSGI_APPLICATION = 'core.wsgi.application'
 
 # Database Configuration
-DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
+# Default to SQLite in development, use PostgreSQL in production (Railway)
+if 'DATABASE_URL' in os.environ:
+    import dj_database_url
+    DATABASES = {
+        'default': dj_database_url.config(
+            default=os.environ.get('DATABASE_URL'),
+            conn_max_age=600,
+            conn_health_checks=True,
+        )
     }
-}
+    print(f"Using DATABASE_URL for database connection")
+# Якщо DATABASE_URL не вказано, спробуємо використати індивідуальні змінні PostgreSQL
+elif all([
+    os.environ.get('PGUSER'),
+    os.environ.get('PGPASSWORD'),
+    os.environ.get('PGHOST'),
+    os.environ.get('PGPORT'),
+    os.environ.get('PGDATABASE')
+]):
+    # Конструюємо URL-підключення з окремих змінних
+    PGUSER = os.environ.get('PGUSER')
+    PGPASSWORD = os.environ.get('PGPASSWORD')
+    PGHOST = os.environ.get('PGHOST')
+    PGPORT = os.environ.get('PGPORT')
+    PGDATABASE = os.environ.get('PGDATABASE')
+    
+    # Використовуємо dj-database-url для парсингу URL-підключення
+    import dj_database_url
+    DATABASES = {
+        'default': dj_database_url.parse(
+            f"postgresql://{PGUSER}:{PGPASSWORD}@{PGHOST}:{PGPORT}/{PGDATABASE}"
+        )
+    }
+    print(f"Using PostgreSQL connection from environment variables: {PGHOST}:{PGPORT}/{PGDATABASE}")
+else:
+    # Якщо жодне з вищевказаних не працює, використовуємо SQLite
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.sqlite3',
+            'NAME': BASE_DIR / 'db.sqlite3',
+        }
+    }
+    print("Using SQLite database as fallback")
 
 # Static files configuration
 STATIC_URL = '/static/'
@@ -170,6 +207,11 @@ LOGGING = {
             'handlers': ['console'],
             'level': 'INFO',
             'propagate': True,
+        },
+        'django.db.backends': {
+            'handlers': ['console'],
+            'level': 'INFO',  # Змінено на INFO для логування SQL-запитів
+            'propagate': False,
         },
         'admin_panel': {
             'handlers': ['console'],
