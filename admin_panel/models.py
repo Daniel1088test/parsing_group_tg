@@ -66,6 +66,7 @@ class Message(models.Model):
     text = models.TextField()
     media = models.FileField(upload_to='messages/', null=True, blank=True)
     media_type = models.CharField(max_length=255, null=True, blank=True)
+    original_url = models.URLField(max_length=500, null=True, blank=True, help_text="Original media URL from Telegram")
     telegram_message_id = models.CharField(max_length=255)
     telegram_channel_id = models.CharField(max_length=255)
     telegram_link = models.URLField(max_length=255)
@@ -76,6 +77,22 @@ class Message(models.Model):
 
     def __str__(self):
         return f"{self.telegram_message_id} - {self.text[:10]}"
+    
+    def save(self, *args, **kwargs):
+        # If this is a new message with media, ensure correct permissions
+        if self.pk is None and self.media:
+            super().save(*args, **kwargs)
+            # Set permissions on media file after saving
+            try:
+                import os
+                media_path = self.media.path
+                if os.path.exists(media_path):
+                    os.chmod(media_path, 0o644)
+            except Exception as e:
+                # Don't let permission errors prevent saving
+                print(f"Error setting file permissions: {e}")
+        else:
+            super().save(*args, **kwargs)
     
     class Meta:
         verbose_name = 'Message'

@@ -76,10 +76,14 @@ def _save_message_to_db(message_data):
                     # Don't save non-existent media paths
                     media_path = ""
         
+        # Get original URL from message_data if available
+        original_url = message_data.get('original_url')
+        
         message = models.Message(
             text=message_data['text'],
             media=media_path,
             media_type=message_data['media_type'],
+            original_url=original_url,
             telegram_message_id=message_data['message_id'],
             telegram_channel_id=message_data['channel_id'],
             telegram_link=message_data['link'],
@@ -90,8 +94,9 @@ def _save_message_to_db(message_data):
         message.save()
         
         media_info = f", with media: {media_path}" if media_path else ""
+        orig_url_info = f", original URL: {original_url}" if original_url else ""
         session_info = f" (via {message_data.get('session_used').phone})" if message_data.get('session_used') else ""
-        logger.info(f"Saved message: channel '{channel.name}', message ID {message_data['message_id']}{media_info}{session_info}")
+        logger.info(f"Saved message: channel '{channel.name}', message ID {message_data['message_id']}{media_info}{orig_url_info}{session_info}")
         
         return message
     except Exception as e:
@@ -193,14 +198,14 @@ stop_event = False
 # Dictionary to store Telethon clients for different sessions
 telethon_clients = {}
 
-async def get_channel_messages(client, channel_identifier):
+async def get_channel_messages(client, channel_identifier, max_messages=10):
     """
     getting messages from the specified channel
     """
     try:
         await client.get_dialogs()  # update the dialog cache
         channel = await client.get_entity(channel_identifier)
-        messages = await client.get_messages(channel, 10)  # get the last 10 messages
+        messages = await client.get_messages(channel, max_messages)  # get the last N messages
         logger.debug(f"Received {len(messages)} messages from channel {getattr(channel, 'title', channel_identifier)}")
         return messages, channel
     except errors.ChannelInvalidError:
@@ -227,12 +232,19 @@ async def download_media(client, message, media_dir):
             import os
             import re
             import uuid
+            import shutil
             
             # Use Django's MEDIA_ROOT to ensure we're saving in the right place
             absolute_media_dir = os.path.join(settings.MEDIA_ROOT, media_dir)
             
             # Ensure the directory exists with proper permissions
             os.makedirs(absolute_media_dir, exist_ok=True)
+            
+            # Make sure media directory has correct permissions
+            try:
+                os.chmod(absolute_media_dir, 0o755)
+            except Exception as e:
+                logger.warning(f"Could not set permissions on media directory: {e}")
             
             # Create a unique ID based on message ID and timestamp
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -255,11 +267,30 @@ async def download_media(client, message, media_dir):
                         base_name = os.path.basename(file_path)
                         logger.info(f"Successfully downloaded media: {base_name}")
                         
+                        # Make sure the file has correct permissions
+                        try:
+                            os.chmod(file_path, 0o644)
+                        except Exception as e:
+                            logger.warning(f"Could not set permissions on file {file_path}: {e}")
+                        
                         # Make sure the file is readable
                         try:
                             with open(file_path, 'rb') as f:
                                 # Just check if we can read a few bytes
                                 f.read(10)
+                                
+                            # Create a copy of the file with the correct extension based on file content
+                            import mimetypes
+                            content_type, encoding = mimetypes.guess_type(file_path)
+                            
+                            if content_type:
+                                extension = mimetypes.guess_extension(content_type) or ''
+                                if extension and not file_path.endswith(extension):
+                                    new_path = f"{file_path}{extension}"
+                                    shutil.copy2(file_path, new_path)
+                                    logger.info(f"Created copy with correct extension: {os.path.basename(new_path)}")
+                                    # Use the new file with extension
+                                    return os.path.basename(new_path)
                         except Exception as e:
                             logger.error(f"Downloaded file exists but is not readable: {e}")
                             return None
@@ -289,25 +320,63 @@ async def save_message_to_data(message, channel, queue, category_id=None, client
         # data about media
         media_type = None
         media_file = None
+        original_file_url = None  # Store the original Telegram URL if available
         
         # determine the type of media and download it
         if message.media and client:
-            if isinstance(message.media, MessageMediaPhoto):
-                media_type = "photo"
-                media_file = await download_media(client, message, "messages")
-                logger.info(f"Media type: photo, file: {media_file}")
-            elif isinstance(message.media, MessageMediaDocument):
-                if message.media.document.mime_type.startswith('video'):
-                    media_type = "video"
-                elif message.media.document.mime_type.startswith('image'):
-                    media_type = "gif" if message.media.document.mime_type == 'image/gif' else "image"
-                else:
-                    media_type = "document"
-                media_file = await download_media(client, message, "messages")
-                logger.info(f"Media type: {media_type}, file: {media_file}")
-            elif isinstance(message.media, MessageMediaWebPage):
-                media_type = "webpage"
-                logger.info(f"Media type: webpage")
+            try:
+                if isinstance(message.media, MessageMediaPhoto):
+                    media_type = "photo"
+                    # Try to get file directly from Telegram
+                    try:
+                        # Get the photo with the highest resolution
+                        photo = message.photo
+                        if photo:
+                            # Try to get the URL directly
+                            original_file_url = f"https://t.me/c/{getattr(message.peer_id, 'channel_id', 0)}/{message.id}?embed=1"
+                    except Exception as e:
+                        logger.warning(f"Could not get direct photo URL: {e}")
+                        
+                    # Download the media file
+                    media_file = await download_media(client, message, "messages")
+                    logger.info(f"Media type: photo, file: {media_file}")
+                elif isinstance(message.media, MessageMediaDocument):
+                    document = message.media.document
+                    mime_type = document.mime_type if hasattr(document, 'mime_type') else ''
+                    
+                    if mime_type.startswith('video'):
+                        media_type = "video"
+                        # Try to get the original URL
+                        try:
+                            original_file_url = f"https://t.me/c/{getattr(message.peer_id, 'channel_id', 0)}/{message.id}?embed=1"
+                        except Exception as e:
+                            logger.warning(f"Could not get direct video URL: {e}")
+                    elif mime_type.startswith('image'):
+                        media_type = "gif" if mime_type == 'image/gif' else "image"
+                    else:
+                        media_type = "document"
+                        
+                    # Download the document
+                    media_file = await download_media(client, message, "messages")
+                    logger.info(f"Media type: {media_type}, file: {media_file}, mime: {mime_type}")
+                elif isinstance(message.media, MessageMediaWebPage):
+                    media_type = "webpage"
+                    # Try to extract media from the webpage
+                    try:
+                        webpage = message.media.webpage
+                        if hasattr(webpage, 'photo'):
+                            media_type = "webpage_photo"
+                            # Try to get the URL directly
+                            original_file_url = webpage.url if hasattr(webpage, 'url') else None
+                            # Also download the photo
+                            media_file = await download_media(client, message, "messages")
+                    except Exception as e:
+                        logger.warning(f"Error processing webpage media: {e}")
+                    
+                    logger.info(f"Media type: {media_type}, webpage URL: {original_file_url}")
+            except Exception as e:
+                logger.error(f"Error processing media: {e}")
+                logger.error(traceback.format_exc())
         
         # get the channel name
         channel_name = getattr(channel, 'title', None) or getattr(channel, 'name', 'Unknown channel')
@@ -328,6 +397,7 @@ async def save_message_to_data(message, channel, queue, category_id=None, client
             'text': message.text or "",
             'media': media_file or "",
             'media_type': media_type if media_type else None,
+            'original_url': original_file_url,
             'message_id': message.id,
             'channel_id': channel_id,
             'channel_name': channel_name,
@@ -337,7 +407,7 @@ async def save_message_to_data(message, channel, queue, category_id=None, client
         }
         
         # save to DB
-        await save_message_to_db(message_info)
+        saved_message = await save_message_to_db(message_info)
         
         # send to queue
         if queue:
@@ -351,11 +421,15 @@ async def save_message_to_data(message, channel, queue, category_id=None, client
                 logger.error(traceback.format_exc())
         
         session_info = f" (via {session.phone})" if session else ""
-        logger.info(f"Saved message {message.id} from channel '{channel_name}'{session_info}")
+        media_status = f", with media: {media_file}" if media_file else ""
+        logger.info(f"Saved message {message.id} from channel '{channel_name}'{session_info}{media_status}")
+        
+        return saved_message
 
     except Exception as e:
         logger.error(f"Error saving message: {e}")
         logger.error(traceback.format_exc())
+        return None
 
 def extract_username_from_link(link):
     """extract username/channel from telegram link"""
@@ -781,10 +855,13 @@ async def telethon_task(queue):
                         messages = None
                         tg_channel = None
                         
+                        # Number of messages to fetch per channel - get more messages during the first run
+                        max_messages = 20
+                        
                         while retry_count < max_retries and not messages:
                             try:
                                 # get messages from channel
-                                messages, tg_channel = await get_channel_messages(client, channel_link)
+                                messages, tg_channel = await get_channel_messages(client, channel_link, max_messages)
                                 if not messages or not tg_channel:
                                     retry_count += 1
                                     if retry_count < max_retries:
@@ -800,23 +877,42 @@ async def telethon_task(queue):
                                     await asyncio.sleep(retry_count * 2)
                                 
                         if messages and tg_channel:
-                            # check if message is new
-                            latest_message = messages[0]
+                            # Get channel identifier for tracking last processed message
                             channel_identifier = f"{channel_link}_{client_info['session_id'] if client_info['session_id'] else 'default'}"
-                            last_message_id = last_processed_message_ids.get(channel_identifier)
+                            last_message_id = last_processed_message_ids.get(channel_identifier, 0)
                             
-                            if not last_message_id or latest_message.id > last_message_id:
-                                # get category id
+                            # Sort messages by ID in descending order (newest first)
+                            sorted_messages = sorted(messages, key=lambda m: m.id, reverse=True)
+                            
+                            # Process new messages
+                            new_messages_count = 0
+                            for message in sorted_messages:
+                                # Skip if message is older than the last processed one
+                                if last_message_id and message.id <= last_message_id:
+                                    continue
+                                
+                                # Get category id once for all messages
                                 category_id = None
                                 if hasattr(channel, 'category_id'):
                                     category_id = await get_category_id(channel)
-                                # send message to save
+                                
+                                # Process and save this message
                                 session_info = f" (via {session.phone})" if session else ""
-                                logger.info(f"New message in channel '{channel.name}' [ID: {latest_message.id}]{session_info}")
-                                await save_message_to_data(latest_message, channel, queue, category_id, client, session)
-                                last_processed_message_ids[channel_identifier] = latest_message.id
+                                logger.info(f"New message in channel '{channel.name}' [ID: {message.id}]{session_info}")
+                                await save_message_to_data(message, channel, queue, category_id, client, session)
+                                
+                                # Update last processed ID if this is newer
+                                if not last_message_id or message.id > last_message_id:
+                                    last_message_id = message.id
+                                
+                                new_messages_count += 1
+                            
+                            # Update the last processed message ID for this channel
+                            if sorted_messages:
+                                last_processed_message_ids[channel_identifier] = last_message_id
+                                logger.info(f"Processed {new_messages_count} new messages from channel '{channel.name}'")
                             else:
-                                logger.debug(f"Message from channel '{channel.name}' already processed")
+                                logger.debug(f"No new messages in channel '{channel.name}'")
                         else:
                             logger.warning(f"Unable to get messages from channel: '{channel.name}'")
 

@@ -26,6 +26,8 @@ import os
 import logging
 from PIL import Image, ImageDraw
 from django.views.static import serve
+from django.views.generic.base import RedirectView
+from .views import serve_media
 
 logger = logging.getLogger('media_handler')
 
@@ -118,13 +120,12 @@ urlpatterns = [
     path('admin_panel/', include('admin_panel.urls')),  # Включаємо решту URL з admin_panel
     
     # Custom media handler
-    path('media/<path:path>', serve_media, name='serve_media'),
+    path('messages/<path:path>', serve_media, name='serve_media'),
 ]
 
-# Serve media and static files
+# Static files handling
+urlpatterns += static(settings.STATIC_URL, document_root=settings.STATIC_ROOT)
+
+# Media files handling (fallback)
 if settings.DEBUG:
-    urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
-    urlpatterns += static(settings.STATIC_URL, document_root=settings.STATIC_ROOT)
-else:
-    # Even in production, we need to serve media files
     urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

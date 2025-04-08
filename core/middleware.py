@@ -3,6 +3,8 @@ import logging
 from django.conf import settings
 from django.http import FileResponse
 import re
+import shutil
+import mimetypes
 
 logger = logging.getLogger('middleware')
 
@@ -14,11 +16,29 @@ class MediaFilesMiddleware:
         
         # One-time configuration during initialization
         # Ensure placeholder directories exist
-        os.makedirs(os.path.join(settings.STATIC_ROOT, 'img'), exist_ok=True)
-        os.makedirs(os.path.join(settings.MEDIA_ROOT, 'messages'), exist_ok=True)
+        self._create_directories()
         
         # Create placeholder images if they don't exist
         self.create_placeholders()
+        
+    def _create_directories(self):
+        """Create necessary directories with proper permissions"""
+        dirs_to_create = [
+            os.path.join(settings.STATIC_ROOT, 'img'),
+            os.path.join(settings.MEDIA_ROOT, 'messages'),
+            'data/sessions'
+        ]
+        
+        for directory in dirs_to_create:
+            try:
+                os.makedirs(directory, exist_ok=True)
+                # Set directory permissions to 0755
+                try:
+                    os.chmod(directory, 0o755)
+                except Exception as e:
+                    logger.warning(f"Could not set permissions on directory {directory}: {e}")
+            except Exception as e:
+                logger.error(f"Error creating directory {directory}: {e}")
         
     def create_placeholders(self):
         """Create placeholder images if they don't exist"""
@@ -37,6 +57,9 @@ class MediaFilesMiddleware:
                     draw.text((150, 100), "IMAGE", fill=(100, 100, 100))
                     img.save(image_placeholder)
                     logger.info(f"Created placeholder image: {image_placeholder}")
+                    
+                    # Set file permissions
+                    os.chmod(image_placeholder, 0o644)
                 except ImportError:
                     # If PIL is not available, create an empty file
                     with open(image_placeholder, 'wb') as f:
@@ -53,6 +76,9 @@ class MediaFilesMiddleware:
                     draw.text((150, 100), "VIDEO", fill=(100, 100, 100))
                     img.save(video_placeholder)
                     logger.info(f"Created placeholder video: {video_placeholder}")
+                    
+                    # Set file permissions
+                    os.chmod(video_placeholder, 0o644)
                 except ImportError:
                     # If PIL is not available, create an empty file
                     with open(video_placeholder, 'wb') as f:
@@ -62,6 +88,9 @@ class MediaFilesMiddleware:
             logger.error(f"Error creating placeholders: {e}")
     
     def __call__(self, request):
+        # Pre-processing: create directories if needed
+        self._create_directories()
+        
         # Run the view
         response = self.get_response(request)
         
@@ -78,7 +107,7 @@ class MediaFilesMiddleware:
                     image_placeholder = os.path.join(settings.STATIC_ROOT, 'img', 'placeholder-image.png')
                     video_placeholder = os.path.join(settings.STATIC_ROOT, 'img', 'placeholder-video.png')
                     
-                    # Determine which placeholder to use
+                    # Determine which placeholder to use based on file extension
                     file_ext = os.path.splitext(file_name)[1].lower()
                     if file_ext in ['.jpg', '.jpeg', '.png', '.gif']:
                         placeholder = image_placeholder
@@ -91,12 +120,29 @@ class MediaFilesMiddleware:
                     
                     # Copy the placeholder to the requested location
                     if os.path.exists(placeholder):
-                        import shutil
+                        # Create the file with correct MIME type
+                        content_type, encoding = mimetypes.guess_type(target_path)
+                        if not content_type:
+                            if file_ext in ['.jpg', '.jpeg', '.png', '.gif']:
+                                content_type = f"image/{file_ext[1:]}"
+                            elif file_ext in ['.mp4', '.avi', '.mov', '.webm']:
+                                content_type = f"video/{file_ext[1:]}"
+                            else:
+                                content_type = "application/octet-stream"
+                        
+                        # Copy the file
                         shutil.copy2(placeholder, target_path)
+                        
+                        # Set file permissions
+                        os.chmod(target_path, 0o644)
+                        
                         logger.info(f"Created placeholder for missing file: {file_name}")
                         
-                        # Return the copied file
-                        return FileResponse(open(target_path, 'rb'))
+                        # Return the created file with correct content type
+                        response = FileResponse(open(target_path, 'rb'))
+                        response['Content-Type'] = content_type
+                        return response
+                        
                 except Exception as e:
                     logger.error(f"Error creating placeholder for {request.path}: {e}")
                 

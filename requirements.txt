@@ -33,3 +33,15 @@ dj-database-url>=2.1.0
 python-telegram-bot>=20.7
 django-compressor>=4.4
 requests>=2.0.0
+django==5.0
+telethon==1.33.1
+psycopg2-binary==2.9.9
+cryptg==0.4.0
+whitenoise==6.6.0
+python-dotenv==1.0.0
+django-bootstrap5==23.3
+django-crispy-forms==2.1
+requests==2.31.0
+pytz==2023.3
+aiohttp==3.9.0
+pymediainfo==6.0.1

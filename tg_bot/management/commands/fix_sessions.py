@@ -9,6 +9,7 @@ from pathlib import Path
 import traceback
 from django.db import DatabaseError
 import django.db.models
+import shutil
 
 logger = logging.getLogger(__name__)
 
@@ -25,6 +26,9 @@ class Command(BaseCommand):
         media_only = options.get('media_only', False)
         sessions_only = options.get('sessions_only', False)
         
+        # Create directories first to avoid permission issues
+        self.create_directories()
+        
         if not sessions_only:
             self.fix_media_files()
         
@@ -32,6 +36,29 @@ class Command(BaseCommand):
             self.fix_sessions(force)
             
         self.stdout.write(self.style.SUCCESS('Completed fixing sessions and media files'))
+    
+    def create_directories(self):
+        """Create necessary directories with proper permissions"""
+        dirs_to_create = [
+            os.path.join(settings.MEDIA_ROOT),
+            os.path.join(settings.MEDIA_ROOT, 'messages'),
+            os.path.join(settings.STATIC_ROOT, 'img'),
+            'data/sessions'
+        ]
+        
+        for directory in dirs_to_create:
+            try:
+                os.makedirs(directory, exist_ok=True)
+                self.stdout.write(f'Ensured directory exists: {directory}')
+                
+                # Set directory permissions to 0755
+                try:
+                    os.chmod(directory, 0o755)
+                    self.stdout.write(f'Set directory permissions for: {directory}')
+                except Exception as e:
+                    self.stdout.write(self.style.WARNING(f'Could not set permissions on directory {directory}: {e}'))
+            except Exception as e:
+                self.stdout.write(self.style.ERROR(f'Error creating directory {directory}: {e}'))
 
     def fix_sessions(self, force=False):
         """Fix session authentication status in the database"""
@@ -70,6 +97,14 @@ class Command(BaseCommand):
                     for path in session_paths:
                         if os.path.exists(path):
                             self.stdout.write(f'  Found session file: {path}')
+                            
+                            # Set permissions on the session file
+                            try:
+                                os.chmod(path, 0o644)
+                                self.stdout.write(f'  Set permissions for session file: {path}')
+                            except Exception as e:
+                                self.stdout.write(self.style.WARNING(f'  Could not set permissions for {path}: {e}'))
+                                
                             file_found = True
                             break
                     
@@ -88,6 +123,32 @@ class Command(BaseCommand):
                 try:
                     if hasattr(session, 'session_data') and session.session_data:
                         self.stdout.write(f'  Session {session.id} has encoded session data')
+                        
+                        # Try to restore the session file from the data
+                        try:
+                            session_data = base64.b64decode(session.session_data)
+                            session_file_path = f"data/sessions/telethon_session_{session.phone.replace('+', '')}.session"
+                            
+                            # Create the directory if it doesn't exist
+                            os.makedirs(os.path.dirname(session_file_path), exist_ok=True)
+                            
+                            # Write the session data to a file
+                            with open(session_file_path, 'wb') as f:
+                                f.write(session_data)
+                                
+                            # Set file permissions
+                            os.chmod(session_file_path, 0o644)
+                            
+                            # Update the session in the database
+                            session.session_file = f"data/sessions/telethon_session_{session.phone.replace('+', '')}"
+                            if hasattr(session, 'needs_auth'):
+                                session.needs_auth = False
+                            session.save()
+                            
+                            self.stdout.write(self.style.SUCCESS(f'  Restored session file from data: {session_file_path}'))
+                        except Exception as e:
+                            self.stdout.write(self.style.ERROR(f'  Error restoring session file: {e}'))
+                        
                         fixed_count += 1
                     else:
                         self.stdout.write(f'  Session {session.id} has no encoded data')
@@ -99,6 +160,34 @@ class Command(BaseCommand):
         except Exception as e:
             self.stdout.write(self.style.ERROR(f'Error in fix_sessions: {e}'))
             self.stdout.write(self.style.ERROR(f'Traceback: {traceback.format_exc()}'))
+    
+    def create_placeholder_image(self, filename, text="PLACEHOLDER"):
+        """Create a simple placeholder image with PIL"""
+        try:
+            from PIL import Image, ImageDraw, ImageFont
+            
+            # Create a blank image with white background
+            img = Image.new('RGB', (300, 200), color=(240, 240, 240))
+            draw = ImageDraw.Draw(img)
+            
+            # Draw a border
+            draw.rectangle([(0, 0), (299, 199)], outline=(200, 200, 200), width=2)
+            
+            # Add text
+            draw.text((150, 100), text, fill=(100, 100, 100), anchor="mm")
+            
+            # Save the image
+            img.save(filename)
+            
+            # Set permissions
+            os.chmod(filename, 0o644)
+            
+            self.stdout.write(f'Created placeholder image: {filename}')
+        except ImportError:
+            # If PIL is not available, create an empty file
+            with open(filename, 'wb') as f:
+                f.write(b'')
+            self.stdout.write(f'Created empty placeholder file: {filename} (PIL not available)')
 
     def fix_media_files(self):
         """Create placeholder files for missing media"""
@@ -163,13 +252,23 @@ class Command(BaseCommand):
                         
                         try:
                             # Copy the placeholder file to the media location
-                            import shutil
                             shutil.copy2(placeholder, media_path)
+                            
+                            # Set file permissions
+                            os.chmod(media_path, 0o644)
+                            
                             self.stdout.write(f'  Created placeholder for {media_path_str}')
                             fixed_count += 1
                         except Exception as e:
                             self.stdout.write(self.style.ERROR(f'  Error creating placeholder: {e}'))
                             self.stdout.write(self.style.ERROR(f'  Traceback: {traceback.format_exc()}'))
+                    else:
+                        # File exists, but ensure permissions are correct
+                        try:
+                            os.chmod(media_path, 0o644)
+                            self.stdout.write(f'  Set permissions for existing file: {media_path}')
+                        except Exception as e:
+                            self.stdout.write(self.style.WARNING(f'  Could not set permissions for {media_path}: {e}'))
                 except Exception as e:
                     self.stdout.write(self.style.ERROR(f'Error processing message {message.id}: {e}'))
                     self.stdout.write(self.style.ERROR(f'Traceback: {traceback.format_exc()}'))
@@ -178,28 +277,4 @@ class Command(BaseCommand):
             
         except Exception as e:
             self.stdout.write(self.style.ERROR(f'Error in fix_media_files: {e}'))
-            self.stdout.write(self.style.ERROR(f'Traceback: {traceback.format_exc()}'))
-
-    def create_placeholder_image(self, filename, text="PLACEHOLDER"):
-        """Create a simple placeholder image with PIL"""
-        try:
-            from PIL import Image, ImageDraw, ImageFont
-            
-            # Create a blank image with white background
-            img = Image.new('RGB', (300, 200), color=(240, 240, 240))
-            draw = ImageDraw.Draw(img)
-            
-            # Draw a border
-            draw.rectangle([(0, 0), (299, 199)], outline=(200, 200, 200), width=2)
-            
-            # Add text
-            draw.text((150, 100), text, fill=(100, 100, 100), anchor="mm")
-            
-            # Save the image
-            img.save(filename)
-            self.stdout.write(f'Created placeholder image: {filename}')
-        except ImportError:
-            # If PIL is not available, create an empty file
-            with open(filename, 'wb') as f:
-                f.write(b'')
-            self.stdout.write(f'Created empty placeholder file: {filename} (PIL not available)') 
+            self.stdout.write(self.style.ERROR(f'Traceback: {traceback.format_exc()}')) 
