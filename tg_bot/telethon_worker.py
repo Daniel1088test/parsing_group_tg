@@ -47,6 +47,10 @@ def _save_message_to_db(message_data):
             from django.conf import settings
             import os
             
+            # Add messages/ prefix if it doesn't have it already
+            if not media_path.startswith('messages/'):
+                media_path = f"messages/{media_path}"
+            
             # Check if the file exists
             full_path = os.path.join(settings.MEDIA_ROOT, media_path)
             if not os.path.exists(full_path):
@@ -201,9 +205,10 @@ async def download_media(client, message, media_dir):
         if message.media:
             # Get the absolute path for media directory
             from django.conf import settings
+            import os
             
             # Use Django's MEDIA_ROOT to ensure we're saving in the right place
-            absolute_media_dir = os.path.join(settings.MEDIA_ROOT, os.path.basename(media_dir))
+            absolute_media_dir = os.path.join(settings.MEDIA_ROOT, media_dir)
             
             # Ensure the directory exists with proper permissions
             os.makedirs(absolute_media_dir, exist_ok=True)
@@ -211,15 +216,19 @@ async def download_media(client, message, media_dir):
             # Format timestamp correctly
             timestamp = message.date.strftime("%Y%m%d_%H%M%S")
             
-            # Create the full path for the media file
-            file_path = await message.download_media(
-                file=os.path.join(absolute_media_dir, f"{message.id}_{timestamp}")
-            )
+            # Create file name without special characters
+            file_name = f"{message.id}_{timestamp}"
+            safe_path = os.path.join(absolute_media_dir, file_name)
+            
+            # Download the media with the safe path
+            file_path = await message.download_media(file=safe_path)
             
             if file_path:
                 # Verify the file actually exists
                 if os.path.exists(file_path):
-                    logger.info(f"Successfully downloaded media: {os.path.basename(file_path)}")
+                    # Get just the filename part (no directories)
+                    base_name = os.path.basename(file_path)
+                    logger.info(f"Successfully downloaded media: {base_name}")
                     
                     # Make sure the file is readable
                     try:
@@ -230,7 +239,7 @@ async def download_media(client, message, media_dir):
                         logger.error(f"Downloaded file exists but is not readable: {e}")
                         return None
                     
-                    return os.path.basename(file_path)
+                    return base_name
                 else:
                     logger.warning(f"Download completed but file doesn't exist: {file_path}")
                     return None
@@ -317,7 +326,7 @@ async def save_message_to_data(message, channel, queue, category_id=None, client
         # save the message
         message_info = {
             'text': message.text or "",
-            'media': f"messages/{media_file}" if media_file else "",
+            'media': f"{media_file}" if media_file else "",
             'media_type': media_type if media_type else None,
             'message_id': message.id,
             'channel_id': channel_id,
