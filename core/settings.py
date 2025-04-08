@@ -90,6 +90,7 @@ MIDDLEWARE = [
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
     'core.middleware.MediaFilesMiddleware',  # Our middleware to handle missing media files
+    'core.health_middleware.HealthCheckMiddleware',
 ]
 
 ROOT_URLCONF = 'core.urls'

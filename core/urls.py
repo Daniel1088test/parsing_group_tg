@@ -35,8 +35,53 @@ logger = logging.getLogger('media_handler')
 @csrf_exempt
 @require_GET
 def health_check(request):
-    """Simple health check endpoint that always returns OK"""
-    return HttpResponse("OK", content_type="text/plain")
+    """Enhanced health check endpoint that returns detailed status"""
+    import json
+    import sys
+    import django
+    
+    try:
+        # Log the health check request
+        logger.info(f"Health check endpoint called from {request.META.get('REMOTE_ADDR')}")
+        
+        # Collect health information
+        health_data = {
+            'status': 'ok',
+            'timestamp': str(django.utils.timezone.now()),
+            'python_version': sys.version,
+            'django_version': django.__version__,
+            'request_path': request.path,
+        }
+        
+        # Check database connection
+        try:
+            from django.db import connection
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT 1")
+                db_result = cursor.fetchone()[0]
+                health_data['database'] = {
+                    'status': 'connected' if db_result == 1 else 'error',
+                    'engine': connection.vendor
+                }
+        except Exception as e:
+            health_data['database'] = {
+                'status': 'error',
+                'message': str(e)
+            }
+        
+        # Format based on Accept header
+        accept = request.META.get('HTTP_ACCEPT', '')
+        if 'application/json' in accept:
+            return HttpResponse(json.dumps(health_data), content_type='application/json')
+        elif request.path.endswith('.json'):
+            return HttpResponse(json.dumps(health_data), content_type='application/json')
+        else:
+            # Plain text for simplicity and compatibility
+            return HttpResponse("OK", content_type="text/plain")
+    except Exception as e:
+        # Even if everything fails, still return 200 OK for the health check
+        logger.error(f"Error in health check: {e}")
+        return HttpResponse("OK", content_type="text/plain")
 
 # Custom media handler to handle missing files
 @require_GET
