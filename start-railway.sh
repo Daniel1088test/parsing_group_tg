@@ -59,6 +59,10 @@ if [ $RETRY_COUNT -eq $MAX_RETRIES ]; then
     echo "WARNING: Max retries reached for database fixes. Will attempt to continue anyway."
 fi
 
+# Create migrations for model changes
+echo "Creating migrations for model changes..."
+python manage.py makemigrations admin_panel --noinput
+
 # Run migrations with retry logic
 echo "Running migrations..."
 RETRY_COUNT=0

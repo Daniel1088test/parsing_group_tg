@@ -149,3 +149,11 @@ class BotSettings(models.Model):
 
     def __str__(self):
         return "Bot Settings"
+        
+    @classmethod
+    def get_settings(cls):
+        """Get the bot settings, creating a default instance if none exists"""
+        settings, created = cls.objects.get_or_create(pk=1)
+        if created:
+            settings.save()
+        return settings

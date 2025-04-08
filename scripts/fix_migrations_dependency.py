@@ -4,9 +4,15 @@ Script to fix Django migration dependencies and ensure database compatibility
 """
 import os
 import sys
-import django
 import logging
-from importlib import import_module
+from pathlib import Path
+
+# Add the parent directory to the Python path so 'core' can be found
+parent_dir = str(Path(__file__).resolve().parent.parent)
+sys.path.append(parent_dir)
+
+# Now import Django
+import django
 from django.db import connection, ProgrammingError
 
 # Set up logging
@@ -18,8 +24,22 @@ logging.basicConfig(
 logger = logging.getLogger('fix_migrations')
 
 # Initialize Django
-os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'core.settings')
-django.setup()
+try:
+    os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'core.settings')
+    django.setup()
+    logger.info("Django setup complete")
+except Exception as e:
+    logger.error(f"Error setting up Django: {e}")
+    # Try alternate settings module names
+    for settings_module in ['project.settings', 'app.settings', 'settings']:
+        try:
+            logger.info(f"Trying alternate settings module: {settings_module}")
+            os.environ['DJANGO_SETTINGS_MODULE'] = settings_module
+            django.setup()
+            logger.info(f"Django setup complete with {settings_module}")
+            break
+        except:
+            continue
 
 def get_applied_migrations():
     """Get a list of applied migrations from the database"""
