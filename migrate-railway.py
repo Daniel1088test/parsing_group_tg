@@ -142,12 +142,40 @@ def collect_staticfiles():
     
     run_command(["python", "manage.py", "collectstatic", "--noinput"], timeout=30, ignore_errors=True)
 
+def check_installed_packages():
+    """Перевіряє встановлені пакети для діагностики"""
+    try:
+        logger.info("Перевірка встановлених пакетів...")
+        import importlib.metadata
+        import pkg_resources
+        
+        # Критичні пакети для роботи
+        critical_packages = [
+            'Django', 'aiogram', 'Telethon', 'psycopg2'
+        ]
+        
+        # Перевіряємо критичні пакети
+        for package in critical_packages:
+            try:
+                version = pkg_resources.get_distribution(package).version
+                logger.info(f"✓ {package}: {version}")
+            except pkg_resources.DistributionNotFound:
+                logger.error(f"✗ Пакет {package} не встановлено!")
+        
+        return True
+    except Exception as e:
+        logger.error(f"Помилка при перевірці пакетів: {e}")
+        return False
+
 def main():
     """Основна функція для запуску міграцій і підготовки до запуску"""
     logger.info("=== Початок підготовки до запуску на Railway ===")
     
     # Етап 1: Створюємо необхідні директорії
     setup_media_directories()
+    
+    # Етап 1.5: Перевіряємо залежності
+    check_installed_packages()
     
     # Етап 2: Ініціалізуємо Django для використання в скрипті
     try:

@@ -31,7 +31,9 @@ supervisor==4.2.5
 django-bootstrap5==23.3
 django-crispy-forms==2.1
 pytz==2023.3
-aiofiles==24.1.0
+
+# ВАЖЛИВО: Виправляємо конфлікт aiofiles - використовуємо версію 23.2.1 для сумісності з aiogram
+aiofiles~=23.2.1
 aiogram==3.2.0
 aiohappyeyeballs==2.6.1
 aiohttp==3.11.14
@@ -66,8 +68,13 @@ django-storages==1.14.2
 cryptography==41.0.5
 pydantic-settings==2.1.0
 python-magic==0.4.27
-daphne==4.0.0
-channels==4.0.0
-channels-redis==4.1.0
+
+# Asynchronous Django (channels)
+# Знижуємо версії за необхідності для уникнення конфліктів
+daphne==3.0.2
+channels==3.0.5
+channels-redis==4.0.0
 django-csp==3.7
-gevent==23.9.1
+
+# Змінюємо gevent на стабільнішу версію
+gevent==22.10.2

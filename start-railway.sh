@@ -8,6 +8,17 @@ echo "Setting up environment variables..."
 export RAILWAY_PUBLIC_DOMAIN=${RAILWAY_PUBLIC_DOMAIN:-"parsinggrouptg-production.up.railway.app"}
 export PORT=${PORT:-8080}
 
+# Fix requirements.txt if needed (додатковий рівень захисту)
+echo "Checking requirements.txt for conflicts..."
+if [ -f "fix_requirements.py" ]; then
+    python fix_requirements.py
+    if [ $? -ne 0 ]; then
+        echo "Warning: Could not fix requirements.txt, but continuing"
+    else
+        echo "Requirements check completed"
+    fi
+fi
+
 # Make scripts executable
 chmod +x migrate-railway.py
 chmod +x run_bot.py
