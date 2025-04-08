@@ -24,6 +24,7 @@ from django.views.decorators.http import require_GET
 from django.views.decorators.cache import never_cache
 from django.shortcuts import redirect
 
+from admin_panel import views as admin_panel_views
 @never_cache
 @csrf_exempt
 @require_GET
@@ -36,10 +37,8 @@ def railway_health(request):
     """Simplified health check for Railway"""
     return HttpResponse("OK")
 
-# Redirect root to admin interface
-def root_redirect(request):
-    """Redirect root to admin interface"""
-    return redirect('admin/')
+# Import the admin_panel views to use index view directly
+
 
 # API status endpoint that doesn't depend on database
 @csrf_exempt
@@ -51,16 +50,17 @@ def api_status(request):
         'environment': 'production' if not settings.DEBUG else 'development'
     })
 
+
+# Root path now directs to admin_panel index view directly
 urlpatterns = [
     path('admin/', admin.site.urls),
     path('health/', health_check, name='health_check'),  # Health check endpoint
     path('healthz/', railway_health, name='railway_health'),  # Alternative health check
-    path('', root_redirect, name='root'),  # Root redirects to admin
+    path('', admin_panel_views.index, name='index'),  # Root path now shows index.html directly
+    path('index/', admin_panel_views.index, name='index_page'),  # Also available at /index/
     path('api/', include('tg_bot.urls')),  # API endpoints
     path('api/status/', api_status, name='api_status'),  # API status endpoint
-]
-
-# Serve media files in development and production
+]# Serve media files in development and production
 urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
 
 # Serve static files in development only (in production, we use whitenoise)
