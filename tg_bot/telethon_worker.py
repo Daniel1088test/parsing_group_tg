@@ -32,7 +32,7 @@ django.setup()
 
 # import models and auth module
 from admin_panel import models
-from tg_bot.auth_telethon import verify_session, create_session_file
+from tg_bot.auth_telethon import verify_session, create_session_file, restore_session_from_db
 
 def _save_message_to_db(message_data):
     """
@@ -391,6 +391,7 @@ async def initialize_client(session_id=None, session_filename=None):
             session_dirs = [".", "data/sessions", "sessions", "/app/data/sessions"]
             
             # First, try exact matches for this session
+            session_found = False
             for directory in session_dirs:
                 if not os.path.exists(directory):
                     continue
@@ -400,13 +401,37 @@ async def initialize_client(session_id=None, session_filename=None):
                     if os.path.exists(f"{full_path}.session"):
                         session_filename = full_path
                         logger.info(f"Found session file: {full_path}.session")
+                        session_found = True
                         break
                         
-                if session_filename:
+                if session_found:
                     break
             
+            # If still no session file, try to restore from session_data
+            if not session_found and hasattr(session, 'session_data') and session.session_data:
+                from tg_bot.auth_telethon import restore_session_from_db
+                success, restored_path = await restore_session_from_db(session_id)
+                if success and restored_path:
+                    session_filename = restored_path
+                    logger.info(f"Restored session from database: {restored_path}")
+                    
+                    # Update the session record
+                    @sync_to_async
+                    def update_session():
+                        try:
+                            db_session = models.TelegramSession.objects.get(id=session_id)
+                            db_session.session_file = restored_path
+                            if hasattr(db_session, 'needs_auth'):
+                                db_session.needs_auth = False
+                            db_session.save()
+                        except Exception as e:
+                            logger.error(f"Error updating session after restore: {e}")
+                    
+                    await update_session()
+                    session_found = True
+            
             # If still no session file, verify the session
-            if not session_filename:
+            if not session_found:
                 logger.warning(f"No session file found for session ID {session_id} ({session.phone})")
                 
                 # Instead of trying to create a session file, mark it as needing auth through the bot

@@ -3,187 +3,121 @@
 {% block title %}Telegram Sessions{% endblock %}
 
 {% block content %}
-<div class="container mt-4">
-    <h1 class="mb-4">Telegram Sessions</h1>
-    
-    {% if needs_auth_count > 0 %}
-    <div class="alert alert-warning">
-        <strong>Warning:</strong> {{ needs_auth_count }} session(s) need authentication. 
-        Sessions must be properly authenticated before the parser can use them.
-        <div class="mt-2">
-            <a href="{% url 'auth_help' %}" class="btn btn-sm btn-info">
-                <i class="fas fa-question-circle"></i> View Authentication Guide
-            </a>
-        </div>
-    </div>
-    
-    <div class="card mb-4 bg-light">
-        <div class="card-body">
-            <h5 class="card-title">How to Authenticate Sessions</h5>
-            <p>You can authenticate a session by clicking the "Authorize" button next to the session that needs authentication.</p>
-            <p>The system will guide you through the authentication process using the Telegram bot.</p>
-        </div>
-    </div>
-    {% endif %}
-    
-    <div class="card mb-4">
-        <div class="card-header bg-primary text-white">
-            <h5 class="mb-0">Add New Session</h5>
-        </div>
-        <div class="card-body">
-            <form method="post" action="{% url 'session_create' %}">
-                {% csrf_token %}
-                <div class="row">
-                    <div class="col-md-4 mb-3">
-                        <label for="phone" class="form-label">Phone Number*</label>
-                        <input type="text" class="form-control" id="phone" name="phone" placeholder="+380123456789" required>
-                    </div>
-                    <div class="col-md-4 mb-3">
-                        <label for="api_id" class="form-label">API ID (optional)</label>
-                        <input type="text" class="form-control" id="api_id" name="api_id" placeholder="Uses default if empty">
-                    </div>
-                    <div class="col-md-4 mb-3">
-                        <label for="api_hash" class="form-label">API Hash (optional)</label>
-                        <input type="text" class="form-control" id="api_hash" name="api_hash" placeholder="Uses default if empty">
+<div class="container-fluid">
+    <div class="row">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="card-title">Telegram Sessions</h5>
+                    <div class="card-tools">
+                        <div class="btn-group">
+                            <a href="{% url 'session_create_view' %}" class="btn btn-primary btn-sm">
+                                <i class="fas fa-plus"></i> Add Session
+                            </a>
+                            
+                            <!-- Fix Buttons -->
+                            <form method="post" class="ms-2 d-inline">
+                                {% csrf_token %}
+                                <input type="hidden" name="action" value="fix_auth_status">
+                                <button type="submit" class="btn btn-warning btn-sm">
+                                    <i class="fas fa-key"></i> Fix Auth Status
+                                </button>
+                            </form>
+                            
+                            <form method="post" class="ms-2 d-inline">
+                                {% csrf_token %}
+                                <input type="hidden" name="action" value="fix_media">
+                                <button type="submit" class="btn btn-info btn-sm">
+                                    <i class="fas fa-images"></i> Fix Media
+                                </button>
+                            </form>
+                        </div>
                     </div>
                 </div>
-                <button type="submit" class="btn btn-primary">Add Session</button>
-            </form>
-        </div>
-    </div>
-    
-    <div class="table-responsive">
-        <table class="table table-striped table-hover">
-            <thead class="table-dark">
-                <tr>
-                    <th>ID</th>
-                    <th>Phone</th>
-                    <th>Status</th>
-                    <th>Auth Status</th>
-                    <th>Session File</th>
-                    <th>Channels</th>
-                    <th>Messages</th>
-                    <th>Actions</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for session in sessions %}
-                <tr>
-                    <td>{{ session.id }}</td>
-                    <td>{{ session.phone }}</td>
-                    <td>
-                        {% if session.is_active %}
-                        <span class="badge bg-success">Active</span>
-                        {% else %}
-                        <span class="badge bg-secondary">Inactive</span>
-                        {% endif %}
-                    </td>
-                    <td>
-                        {% if session.session_file %}
-                        <span class="badge bg-success">Authenticated</span>
-                        {% else %}
-                        <span class="badge bg-danger">Needs Auth</span>
-                        {% endif %}
-                    </td>
-                    <td>{{ session.session_file|default:"Not set" }}</td>
-                    <td>{{ session.channels_count }}</td>
-                    <td>{{ session.messages_count }}</td>
-                    <td>
-                        <div class="btn-group" role="group">
-                            <button type="button" class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#editModal{{ session.id }}">Edit</button>
-                            {% if not session.session_file or session.needs_auth %}
-                            <a href="{% url 'authorize_session' session.id %}" class="btn btn-sm btn-outline-success">Authorize</a>
-                            {% endif %}
-                            <button type="button" class="btn btn-sm btn-outline-danger" data-bs-toggle="modal" data-bs-target="#deleteModal{{ session.id }}">Delete</button>
+                <div class="card-body">
+                    {% if messages %}
+                    <div class="mb-4">
+                        {% for message in messages %}
+                        <div class="alert alert-{{ message.tags }} alert-dismissible fade show" role="alert">
+                            {{ message }}
+                            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
                         </div>
-                    </td>
-                </tr>
-                {% empty %}
-                <tr>
-                    <td colspan="8" class="text-center">No sessions found. Add your first session above.</td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-    </div>
-</div>
-
-<!-- Edit Modals -->
-{% for session in sessions %}
-<div class="modal fade" id="editModal{{ session.id }}" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title">Edit Session: {{ session.phone }}</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-            </div>
-            <form method="post" action="{% url 'session_update' session.id %}">
-                {% csrf_token %}
-                <div class="modal-body">
-                    <div class="mb-3">
-                        <label for="phone{{ session.id }}" class="form-label">Phone Number</label>
-                        <input type="text" class="form-control" id="phone{{ session.id }}" name="phone" value="{{ session.phone }}" required>
-                    </div>
-                    <div class="mb-3">
-                        <label for="api_id{{ session.id }}" class="form-label">API ID</label>
-                        <input type="text" class="form-control" id="api_id{{ session.id }}" name="api_id" value="{{ session.api_id }}">
-                    </div>
-                    <div class="mb-3">
-                        <label for="api_hash{{ session.id }}" class="form-label">API Hash</label>
-                        <input type="text" class="form-control" id="api_hash{{ session.id }}" name="api_hash" value="{{ session.api_hash }}">
-                    </div>
-                    <div class="mb-3 form-check">
-                        <input type="checkbox" class="form-check-input" id="is_active{{ session.id }}" name="is_active" {% if session.is_active %}checked{% endif %}>
-                        <label class="form-check-label" for="is_active{{ session.id }}">Active</label>
-                    </div>
-                    {% if not session.session_file %}
-                    <div class="alert alert-warning">
-                        This session needs authentication. 
-                        <a href="{% url 'authorize_session' session.id %}" class="btn btn-sm btn-success mt-2">
-                            <i class="fas fa-key"></i> Authorize This Session
-                        </a>
+                        {% endfor %}
                     </div>
                     {% endif %}
+                    
+                    <div class="table-responsive">
+                        <table class="table table-striped">
+                            <thead>
+                                <tr>
+                                    <th>ID</th>
+                                    <th>Phone</th>
+                                    <th>Status</th>
+                                    <th>Auth Status</th>
+                                    <th>Session File</th>
+                                    <th>Channels</th>
+                                    <th>Messages</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for session in sessions %}
+                                <tr>
+                                    <td>{{ session.id }}</td>
+                                    <td>{{ session.phone }}</td>
+                                    <td>
+                                        <span class="badge {% if session.is_active %}bg-success{% else %}bg-secondary{% endif %}">
+                                            {% if session.is_active %}Active{% else %}Inactive{% endif %}
+                                        </span>
+                                    </td>
+                                    <td>
+                                        {% if session.needs_auth %}
+                                        <span class="badge bg-danger">Needs Auth</span>
+                                        {% else %}
+                                        <span class="badge bg-success">Authorized</span>
+                                        {% endif %}
+                                    </td>
+                                    <td>{{ session.session_file|default:"Not set" }}</td>
+                                    <td>{{ session.channels_count }}</td>
+                                    <td>{{ session.messages_count }}</td>
+                                    <td>
+                                        <div class="btn-group">
+                                            <a href="{% url 'session_update_view' session.id %}" class="btn btn-sm btn-outline-primary">Edit</a>
+                                            <a href="{% url 'authorize_session' session.id %}" class="btn btn-sm btn-outline-success">Authorize</a>
+                                            
+                                            <!-- Fix Session Button -->
+                                            <form method="post" class="d-inline">
+                                                {% csrf_token %}
+                                                <input type="hidden" name="action" value="fix_session">
+                                                <input type="hidden" name="session_id" value="{{ session.id }}">
+                                                <button type="submit" class="btn btn-sm btn-outline-warning">Fix</button>
+                                            </form>
+                                            
+                                            <a href="{% url 'session_delete_view' session.id %}" class="btn btn-sm btn-outline-danger">Delete</a>
+                                        </div>
+                                    </td>
+                                </tr>
+                                {% empty %}
+                                <tr>
+                                    <td colspan="8" class="text-center">No sessions found</td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
                 </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                    <button type="submit" class="btn btn-primary">Save Changes</button>
+                <div class="card-footer">
+                    <div class="d-flex justify-content-between">
+                        <a href="{% url 'admin_panel' %}" class="btn btn-secondary">
+                            <i class="fas fa-arrow-left"></i> Back
+                        </a>
+                        <a href="{% url 'auth_help' %}" class="btn btn-info">
+                            <i class="fas fa-question-circle"></i> Authentication Help
+                        </a>
+                    </div>
                 </div>
-            </form>
+            </div>
         </div>
     </div>
 </div>
-
-<!-- Delete Modal -->
-<div class="modal fade" id="deleteModal{{ session.id }}" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title">Delete Session</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-            </div>
-            <div class="modal-body">
-                <p>Are you sure you want to delete the session for <strong>{{ session.phone }}</strong>?</p>
-                
-                {% if session.channels_count > 0 %}
-                <div class="alert alert-danger">
-                    <strong>Warning:</strong> This session is used by {{ session.channels_count }} channel(s).
-                    You must reassign these channels before deleting this session.
-                </div>
-                {% endif %}
-                
-                {% if session.messages_count > 0 %}
-                <div class="alert alert-warning">
-                    <strong>Note:</strong> This session is associated with {{ session.messages_count }} message(s).
-                </div>
-                {% endif %}
-            </div>
-            <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                <a href="{% url 'session_delete' session.id %}" class="btn btn-danger">Delete</a>
-            </div>
-        </div>
-    </div>
-</div>
-{% endfor %}
 {% endblock %} 

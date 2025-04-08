@@ -8,6 +8,7 @@ class TelegramSession(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     session_file = models.CharField(max_length=255, blank=True, null=True)
+    session_data = models.TextField(blank=True, null=True, help_text="Encoded session data for persistent storage")
     needs_auth = models.BooleanField(default=True, help_text="Indicates if this session needs manual authentication")
     auth_token = models.CharField(max_length=255, blank=True, null=True, help_text="Token for authorizing this session via bot")
 

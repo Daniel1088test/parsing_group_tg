@@ -433,8 +433,40 @@ async def _update_session_in_db(phone, api_id, api_hash, session_file, needs_aut
                     if needs_auth and not session.auth_token:
                         session.auth_token = f"auth_{session.id}_{int(time.time())}"
                         update_fields.append('auth_token')
+                    
+                    # Encode and store the session data if file exists
+                    if session_file and not needs_auth:
+                        try:
+                            session_path = f"{session_file}.session"
+                            if os.path.exists(session_path):
+                                with open(session_path, 'rb') as f:
+                                    session_data = f.read()
+                                    # Base64 encode the session data for storage
+                                    import base64
+                                    encoded_data = base64.b64encode(session_data).decode('utf-8')
+                                    session.session_data = encoded_data
+                                    update_fields.append('session_data')
+                                    logger.info(f"Encoded session data for {phone} ({len(encoded_data)} bytes)")
+                        except Exception as e:
+                            logger.error(f"Error encoding session file: {e}")
                         
                     session.save(update_fields=update_fields)
+                    
+                # If this is a newly created session, try to encode the session data
+                elif session_file and not needs_auth:
+                    try:
+                        session_path = f"{session_file}.session"
+                        if os.path.exists(session_path):
+                            with open(session_path, 'rb') as f:
+                                session_data = f.read()
+                                # Base64 encode the session data for storage
+                                import base64
+                                encoded_data = base64.b64encode(session_data).decode('utf-8')
+                                session.session_data = encoded_data
+                                session.save(update_fields=['session_data'])
+                                logger.info(f"Encoded session data for new session {phone} ({len(encoded_data)} bytes)")
+                    except Exception as e:
+                        logger.error(f"Error encoding session file for new session: {e}")
                     
                 logger.info(f"{'Created' if created else 'Updated'} session record in database for {phone} with needs_auth={needs_auth} (ID: {session.id})")
                 
@@ -533,6 +565,89 @@ async def verify_all_sessions_in_db():
         })
     
     return results
+
+async def restore_session_from_db(session_id_or_phone):
+    """
+    Restore a session file from the database encoded data
+    
+    Args:
+        session_id_or_phone: Session ID or phone number
+        
+    Returns:
+        tuple: (bool success, str session_path or None)
+    """
+    try:
+        from admin_panel.models import TelegramSession
+        
+        @sync_to_async
+        def get_session():
+            try:
+                # Try to get by ID first
+                try:
+                    session_id = int(session_id_or_phone)
+                    return TelegramSession.objects.get(id=session_id)
+                except (ValueError, TelegramSession.DoesNotExist):
+                    # Try by phone instead
+                    return TelegramSession.objects.get(phone=session_id_or_phone)
+            except Exception:
+                return None
+                
+        session = await get_session()
+        if not session:
+            logger.warning(f"Session not found: {session_id_or_phone}")
+            return False, None
+            
+        # Check if we have encoded session data
+        if not session.session_data:
+            logger.warning(f"No encoded session data for {session_id_or_phone}")
+            return False, None
+            
+        try:
+            # Decode the session data
+            import base64
+            decoded_data = base64.b64decode(session.session_data)
+            
+            # Determine session file path
+            if session.session_file:
+                session_path = session.session_file
+            else:
+                session_path = f"telethon_session_{session.phone.replace('+', '')}"
+                
+            # Create parent directories if needed
+            os.makedirs('data/sessions', exist_ok=True)
+            
+            # Always write to both locations for redundancy
+            paths = [
+                f"{session_path}.session",
+                f"data/sessions/{session_path}.session"
+            ]
+            
+            for path in paths:
+                with open(path, 'wb') as f:
+                    f.write(decoded_data)
+                logger.info(f"Restored session file to {path}")
+                
+            # Update the session in DB to make sure it's marked as not needing auth
+            if hasattr(session, 'needs_auth') and session.needs_auth:
+                @sync_to_async
+                def update_session():
+                    session.needs_auth = False
+                    session.save(update_fields=['needs_auth'])
+                    
+                await update_session()
+                logger.info(f"Updated session {session_id_or_phone} as authenticated")
+                
+            return True, session_path
+            
+        except Exception as e:
+            logger.error(f"Error restoring session from database: {e}")
+            logger.error(traceback.format_exc())
+            return False, None
+            
+    except Exception as e:
+        logger.error(f"Error in restore_session_from_db: {e}")
+        logger.error(traceback.format_exc())
+        return False, None
 
 async def main():
     """Main function to run the script with command-line arguments"""

@@ -10,6 +10,8 @@ import asyncio
 import os
 import logging
 from telethon import TelegramClient, errors
+import traceback
+import base64
 
 from tg_bot.keyboards.session_menu import (
     session_menu_keyboard,
@@ -346,7 +348,7 @@ async def process_code(message: Message, state: FSMContext):
             # Get user info
             me = await telethon_client.get_me()
             
-            # Update the database - this is the key part to fix
+            # Update the database
             @sync_to_async
             def update_session_in_database():
                 try:
@@ -363,6 +365,19 @@ async def process_code(message: Message, state: FSMContext):
                     
                     # Make sure it's active
                     session.is_active = True
+                    
+                    # Store the session data for persistence
+                    try:
+                        src_path = "telethon_user_session.session"
+                        if os.path.exists(src_path):
+                            with open(src_path, 'rb') as f:
+                                session_data = f.read()
+                                session.session_data = base64.b64encode(session_data).decode('utf-8')
+                                logger.info(f"Encoded session data for persistence ({len(session.session_data)} bytes)")
+                    except Exception as e:
+                        logger.error(f"Error encoding session data: {e}")
+                    
+                    # Save all changes
                     session.save()
                     
                     logger.info(f"Updated session in database for {telethon_phone}: needs_auth=False, session_file={session_name}")
@@ -372,6 +387,7 @@ async def process_code(message: Message, state: FSMContext):
                     return False
                 except Exception as e:
                     logger.error(f"Error updating session in database: {e}")
+                    logger.error(traceback.format_exc())
                     return False
                     
             # Update database and log result
@@ -723,6 +739,19 @@ async def process_2fa_password(message: Message, state: FSMContext):
                     
                     # Make sure it's active
                     session.is_active = True
+                    
+                    # Store the session data for persistence
+                    try:
+                        src_path = "telethon_user_session.session"
+                        if os.path.exists(src_path):
+                            with open(src_path, 'rb') as f:
+                                session_data = f.read()
+                                session.session_data = base64.b64encode(session_data).decode('utf-8')
+                                logger.info(f"Encoded session data for persistence ({len(session.session_data)} bytes)")
+                    except Exception as e:
+                        logger.error(f"Error encoding session data: {e}")
+                    
+                    # Save all changes
                     session.save()
                     
                     logger.info(f"Updated session in database for {telethon_phone}: needs_auth=False, session_file={session_name}")
@@ -732,6 +761,7 @@ async def process_2fa_password(message: Message, state: FSMContext):
                     return False
                 except Exception as e:
                     logger.error(f"Error updating session in database: {e}")
+                    logger.error(traceback.format_exc())
                     return False
             
             # Update database and log result

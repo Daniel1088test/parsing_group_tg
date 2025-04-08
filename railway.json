@@ -4,11 +4,16 @@
   "_comment": "IMPORTANT: Make sure to set DATABASE_URL in Railway dashboard!",
   
   "build": {
-    "builder": "NIXPACKS"
+    "builder": "NIXPACKS",
+    "watchPatterns": [
+      "**"
+    ],
+    "nixpacksConfigPath": ""
   },
   "deploy": {
     "numReplicas": 1,
-    "startCommand": "bash start.sh",
+    "startCommand": "bash start-railway.sh",
+    "sleepApplication": false,
     "restartPolicyType": "ON_FAILURE",
     "restartPolicyMaxRetries": 10,
     "healthcheckPath": "/health",

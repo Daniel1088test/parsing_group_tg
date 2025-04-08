@@ -326,23 +326,91 @@ def message_delete_view(request, message_id):
 
 @login_required
 def sessions_list_view(request):
-    """View for managing Telegram sessions"""
-    sessions = TelegramSession.objects.all().order_by('id')
+    """View for listing all Telegram sessions"""
     
-    # Safely check channels and messages without exceptions
+    # Process any session fixer actions
+    if request.method == 'POST' and 'action' in request.POST:
+        action = request.POST.get('action')
+        session_id = request.POST.get('session_id')
+        
+        if action == 'fix_session' and session_id:
+            try:
+                session = TelegramSession.objects.get(id=session_id)
+                
+                # Check for a session file and ensure we mark it as authenticated if found
+                session_name = session.session_file or f"telethon_session_{session.phone.replace('+', '')}"
+                session_paths = [
+                    f"{session_name}.session",
+                    f"data/sessions/{session_name}.session"
+                ]
+                
+                file_found = False
+                for path in session_paths:
+                    if os.path.exists(path):
+                        file_found = True
+                        break
+                
+                if file_found or session.session_data:
+                    # We have either a session file or encoded data, mark as authenticated
+                    session.needs_auth = False
+                    session.save(update_fields=['needs_auth'])
+                    messages.success(request, f'Session {session.phone} marked as authenticated')
+                    
+                    # If we only have session data but no file, restore the file
+                    if not file_found and session.session_data:
+                        try:
+                            import base64
+                            session_data = base64.b64decode(session.session_data)
+                            os.makedirs('data/sessions', exist_ok=True)
+                            for path in session_paths:
+                                with open(path, 'wb') as f:
+                                    f.write(session_data)
+                            messages.success(request, f'Session file restored from database data')
+                        except Exception as e:
+                            messages.error(request, f'Error restoring session file: {str(e)}')
+                else:
+                    messages.error(request, f'No session file or data found for {session.phone}')
+                
+            except TelegramSession.DoesNotExist:
+                messages.error(request, f'Session with ID {session_id} not found')
+                
+        elif action == 'fix_auth_status':
+            # Fix auth status for all sessions with session data
+            fixed = 0
+            for session in TelegramSession.objects.filter(needs_auth=True, session_data__isnull=False).exclude(session_data=''):
+                session.needs_auth = False
+                session.save(update_fields=['needs_auth'])
+                fixed += 1
+            
+            messages.success(request, f'Fixed auth status for {fixed} sessions')
+            
+        elif action == 'fix_media':
+            try:
+                # Run management command to fix media
+                from django.core.management import call_command
+                call_command('fix_sessions', media_only=True)
+                messages.success(request, f'Media files fixed. Check the console for details.')
+            except Exception as e:
+                messages.error(request, f'Error fixing media files: {str(e)}')
+    
+    # Get all sessions
+    sessions = TelegramSession.objects.all().order_by('-is_active', 'id')
+    
+    # Check if we need to update session status (has valid data but marked as needs_auth)
     for session in sessions:
-        session.channels_count = Channel.objects.filter(session=session).count()
-        session.messages_count = Message.objects.filter(session_used=session).count()
-        # Add needs_auth attribute if it doesn't exist in the model
-        if not hasattr(session, 'needs_auth'):
+        if hasattr(session, 'needs_auth') and session.needs_auth and session.session_data:
+            # If we have session data, but it's marked as needing auth, update it
             session.needs_auth = False
+            session.save(update_fields=['needs_auth'])
+            
+    # Count channels per session
+    for session in sessions:
+        session.channels_count = session.channels.count() if hasattr(session, 'channels') else 0
+        session.messages_count = session.messages.count() if hasattr(session, 'messages') else 0
     
     context = {
         'sessions': sessions,
-        'needs_auth_count': 0,  # Default to 0 since needs_auth field is temporarily removed
-        'title': 'Telegram Sessions'
     }
-    
     return render(request, 'admin_panel/sessions_list.html', context)
 
 @login_required

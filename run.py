@@ -12,16 +12,15 @@ from datetime import datetime
 import argparse
 import django
 from multiprocessing import Queue
+from django.core.management import call_command
 
-# Configuration of logging for the entire project
+# Configure logging for the entire project
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     datefmt='%Y-%m-%d %H:%M:%S',
-    handlers=[
-        logging.StreamHandler(),  # Output to console
-        logging.FileHandler('app.log', encoding='utf-8')  # Write to file
-    ]
+    filename='app.log',
+    filemode='a'
 )
 logger = logging.getLogger('run_script')
 
@@ -39,6 +38,18 @@ from django.conf import settings
 os.makedirs(settings.MEDIA_ROOT, exist_ok=True)
 os.makedirs(os.path.join(settings.MEDIA_ROOT, 'messages'), exist_ok=True)
 logger.info(f"Ensured media directories exist: {settings.MEDIA_ROOT}/messages")
+
+# Also create static img directory for placeholders
+os.makedirs(os.path.join(settings.STATIC_ROOT, 'img'), exist_ok=True)
+
+# Fix sessions and restore files if needed
+try:
+    logger.info("Running fix_sessions command to ensure proper setup...")
+    call_command('fix_sessions')
+    logger.info("Completed fixing sessions and media files")
+except Exception as e:
+    logger.error(f"Error running fix_sessions command: {e}")
+    logger.error(traceback.format_exc())
 
 # Import the workers
 from tg_bot.telethon_worker import telethon_worker_process
