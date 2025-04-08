@@ -23,15 +23,24 @@ echo "Preparing environment..."
 python manage.py collectstatic --noinput
 python manage.py migrate --noinput
 
-# Kill any existing processes that might interfere
-echo "Cleaning up any existing processes..."
-pkill -f gunicorn || echo "No gunicorn processes running."
-pkill -f "python run.py" || echo "No run.py processes running."
-pkill -f "runserver" || echo "No Django runserver processes running."
+# Функція для зупинки всіх процесів Python
+clean_processes() {
+  echo "Cleaning up any existing processes..."
+  # Шукаємо процеси за ключовими словами і зупиняємо їх
+  ps -ef | grep -E "gunicorn|run.py|python.*run_bot_only.py|runserver" | grep -v grep | awk '{print $2}' | xargs -r kill -9 || echo "No processes to kill"
+  
+  # Очищаємо сесійні файли Telethon для уникнення конфліктів
+  echo "Clearing Telethon session files..."
+  find . -type f -name "*.session*" -delete 2>/dev/null || echo "No session files found"
+  sleep 2
+}
+
+# Виконуємо очищення
+clean_processes
 
 # Start Gunicorn as a background process for external web access
 echo "Starting Gunicorn web server (PORT=$PORT)..."
-gunicorn core.wsgi:application --bind 0.0.0.0:$PORT --workers=2 --threads=4 --worker-tmp-dir /dev/shm --log-level info &
+gunicorn core.wsgi:application --bind 0.0.0.0:$PORT --workers=1 --threads=4 --worker-class=gthread --worker-tmp-dir /dev/shm --log-level info &
 GUNICORN_PID=$!
 echo "Gunicorn started with PID: $GUNICORN_PID"
 
@@ -175,6 +184,9 @@ async def run_services():
         telethon_process.daemon = True
         telethon_process.start()
         logger.info(f"Telethon parser process started (PID: {telethon_process.pid})")
+        
+        # Wait for processes to initialize
+        await asyncio.sleep(3)
         
         # Start bot
         await run_bot()

@@ -19,11 +19,23 @@ from django.urls import path, include
 from django.conf import settings
 from django.conf.urls.static import static
 from admin_panel.views import index_view
+from django.http import HttpResponse
+from django.views.decorators.csrf import csrf_exempt
+from django.views.decorators.http import require_GET
+
+# Простий health check endpoint
+@csrf_exempt
+@require_GET
+def health_check(request):
+    """Simple health check endpoint that always returns OK"""
+    return HttpResponse("OK", content_type="text/plain")
 
 # Перевизначаємо порядок URL-патернів - спочатку наш основний index_view, потім інші патерни
 urlpatterns = [
-    path('', index_view, name='index'),  # Головна сторінка - index.html з admin_panel
-    path('admin/', admin.site.urls),     # Django admin
+    path('', index_view, name='index'),          # Головна сторінка - index.html з admin_panel
+    path('health/', health_check, name='health'),  # Health check для Railway
+    path('healthz/', health_check, name='healthz'),  # Альтернативний health check
+    path('admin/', admin.site.urls),             # Django admin
     path('admin_panel/', include('admin_panel.urls')),  # Включаємо решту URL з admin_panel
 ]
 
