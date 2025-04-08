@@ -47,10 +47,10 @@ async def cmd_start(message: Message):
                         
                         # Start the authorization process
                         await message.answer(
-                            settings.auth_guide_text or "For authorization in Telethon, I need your phone number.\n"
-                            "Enter your phone number in the format +380XXXXXXXXX:\n"
-                            "⚠️ IMPORTANT: You must use a regular user account, NOT a bot!\n"
-                            "To cancel, press the button below ⬇️"
+                            settings.auth_guide_text or 
+                            "For authorization in Telethon, I need your phone number.\n"
+                            "Please enter your phone number in the format +380XXXXXXXXX:\n"
+                            "⚠️ IMPORTANT: You must use a regular user account, NOT a bot!"
                         )
                         
                         # Start the interactive session
@@ -224,4 +224,45 @@ async def go_to_session_menu(message: Message):
     await message.answer(
         "Select an action:",
         reply_markup=session_menu_keyboard
+    )
+
+@router.message(Command("help"))
+async def cmd_help(message: Message):
+    """Show help information about authentication and usage"""
+    help_text = (
+        "📱 <b>Telegram Channel Parser Bot</b>\n\n"
+        "This bot helps you authorize Telegram sessions for channel parsing and manage your channels.\n\n"
+        "<b>Main Commands:</b>\n"
+        "• /start - Show the main menu\n"
+        "• /authorize - Start the authorization process for a new session\n"
+        "• /help - Show this help message\n\n"
+        
+        "<b>📋 How to authorize your account:</b>\n"
+        "1. Send /authorize command\n"
+        "2. Share your phone number when prompted\n"
+        "3. Enter the verification code sent by Telegram\n"
+        "4. If you have 2FA, enter your password when asked\n\n"
+        
+        "<b>⚠️ Important notes:</b>\n"
+        "• Use a regular Telegram account (not a bot)\n"
+        "• The phone number must have access to Telegram\n"
+        "• Two-factor authentication (2FA) is fully supported\n"
+        "• No terminal commands are needed - everything can be done through this bot\n\n"
+        
+        "Need more help? Visit the web interface for detailed guides."
+    )
+    await message.answer(help_text, parse_mode="HTML")
+
+@router.message(F.text.lower() == "python -m tg_bot.auth_telethon")
+async def handle_terminal_command(message: Message):
+    """Handle when user tries to paste the terminal command"""
+    await message.answer(
+        "🚫 <b>No need for terminal commands!</b>\n\n"
+        "You can authorize your session directly through this bot:\n"
+        "1. Send /authorize command\n"
+        "2. Share your phone number\n"
+        "3. Enter the verification code\n"
+        "4. If you have 2FA, enter your password\n\n"
+        "This bot fully supports two-factor authentication without any terminal commands.",
+        parse_mode="HTML"
     ) 

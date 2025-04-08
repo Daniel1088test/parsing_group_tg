@@ -5,6 +5,7 @@ from telethon.sessions.string import StringSession
 from telethon import TelegramClient
 from admin_panel.models import TelegramSession
 from tg_bot.config import API_ID, API_HASH
+from tg_bot.auth_telethon import input_code, input_password
 import logging
 import base64
 
@@ -22,17 +23,13 @@ phone_keyboard = ReplyKeyboardMarkup(
 async def start_auth(message: types.Message):
     """Start the authorization process"""
     try:
-        # Check if user already has a session
-        existing_session = await TelegramSession.objects.filter(user_id=message.from_user.id).afirst()
-        if existing_session and existing_session.session_string:
-            await message.answer(
-                "You already have an active session. Use /check_session to verify it or contact admin to reset.",
-                reply_markup=ReplyKeyboardRemove()
-            )
-            return
-            
         await message.answer(
-            "To authorize, please share your phone number using the button below:",
+            "To authorize your account for Telegram channel parsing, please share your phone number using the button below.\n\n"
+            "This will allow the parser to access channels on your behalf."
+        )
+        
+        await message.answer(
+            "📱 Please share your phone number:",
             reply_markup=phone_keyboard
         )
     except Exception as e:
@@ -47,79 +44,141 @@ async def handle_contact(message: types.Message):
         phone = '+' + phone
         
     try:
-        # Create a new session
-        session = StringSession()
-        client = TelegramClient(session, API_ID, API_HASH)
+        # Start the authentication process through Telethon
+        from tg_bot.auth_telethon import create_session_file
         
-        # Connect and send code request
-        await client.connect()
-        code_request = await client.send_code_request(phone)
-        
-        # Store the phone and hash in the database
-        session_obj, created = await TelegramSession.objects.get_or_create(
+        # Create or update the session in database
+        session_obj, created = await TelegramSession.objects.aupdate_or_create(
             phone=phone,
             defaults={
-                'user_id': message.from_user.id,
                 'api_id': API_ID,
-                'api_hash': API_HASH
+                'api_hash': API_HASH,
+                'is_active': True,
+                'needs_auth': True
             }
         )
-        session_obj.phone_hash = code_request.phone_code_hash
-        await session_obj.asave()
         
+        # Store the phone number in user state
+        setattr(message.from_user, 'auth_phone', phone)
+        setattr(message.from_user, 'auth_session_id', session_obj.id)
+        
+        # Send progress message
         await message.answer(
-            "I've sent you a code via Telegram. Please send it to me in the format: /code YOUR_CODE",
+            "📲 Connecting to Telegram...",
             reply_markup=ReplyKeyboardRemove()
         )
-        await client.disconnect()
+        
+        # Start session file creation in background
+        import asyncio
+        asyncio.create_task(create_session_file(phone, API_ID, API_HASH))
+        
+        # Tell user to wait for the code
+        await message.answer(
+            "🔐 Telegram will send a verification code to your phone or Telegram app.\n\n"
+            "Please enter that code here when you receive it. The code should be 5 digits."
+        )
+        
+        # Set code_required flag
+        setattr(message.from_user, 'code_required', True)
         
     except Exception as e:
         logger.error(f"Error during authorization: {e}")
         await message.answer(
-            "An error occurred during authorization. Please try again later.",
+            "❌ An error occurred during authorization. Please try again later.",
             reply_markup=ReplyKeyboardRemove()
         )
 
-@session_router.message(Command("code"))
-async def handle_code(message: types.Message):
-    """Handle the verification code"""
+@session_router.message(lambda msg: hasattr(msg.from_user, 'code_required') and msg.text and msg.text.isdigit() and len(msg.text) >= 5)
+async def handle_auth_code(message: types.Message):
+    """Handle verification code input"""
+    code = message.text
+    phone = message.from_user.auth_phone
+    
     try:
-        code = message.text.split()[1]  # Get the code from message
-        session_obj = await TelegramSession.objects.get(user_id=message.from_user.id)
+        await message.answer("⏳ Verifying code...")
         
-        # Create session and sign in
-        session = StringSession()
-        client = TelegramClient(session, API_ID, API_HASH)
-        await client.connect()
+        # Pass the code to the auth system
+        result = await input_code(phone, code)
         
-        # Sign in and get the session string
-        await client.sign_in(
-            phone=session_obj.phone,
-            code=code,
-            phone_code_hash=session_obj.phone_hash
-        )
-        
-        # Get session string and encode it
-        session_str = client.session.save()
-        encoded_session = base64.b64encode(session_str.encode()).decode()
-        
-        # Save the session string
-        session_obj.session_string = encoded_session
-        session_obj.is_active = True
-        await session_obj.asave()
-        
-        await message.answer(
-            "Successfully authorized! Your session has been saved and is ready for use.",
-            reply_markup=ReplyKeyboardRemove()
-        )
-        await client.disconnect()
-        
+        if result == "2FA_REQUIRED":
+            # Two-factor authentication is required
+            await message.answer(
+                "🔒 Two-factor authentication is required.\n\n"
+                "Please enter your Telegram account's 2FA password."
+            )
+            
+            # Set 2fa_required flag
+            setattr(message.from_user, 'code_required', False)
+            setattr(message.from_user, '2fa_required', True)
+        elif result:
+            # Authentication successful
+            await message.answer(
+                "✅ Authentication successful! Your session has been authorized.\n\n"
+                "The parser can now access channels using your account."
+            )
+            
+            # Clear the flags
+            delattr(message.from_user, 'code_required')
+            delattr(message.from_user, 'auth_phone')
+            if hasattr(message.from_user, 'auth_session_id'):
+                delattr(message.from_user, 'auth_session_id')
+        else:
+            # Authentication failed
+            await message.answer(
+                "❌ Invalid code or authentication failed. Please try again by typing /authorize"
+            )
+            
+            # Clear the flags
+            delattr(message.from_user, 'code_required')
+            delattr(message.from_user, 'auth_phone')
+            if hasattr(message.from_user, 'auth_session_id'):
+                delattr(message.from_user, 'auth_session_id')
     except Exception as e:
-        logger.error(f"Error during code verification: {e}")
-        await message.answer(
-            "Failed to verify code. Please try /authorize again.",
-            reply_markup=ReplyKeyboardRemove()
-        )
+        logger.error(f"Error in handle_auth_code: {e}")
+        await message.answer("❌ An error occurred. Please try again later.")
+        
+        # Clear the flags
+        if hasattr(message.from_user, 'code_required'):
+            delattr(message.from_user, 'code_required')
+        if hasattr(message.from_user, 'auth_phone'):
+            delattr(message.from_user, 'auth_phone')
+        if hasattr(message.from_user, 'auth_session_id'):
+            delattr(message.from_user, 'auth_session_id')
+
+@session_router.message(lambda msg: hasattr(msg.from_user, '2fa_required') and msg.text)
+async def handle_2fa_password(message: types.Message):
+    """Handle 2FA password input"""
+    password = message.text
+    phone = message.from_user.auth_phone
+    
+    try:
+        await message.answer("⏳ Verifying 2FA password...")
+        
+        # Pass the password to the auth system
+        result = await input_password(phone, password)
+        
+        if result:
+            # Authentication successful
+            await message.answer(
+                "✅ Authentication successful! Your session has been authorized.\n\n"
+                "The parser can now access channels using your account."
+            )
+        else:
+            # Authentication failed
+            await message.answer(
+                "❌ Invalid password or authentication failed. Please try again by typing /authorize"
+            )
+    except Exception as e:
+        logger.error(f"Error in handle_2fa_password: {e}")
+        await message.answer("❌ An error occurred. Please try again later.")
+    finally:
+        # Clear the flags
+        if hasattr(message.from_user, '2fa_required'):
+            delattr(message.from_user, '2fa_required')
+        if hasattr(message.from_user, 'auth_phone'):
+            delattr(message.from_user, 'auth_phone')
+        if hasattr(message.from_user, 'auth_session_id'):
+            delattr(message.from_user, 'auth_session_id')
 
 @session_router.message(Command("check_session"))
 async def check_session(message: types.Message):

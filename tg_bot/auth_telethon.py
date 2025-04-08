@@ -31,6 +31,9 @@ from admin_panel.models import TelegramSession
 # Global variables to store code input state
 _waiting_for_code = {}
 _input_codes = {}
+_waiting_for_password = {}
+_input_passwords = {}
+_clients = {}
 
 async def verify_session(session_path, api_id=None, api_hash=None):
     """
@@ -114,7 +117,7 @@ async def input_code(phone, code):
     # Wait for the code to be processed
     try:
         start_time = datetime.now()
-        max_wait = 60  # seconds
+        max_wait = 120  # seconds
         
         while phone in _waiting_for_code:
             await asyncio.sleep(1)
@@ -128,9 +131,54 @@ async def input_code(phone, code):
                 return False
                 
         # If we got here, the code was processed
+        # Check if 2FA is required
+        if phone in _waiting_for_password:
+            logger.info(f"2FA required for {phone}")
+            return "2FA_REQUIRED"
+        
         return True
     except Exception as e:
         logger.error(f"Error in input_code: {e}")
+        return False
+
+async def input_password(phone, password):
+    """
+    Function to input 2FA password from bot
+    
+    Args:
+        phone: Phone number
+        password: 2FA password
+        
+    Returns:
+        bool: Success or failure
+    """
+    if phone not in _waiting_for_password:
+        logger.error(f"No 2FA authentication in progress for {phone}")
+        return False
+        
+    _input_passwords[phone] = password
+    logger.info(f"Input password received for {phone}")
+    
+    # Wait for the password to be processed
+    try:
+        start_time = datetime.now()
+        max_wait = 60  # seconds
+        
+        while phone in _waiting_for_password:
+            await asyncio.sleep(1)
+            elapsed = (datetime.now() - start_time).total_seconds()
+            if elapsed > max_wait:
+                logger.warning(f"Timeout waiting for password to be processed for {phone}")
+                if phone in _waiting_for_password:
+                    del _waiting_for_password[phone]
+                if phone in _input_passwords:
+                    del _input_passwords[phone]
+                return False
+                
+        # If we got here, the password was processed
+        return True
+    except Exception as e:
+        logger.error(f"Error in input_password: {e}")
         return False
 
 async def create_session_file(phone, api_id=None, api_hash=None, session_name=None, interactive=True):
@@ -161,6 +209,7 @@ async def create_session_file(phone, api_id=None, api_hash=None, session_name=No
     
     # Initialize client
     client = TelegramClient(session_name, api_id, api_hash)
+    _clients[phone] = client
     
     try:
         await client.connect()
@@ -214,18 +263,63 @@ async def create_session_file(phone, api_id=None, api_hash=None, session_name=No
             logger.info(f"Signing in with code for {phone}")
             try:
                 await client.sign_in(phone, code)
+                # Code accepted and no 2FA required
+                if phone in _waiting_for_code:
+                    del _waiting_for_code[phone]
             except SessionPasswordNeededError:
                 # 2FA password required
                 logger.warning(f"2FA password required for {phone}")
-                # TODO: Handle 2FA via bot
-                await client.disconnect()
-                return False
+                
+                # Mark that we need a 2FA password
+                _waiting_for_password[phone] = True
+                if phone in _waiting_for_code:
+                    del _waiting_for_code[phone]
+                
+                # Wait for password input
+                password = None
+                timeout = 300  # 5 minutes
+                start_time = datetime.now()
+                
+                while True:
+                    # Check if password was provided via bot
+                    if phone in _input_passwords:
+                        password = _input_passwords[phone]
+                        del _input_passwords[phone]
+                        break
+                        
+                    # Check timeout
+                    elapsed = (datetime.now() - start_time).total_seconds()
+                    if elapsed > timeout:
+                        logger.warning(f"Timeout waiting for 2FA password input for {phone}")
+                        if phone in _waiting_for_password:
+                            del _waiting_for_password[phone]
+                        await client.disconnect()
+                        return False
+                        
+                    # Sleep before checking again
+                    await asyncio.sleep(1)
+                
+                # Sign in with 2FA password
+                try:
+                    await client.sign_in(password=password)
+                    # Password accepted
+                    if phone in _waiting_for_password:
+                        del _waiting_for_password[phone]
+                except Exception as e:
+                    logger.error(f"Error with 2FA password for {phone}: {e}")
+                    if phone in _waiting_for_password:
+                        del _waiting_for_password[phone]
+                    await client.disconnect()
+                    return False
+                
             except PhoneCodeInvalidError:
                 logger.error(f"Invalid code for {phone}")
+                if phone in _waiting_for_code:
+                    del _waiting_for_code[phone]
                 await client.disconnect()
                 return False
                 
-        except errors.FloodWaitError as e:
+        except FloodWaitError as e:
             # Handle rate limiting
             hours, remainder = divmod(e.seconds, 3600)
             minutes, seconds = divmod(remainder, 60)
@@ -275,10 +369,14 @@ async def create_session_file(phone, api_id=None, api_hash=None, session_name=No
         # Clean up
         if phone in _waiting_for_code:
             del _waiting_for_code[phone]
+        if phone in _waiting_for_password:
+            del _waiting_for_password[phone]
         try:
             await client.disconnect()
         except:
             pass
+        if phone in _clients:
+            del _clients[phone]
 
 async def _update_session_in_db(phone, api_id, api_hash, session_file, needs_auth):
     """

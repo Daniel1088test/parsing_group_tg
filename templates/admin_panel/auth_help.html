@@ -11,47 +11,56 @@
                     <h5 class="card-title mb-0">Telegram Authentication Guide</h5>
                 </div>
                 <div class="card-body">
-                    <h3>How to Authenticate Telegram Sessions</h3>
-                    
                     <div class="alert alert-info">
-                        <p>There are two ways to authenticate your Telegram sessions:</p>
-                        <ol>
-                            <li>Via the website interface (recommended)</li>
-                            <li>Through the Telegram bot directly</li>
-                        </ol>
+                        <p>This guide will help you authorize your Telegram account for channel parsing. No terminal commands are needed - everything can be done through the bot or web interface.</p>
                     </div>
                     
-                    <h4 class="mt-4">Method 1: Website Authentication</h4>
-                    <p>This is the easiest way to authenticate a session:</p>
-                    <ol>
-                        <li>Go to the <a href="{% url 'sessions_list' %}">Sessions List</a> page</li>
-                        <li>For any session that shows "Needs Auth", click the "Authorize" button</li>
-                        <li>Follow the instructions on the screen to connect with the Telegram bot</li>
-                        <li>Enter your phone number and the verification code sent by Telegram</li>
-                        <li>Once authentication is complete, return to the website</li>
-                    </ol>
+                    <h3>How to Authenticate Telegram Sessions</h3>
                     
-                    <h4 class="mt-4">Method 2: Direct Bot Authentication</h4>
-                    <p>You can also authenticate directly through our Telegram bot:</p>
-                    <ol>
-                        <li>Add our bot <a href="https://t.me/Channels_hunt_bot" target="_blank">@Channels_hunt_bot</a> on Telegram</li>
-                        <li>Send the command <code>/authorize</code> to the bot</li>
-                        <li>Share your phone number when prompted</li>
-                        <li>Enter the verification code sent by Telegram</li>
-                        <li>The bot will confirm when authentication is successful</li>
-                    </ol>
+                    <div class="mt-4">
+                        <h5>Method 1: Via Website (Recommended)</h5>
+                        <p>This is the easiest way to authenticate a session:</p>
+                        <ol>
+                            <li>Go to the <a href="{% url 'sessions_list' %}">Sessions page</a></li>
+                            <li>Click the "Authorize" button next to the session that needs authentication</li>
+                            <li>Open the Telegram link provided on the next screen</li>
+                            <li>Our bot will guide you through the authentication process</li>
+                            <li>Enter your phone number and verification code when prompted</li>
+                            <li>If your account has two-factor authentication, enter your password when asked</li>
+                        </ol>
+                        
+                        <div class="alert alert-success">
+                            <strong>Advantage:</strong> This method lets you authorize directly from the web interface with just a few clicks.
+                        </div>
+                    </div>
                     
-                    <div class="alert alert-warning mt-4">
-                        <h5>Important Notes:</h5>
+                    <div class="mt-4">
+                        <h5>Method 2: Directly Through the Bot</h5>
+                        <p>You can also authenticate by talking directly to our Telegram bot:</p>
+                        <ol>
+                            <li>Open our bot <a href="https://t.me/Channels_hunt_bot" target="_blank">@Channels_hunt_bot</a> on Telegram</li>
+                            <li>Send the command <code>/authorize</code> to the bot</li>
+                            <li>Share your phone number when prompted</li>
+                            <li>Enter the verification code sent by Telegram</li>
+                            <li>If your account has two-factor authentication, enter your password when prompted</li>
+                        </ol>
+                        
+                        <div class="alert alert-success">
+                            <strong>Advantage:</strong> Convenient if you're already using Telegram and don't want to switch between applications.
+                        </div>
+                    </div>
+                    
+                    <div class="mt-4">
+                        <h5>Important Notes</h5>
                         <ul>
-                            <li>You must use a regular Telegram user account, not a bot account</li>
-                            <li>You need access to the phone number you're authenticating</li>
-                            <li>If you have two-factor authentication enabled, you may need to provide your password</li>
-                            <li>One phone number can only be associated with one session</li>
+                            <li>You <strong>must</strong> use a regular Telegram user account (not a bot account)</li>
+                            <li>The phone number must have access to Telegram</li>
+                            <li>Two-factor authentication (2FA) is fully supported through both methods</li>
+                            <li>If you encounter any issues, try refreshing the page or restarting the process</li>
                         </ul>
                     </div>
                     
-                    <div class="text-center mt-4">
+                    <div class="mt-4">
                         <a href="{% url 'sessions_list' %}" class="btn btn-primary">
                             <i class="fas fa-arrow-left"></i> Return to Sessions List
                         </a>
