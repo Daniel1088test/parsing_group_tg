@@ -43,6 +43,19 @@
                 <div class="form-text">Enter the category description (optional)</div>
             </div>
 
+            <div class="mb-4 form-check">
+                <input type="checkbox" name="is_active" id="id_is_active"
+                       class="form-check-input {% if form.is_active.errors %}is-invalid{% endif %}"
+                       {% if form.is_active.value %}checked{% endif %}>
+                <label for="id_is_active" class="form-check-label">Active</label>
+                {% if form.is_active.errors %}
+                    <div class="invalid-feedback">
+                        {{ form.is_active.errors|join:", " }}
+                    </div>
+                {% endif %}
+                <div class="form-text">Check if the category should be active</div>
+            </div>
+
             <div class="mb-4">
                 <label for="id_session" class="form-label">Telegram Session</label>
                 <select name="session" id="id_session" class="form-control {% if form.session.errors %}is-invalid{% endif %}">

@@ -114,6 +114,7 @@ from django.db import connection
 # Перелік міграцій, які потрібно помітити як застосовані
 migrations_to_mark = [
     ('admin_panel', '0002_category_description'),
+    ('admin_panel', '0003_category_description_category_is_active'),
 ]
 
 # Отримуємо поточний стан міграцій

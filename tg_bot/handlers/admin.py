@@ -22,7 +22,7 @@ router = Router()
 # create a synchronous function, which we will then wrap in async
 def _create_category(name):
     from admin_panel.models import Category
-    return Category.objects.create(name=name, description='')
+    return Category.objects.create(name=name, description='', is_active=True)
 
 def _get_category_id(name):
     from admin_panel.models import Category
@@ -1220,7 +1220,8 @@ async def create_category_with_data(message: types.Message, state: FSMContext, c
         try:
             category_data = {
                 'name': name,
-                'description': ''  # Додаємо порожній рядок як значення за замовчуванням
+                'description': '',  # Додаємо порожній рядок як значення за замовчуванням
+                'is_active': True
             }
             
             if session_id:
