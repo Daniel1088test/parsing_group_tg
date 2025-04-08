@@ -14,6 +14,19 @@ export PORT=${PORT:-8080}
 export RAILWAY_PUBLIC_DOMAIN="${RAILWAY_PUBLIC_DOMAIN:-parsinggrouptg-production.up.railway.app}"
 export PUBLIC_URL="https://$RAILWAY_PUBLIC_DOMAIN"
 
+# Встановлюємо параметри підключення до бази даних, якщо не встановлені
+if [ -z "$DATABASE_URL" ]; then
+    export DATABASE_URL="postgresql://postgres:urCNhXdwvbqOvvEsJDffIiDUMcLhAvcs@postgres.railway.internal:5432/railway"
+    echo "Setting DATABASE_URL directly from script"
+fi
+
+# Встановлюємо окремі змінні PostgreSQL для додаткової надійності
+export PGHOST="postgres.railway.internal"
+export PGPORT="5432"
+export PGDATABASE="railway"
+export PGUSER="postgres"
+export PGPASSWORD="urCNhXdwvbqOvvEsJDffIiDUMcLhAvcs"
+
 echo "Using PORT: $PORT"
 echo "PUBLIC_URL: $PUBLIC_URL"
 
@@ -22,22 +35,15 @@ mkdir -p staticfiles media data/messages data/sessions
 
 # Друкуємо інформацію про змінні бази даних
 echo "Database environment variables:"
-echo "DATABASE_URL: ${DATABASE_URL:-Not set}"
-echo "PGHOST: ${PGHOST:-Not set}"
-echo "PGDATABASE: ${PGDATABASE:-Not set}"
-echo "PGUSER: ${PGUSER:-Not set}"
-echo "PGPORT: ${PGPORT:-Not set}"
-
-# Якщо DATABASE_URL не встановлено, але є окремі змінні PostgreSQL
-if [ -z "$DATABASE_URL" ] && [ ! -z "$PGHOST" ] && [ ! -z "$PGDATABASE" ] && [ ! -z "$PGUSER" ] && [ ! -z "$PGPASSWORD" ]; then
-    export DATABASE_URL="postgresql://${PGUSER}:${PGPASSWORD}@${PGHOST}:${PGPORT:-5432}/${PGDATABASE}"
-    echo "Created DATABASE_URL from individual PostgreSQL variables"
-fi
+echo "DATABASE_URL: postgresql://postgres:****@postgres.railway.internal:5432/railway"
+echo "PGHOST: ${PGHOST}"
+echo "PGDATABASE: ${PGDATABASE}"
+echo "PGUSER: ${PGUSER}"
+echo "PGPORT: ${PGPORT}"
 
 # Перевіряємо підключення до бази даних
-if [ ! -z "$DATABASE_URL" ]; then
-    echo "Testing database connection..."
-    python -c "
+echo "Testing database connection..."
+python -c "
 import sys
 import psycopg2
 import time
@@ -52,6 +58,7 @@ def check_db_connection():
         cursor.execute('SELECT 1')
         cursor.close()
         conn.close()
+        print('Database connection successful!')
         return True
     except Exception as e:
         print(f'Database connection failed: {e}')
@@ -61,7 +68,6 @@ def check_db_connection():
 retries = 5
 for i in range(retries):
     if check_db_connection():
-        print('Database connection successful!')
         sys.exit(0)
     else:
         print(f'Retry {i+1}/{retries} in 3 seconds...')
@@ -70,12 +76,11 @@ for i in range(retries):
 print('Failed to connect to database after multiple attempts')
 sys.exit(1)
 " || echo "Database connection failed, but continuing..."
-fi
 
 # Prepare the environment
 echo "Preparing environment..."
 python manage.py collectstatic --noinput
-python manage.py migrate --noinput
+python manage.py migrate --noinput || echo "Migrations failed, but continuing..."
 
 # Kill any existing Gunicorn processes
 pkill -f gunicorn || echo "No gunicorn processes running."
@@ -94,51 +99,9 @@ echo "Gunicorn started with PID: $GUNICORN_PID"
 echo "Waiting for web server to initialize..."
 sleep 5
 
-# Create a simplified bot runner script
-cat > run_bot_only.py << 'EOF'
-import os
-import asyncio
-import logging
-import django
-from datetime import datetime
-
-# Setup logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    datefmt='%Y-%m-%d %H:%M:%S'
-)
-logger = logging.getLogger('telegram_bot')
-
-# Setup Django environment
-os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'core.settings')
-django.setup()
-
-async def main():
-    """Run the Telegram bot"""
-    try:
-        from tg_bot.bot import main as bot_main
-        await bot_main()
-    except Exception as e:
-        logger.error(f"Error running bot: {e}")
-        import traceback
-        logger.error(traceback.format_exc())
-
-if __name__ == "__main__":
-    logger.info("Starting Telegram bot runner")
-    try:
-        asyncio.run(main())
-    except KeyboardInterrupt:
-        logger.info("Bot stopped by user")
-    except Exception as e:
-        logger.error(f"Fatal error: {e}")
-        import traceback
-        logger.error(traceback.format_exc())
-EOF
-
 # Start the bot
 echo "Starting bot process..."
-python run_bot_only.py &
+python run.py &
 BOT_PID=$!
 echo "Bot started with PID: $BOT_PID"
 

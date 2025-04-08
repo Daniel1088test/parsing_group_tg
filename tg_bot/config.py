@@ -21,8 +21,8 @@ WEB_SERVER_HOST2 = os.environ.get('WEB_SERVER_HOST2', "108.181.154.114")
 
 # Railway environment variables
 RAILWAY_PUBLIC_DOMAIN = os.environ.get('RAILWAY_PUBLIC_DOMAIN', 'parsinggrouptg-production.up.railway.app')
-RAILWAY_TCP_PROXY_DOMAIN = os.environ.get('RAILWAY_TCP_PROXY_DOMAIN', 'switchback.proxy.rlwy.net')
-RAILWAY_TCP_PROXY_PORT = os.environ.get('RAILWAY_TCP_PROXY_PORT', '10052')
+RAILWAY_TCP_PROXY_DOMAIN = os.environ.get('RAILWAY_TCP_PROXY_DOMAIN', 'postgres.railway.internal')
+RAILWAY_TCP_PROXY_PORT = os.environ.get('RAILWAY_TCP_PROXY_PORT', '5432')
 
 # Public URL for the bot
 # Default to RAILWAY_PUBLIC_DOMAIN if available, otherwise hardcoded URL
