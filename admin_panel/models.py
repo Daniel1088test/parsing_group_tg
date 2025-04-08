@@ -80,3 +80,40 @@ class Message(models.Model):
         verbose_name = 'Message'
         verbose_name_plural = 'Messages'
         ordering = ['created_at']
+
+class BotSettings(models.Model):
+    """Settings for the Telegram bot and authentication"""
+    bot_username = models.CharField(max_length=100, default="Channels_hunt_bot", 
+                                   help_text="Username of your Telegram bot (without @)")
+    bot_name = models.CharField(max_length=100, default="Channel Parser Bot", 
+                               help_text="Display name of your bot")
+    auth_guide_text = models.TextField(default="Please follow these steps to authorize your Telegram account",
+                                     help_text="Text shown during authorization process")
+    welcome_message = models.TextField(default="Welcome to the Channel Parser Bot. Use the menu below:",
+                                     help_text="Welcome message shown to users")
+    menu_style = models.CharField(max_length=20, choices=(
+        ('default', 'Default Layout'),
+        ('compact', 'Compact Layout'),
+        ('expanded', 'Expanded Layout')
+    ), default='default')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    def __str__(self):
+        return f"Bot Settings (@{self.bot_username})"
+    
+    class Meta:
+        verbose_name = 'Bot Settings'
+        verbose_name_plural = 'Bot Settings'
+        
+    def save(self, *args, **kwargs):
+        # Ensure only one instance exists
+        if BotSettings.objects.exists() and not self.pk:
+            raise ValueError("Only one Bot Settings instance can exist")
+        return super().save(*args, **kwargs)
+        
+    @classmethod
+    def get_settings(cls):
+        """Get the single instance or create with defaults"""
+        obj, created = cls.objects.get_or_create(pk=1)
+        return obj

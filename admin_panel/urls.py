@@ -24,4 +24,6 @@ urlpatterns = [
     path('sessions/<int:session_id>/delete/', views.session_delete_view, name='session_delete'),
     path('sessions/<int:session_id>/authorize/', views.authorize_session_view, name='authorize_session'),
     path('auth-help/', views.auth_help_view, name='auth_help'),
+    path('bot-settings/', views.bot_settings_view, name='bot_settings'),
+    path('user-guide/', views.user_guide_view, name='user_guide'),
 ]

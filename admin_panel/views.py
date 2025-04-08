@@ -4,7 +4,7 @@ from django.contrib.auth import login, authenticate, logout
 from django.shortcuts import redirect
 from django.contrib import messages
 from django.contrib.auth.forms import AuthenticationForm
-from .models import Category, Message, Channel, TelegramSession
+from .models import Category, Message, Channel, TelegramSession, BotSettings
 from .forms import ChannelForm, CategoryForm, MessageForm, UserRegistrationForm
 from django.http import HttpResponse
 import logging
@@ -420,6 +420,44 @@ def session_delete_view(request, session_id):
 def auth_help_view(request):
     """View for the Telegram authentication help page"""
     return render(request, 'admin_panel/auth_help.html')
+
+@login_required
+def bot_settings_view(request):
+    """View for managing bot settings"""
+    # Get or create settings
+    settings = BotSettings.get_settings()
+    
+    if request.method == 'POST':
+        # Update settings
+        settings.bot_username = request.POST.get('bot_username', settings.bot_username)
+        settings.bot_name = request.POST.get('bot_name', settings.bot_name)
+        settings.auth_guide_text = request.POST.get('auth_guide_text', settings.auth_guide_text)
+        settings.welcome_message = request.POST.get('welcome_message', settings.welcome_message)
+        settings.menu_style = request.POST.get('menu_style', settings.menu_style)
+        settings.save()
+        
+        messages.success(request, "Bot settings updated successfully")
+        
+        # Restart the bot process if requested
+        if request.POST.get('restart_bot') == 'on':
+            try:
+                import subprocess
+                subprocess.run(["python", "manage.py", "runbot"], start_new_session=True)
+                messages.success(request, "Bot process restarted")
+            except Exception as e:
+                messages.error(request, f"Failed to restart bot: {str(e)}")
+    
+    return render(request, 'admin_panel/bot_settings.html', {
+        'settings': settings,
+        'title': 'Bot Settings'
+    })
+
+@login_required
+def user_guide_view(request):
+    """View for the user guide page"""
+    return render(request, 'admin_panel/user_guide.html', {
+        'title': 'User Guide'
+    })
 
 @login_required
 def authorize_session_view(request, session_id):

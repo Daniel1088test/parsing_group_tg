@@ -193,6 +193,29 @@
                         </div>
                     </div>
                 </div>
+                <div class="navbar-nav">
+                    <a class="nav-item nav-link" href="{% url 'admin_panel' %}">
+                        <i class="fas fa-home"></i> Dashboard
+                    </a>
+                    <a class="nav-item nav-link" href="{% url 'channels_list' %}">
+                        <i class="fas fa-broadcast-tower"></i> Channels
+                    </a>
+                    <a class="nav-item nav-link" href="{% url 'categories_list' %}">
+                        <i class="fas fa-tags"></i> Categories
+                    </a>
+                    <a class="nav-item nav-link" href="{% url 'messages_list' %}">
+                        <i class="fas fa-comments"></i> Messages
+                    </a>
+                    <a class="nav-item nav-link" href="{% url 'sessions_list' %}">
+                        <i class="fas fa-key"></i> Sessions
+                    </a>
+                    <a class="nav-item nav-link" href="{% url 'bot_settings' %}">
+                        <i class="fas fa-robot"></i> Bot Settings
+                    </a>
+                    <a class="nav-item nav-link" href="{% url 'user_guide' %}">
+                        <i class="fas fa-book"></i> User Guide
+                    </a>
+                </div>
                 {% block content %}{% endblock %}
             </div>
         </div>

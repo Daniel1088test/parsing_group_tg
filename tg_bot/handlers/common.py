@@ -1,9 +1,9 @@
 from aiogram import Router, F
 from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, BufferedInputFile
 from aiogram.filters import Command
-from tg_bot.keyboards.main_menu import main_menu_keyboard
+from tg_bot.keyboards.main_menu import main_menu_keyboard, get_main_menu_keyboard
 from tg_bot.config import ADMIN_ID, WEB_SERVER_HOST, WEB_SERVER_PORT
-from admin_panel.models import Channel, Category, TelegramSession
+from admin_panel.models import Channel, Category, TelegramSession, BotSettings
 from asgiref.sync import sync_to_async
 import qrcode
 from io import BytesIO
@@ -13,6 +13,12 @@ router = Router()
 
 @router.message(Command("start"))
 async def cmd_start(message: Message):
+    # Get bot settings
+    settings = await sync_to_async(BotSettings.get_settings)()
+    
+    # Get the appropriate keyboard based on settings
+    dynamic_keyboard = await get_main_menu_keyboard()
+    
     # Check if the message contains a start parameter
     args = message.text.split()
     if len(args) > 1:
@@ -41,7 +47,7 @@ async def cmd_start(message: Message):
                         
                         # Start the authorization process
                         await message.answer(
-                            "For authorization in Telethon, I need your phone number.\n"
+                            settings.auth_guide_text or "For authorization in Telethon, I need your phone number.\n"
                             "Enter your phone number in the format +380XXXXXXXXX:\n"
                             "⚠️ IMPORTANT: You must use a regular user account, NOT a bot!\n"
                             "To cancel, press the button below ⬇️"
@@ -58,9 +64,9 @@ async def cmd_start(message: Message):
     
     # If no auth parameter or auth failed, show normal start message
     await message.answer(
-        "Welcome! I am a bot for channel parsing.\n"
+        settings.welcome_message or "Welcome! I am a bot for channel parsing.\n"
         "Select an option from the menu below:",
-        reply_markup=main_menu_keyboard
+        reply_markup=dynamic_keyboard
     )
 
 @router.message(F.text == "📎 List of channels")

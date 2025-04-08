@@ -159,6 +159,10 @@ sleep 10
 echo "Verifying authentication system..."
 python verify_auth_system.py
 
+# Set up a cron job to verify sessions periodically
+echo "Setting up cron job for session verification..."
+(crontab -l 2>/dev/null || echo "") | grep -v "verify_sessions" | { cat; echo "0 */6 * * * cd $PWD && python manage.py verify_sessions --update > /dev/null 2>&1"; } | crontab - || echo "Failed to set up cron job, but continuing..."
+
 # Start the bot
 echo "Starting bot process..."
 python run.py &
