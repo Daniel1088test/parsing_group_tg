@@ -52,31 +52,56 @@ def run_telethon_parser(message_queue):
         os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'core.settings')
         django.setup()
         
+        # Import models
+        from admin_panel.models import TelegramSession
+        
         # Import configuration
         from tg_bot.config import DATA_FOLDER
         
-        # Create session directory if it doesn't exist
+        # Create directories if they don't exist
         session_dir = os.path.join(DATA_FOLDER, 'sessions')
         os.makedirs(session_dir, exist_ok=True)
+        os.makedirs(os.path.join(DATA_FOLDER, 'messages'), exist_ok=True)
+        
+        # Перевіряємо наявність сесій в базі даних
+        db_sessions = TelegramSession.objects.filter(is_active=True)
+        if db_sessions.exists():
+            logger.info(f"Found {db_sessions.count()} active Telethon sessions in database")
+        else:
+            logger.warning("No active Telethon sessions found in database")
         
         # Check for session files in multiple locations
         session_paths = [
             'telethon_user_session.session',
             'telethon_session.session',
+            'telethon_session_default_24888.session',
             os.path.join(session_dir, 'telethon_user_session.session'),
             os.path.join(session_dir, 'telethon_session.session')
         ]
         
+        # Додаємо пошук усіх .session файлів у директорії проекту
+        for file in os.listdir():
+            if file.endswith('.session') and file not in session_paths:
+                session_paths.append(file)
+                
         session_exists = any(os.path.exists(path) for path in session_paths)
         
-        if not session_exists:
-            logger.warning("No Telethon session file found. Please authorize using the Telegram bot (🔐 Authorize Telethon) or run 'python -m tg_bot.auth_telethon'.")
+        found_sessions = [path for path in session_paths if os.path.exists(path)]
+        if found_sessions:
+            logger.info(f"Found session files: {', '.join(found_sessions)}")
+        
+        if not session_exists and not db_sessions.exists():
+            logger.warning("No Telethon session file found and no active sessions in database.")
+            logger.warning("Please authorize using the Telegram bot (🔐 Authorize Telethon) or run 'python -m tg_bot.auth_telethon'.")
             logger.warning("IMPORTANT: You must use a regular user account, NOT a bot!")
             logger.warning("Telethon parser will not be started.")
             return
             
         from tg_bot.telethon_worker import telethon_worker_process
         telethon_worker_process(message_queue)
+    except ImportError as e:
+        logger.error(f"ImportError: {e}. Make sure all dependencies are installed.")
+        logger.error(f"Traceback: {traceback.format_exc()}")
     except Exception as e:
         logger.error(f"Error starting Telethon parser: {e}")
         logger.error(f"Traceback: {traceback.format_exc()}")
@@ -95,10 +120,14 @@ def message_processor(message_queue):
                 # Get message from queue (if queue is empty, wait)
                 message = message_queue.get(block=True, timeout=1)
                 logger.debug(f"Received message from queue: {message.get('message_info', {}).get('message_id')}")
+                
+                # Додаткова обробка повідомлень може бути додана тут
+                
             except queue.Empty:
                 continue
             except Exception as e:
                 logger.error(f"Error processing message: {e}")
+                logger.error(f"Traceback: {traceback.format_exc()}")
     except Exception as e:
         logger.error(f"Fatal error in message processor: {e}")
         logger.error(f"Traceback: {traceback.format_exc()}")
@@ -183,6 +212,40 @@ async def shutdown_services():
 
 if __name__ == "__main__":
     logger.info("Starting Bot Process")
+    
+    # Перевірка наявності обов'язкових залежностей
+    try:
+        import telethon
+        logger.info(f"Telethon version: {telethon.__version__}")
+    except ImportError:
+        logger.error("Telethon library not found. Please install it using: pip install telethon")
+        sys.exit(1)
+        
+    try:
+        import aiogram
+        logger.info(f"Aiogram version: {aiogram.__version__}")
+    except ImportError:
+        logger.error("Aiogram library not found. Please install it using: pip install aiogram")
+        sys.exit(1)
+        
+    try:
+        import django
+        logger.info(f"Django version: {django.__version__}")
+    except ImportError:
+        logger.error("Django library not found. Please install it using: pip install django")
+        sys.exit(1)
+    
+    try:
+        # Перевірка підключення до бази даних
+        os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'core.settings')
+        django.setup()
+        from django.db import connections
+        db = connections['default']
+        db.ensure_connection()
+        logger.info("Database connection successful")
+    except Exception as e:
+        logger.error(f"Database connection error: {e}")
+        logger.error("Bot can start, but some functionality may not work")
     
     try:
         asyncio.run(run_services())

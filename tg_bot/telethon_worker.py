@@ -4,6 +4,7 @@ import os
 import signal
 import re
 import logging
+import traceback
 from datetime import datetime
 import django
 from typing import Dict, Optional, Tuple
@@ -55,15 +56,28 @@ def _save_message_to_db(message_data):
         return message
     except Exception as e:
         logger.error(f"Error saving message: {e}")
+        logger.error(traceback.format_exc())
         return None
 
 def _get_channels():
-    channels = list(models.Channel.objects.all().select_related('category', 'session').order_by('id'))
-    return channels
+    try:
+        channels = list(models.Channel.objects.filter(is_active=True).select_related('category', 'session').order_by('id'))
+        logger.debug(f"Retrieved {len(channels)} active channels from database")
+        return channels
+    except Exception as e:
+        logger.error(f"Error getting channels from database: {e}")
+        logger.error(traceback.format_exc())
+        return []
 
 def _get_telegram_sessions():
-    sessions = list(models.TelegramSession.objects.filter(is_active=True).order_by('id'))
-    return sessions
+    try:
+        sessions = list(models.TelegramSession.objects.filter(is_active=True).order_by('id'))
+        logger.debug(f"Retrieved {len(sessions)} active Telegram sessions from database")
+        return sessions
+    except Exception as e:
+        logger.error(f"Error getting Telegram sessions from database: {e}")
+        logger.error(traceback.format_exc())
+        return []
 
 def _get_session_by_id(session_id):
     if not session_id:
@@ -71,6 +85,11 @@ def _get_session_by_id(session_id):
     try:
         return models.TelegramSession.objects.get(id=session_id)
     except models.TelegramSession.DoesNotExist:
+        logger.warning(f"Telegram session with ID {session_id} not found")
+        return None
+    except Exception as e:
+        logger.error(f"Error getting Telegram session with ID {session_id}: {e}")
+        logger.error(traceback.format_exc())
         return None
 
 def _get_category_id(channel):
@@ -83,10 +102,26 @@ def _get_category_id(channel):
         elif hasattr(channel, 'category') and channel.category:
             return channel.category.id
         else:
-            logger.warning(f"Channel '{channel.name}' has no associated category")
-            return None
+            # Створюємо дефолтну категорію, якщо канал без категорії
+            default_category, created = models.Category.objects.get_or_create(
+                name="Uncategorized",
+                defaults={
+                    'description': 'Default category for channels',
+                    'is_active': True
+                }
+            )
+            if created:
+                logger.info(f"Created default category 'Uncategorized' for channels without category")
+            
+            # Оновлюємо канал з дефолтною категорією
+            channel.category = default_category
+            channel.save()
+            
+            logger.info(f"Assigned default category to channel '{channel.name}'")
+            return default_category.id
     except Exception as e:
-        logger.error(f"Error getting category for channel '{channel.name}': {e}")
+        logger.error(f"Error getting/creating category for channel '{channel.name}': {e}")
+        logger.error(traceback.format_exc())
         return None
 
 save_message_to_db = sync_to_async(_save_message_to_db)
@@ -116,8 +151,13 @@ async def get_channel_messages(client, channel_identifier):
     except errors.ChannelInvalidError:
         logger.warning(f"Channel {channel_identifier} not found or unavailable")
         return [], None
+    except errors.FloodError as e:
+        logger.warning(f"FloodError when getting messages from {channel_identifier}: waiting for {e.seconds} seconds")
+        await asyncio.sleep(e.seconds)
+        return [], None
     except Exception as e:
         logger.error(f"Error getting messages from channel {channel_identifier}: {e}")
+        logger.error(traceback.format_exc())
         return [], None
 
 async def download_media(client, message, media_dir):
@@ -140,6 +180,7 @@ async def download_media(client, message, media_dir):
         return None
     except Exception as e:
         logger.error(f"Error downloading media: {e}")
+        logger.error(traceback.format_exc())
         return None
 
 async def save_message_to_data(message, channel, queue, category_id=None, client=None, session=None):
@@ -172,16 +213,21 @@ async def save_message_to_data(message, channel, queue, category_id=None, client
         
         # get the channel name
         channel_name = getattr(channel, 'title', None) or getattr(channel, 'name', 'Unknown channel')
+        channel_id = getattr(message.peer_id, 'channel_id', None)
+        
+        if not channel_id:
+            logger.warning(f"No channel_id in message {message.id} from {channel_name}")
+            channel_id = 0
         
         # save the message
         message_info = {
-            'text': message.text,
+            'text': message.text or "",
             'media': "media/messages/" + media_file if media_file else "",
             'media_type': media_type if media_type else None,
             'message_id': message.id,
-            'channel_id': message.peer_id.channel_id,
+            'channel_id': channel_id,
             'channel_name': channel_name,
-            'link': f"https://t.me/c/{message.peer_id.channel_id}/{message.id}",
+            'link': f"https://t.me/c/{channel_id}/{message.id}" if channel_id else "#",
             'date': message.date.strftime("%Y-%m-%d %H:%M:%S"),
             'session_used': session
         }
@@ -190,19 +236,22 @@ async def save_message_to_data(message, channel, queue, category_id=None, client
         await save_message_to_db(message_info)
         
         # send to queue
-        queue.put({
-            'message_info': message_info, 
-            'category_id': category_id
-        })
+        if queue:
+            try:
+                queue.put({
+                    'message_info': message_info, 
+                    'category_id': category_id
+                })
+            except Exception as e:
+                logger.error(f"Error putting message in queue: {e}")
+                logger.error(traceback.format_exc())
         
         session_info = f" (via {session.phone})" if session else ""
         logger.info(f"Saved message {message.id} from channel '{channel_name}'{session_info}")
 
     except Exception as e:
         logger.error(f"Error saving message: {e}")
-        import traceback
-        error_traceback = traceback.format_exc()
-        logger.error(f"Error traceback: {error_traceback}")
+        logger.error(traceback.format_exc())
 
 def extract_username_from_link(link):
     """extract username/channel from telegram link"""
@@ -298,6 +347,7 @@ async def initialize_client(session_id=None, session_filename=None):
                 retry_count += 1
                 backoff = retry_count * 2
                 logger.error(f"Error connecting to Telegram for session {session_filename}: {e}")
+                logger.error(traceback.format_exc())
                 
                 if retry_count < max_retries:
                     logger.info(f"Retrying in {backoff} seconds... ({retry_count}/{max_retries})")
@@ -332,17 +382,20 @@ async def initialize_client(session_id=None, session_filename=None):
                             session.save()
                     except Exception as e:
                         logger.error(f"Error updating session info: {e}")
+                        logger.error(traceback.format_exc())
                 
                 await update_session_info()
             
             return client, me
         except Exception as e:
             logger.error(f"Error getting account information for session {session_filename}: {e}")
+            logger.error(traceback.format_exc())
             await client.disconnect()
             return None, None
             
     except Exception as e:
         logger.error(f"Error initializing client for session {session_filename}: {e}")
+        logger.error(traceback.format_exc())
         try:
             await client.disconnect()
         except:
@@ -485,6 +538,7 @@ async def telethon_task(queue):
                             continue
                         except Exception as e:
                             logger.error(f"Error joining channel {channel_link}: {e}")
+                            logger.error(traceback.format_exc())
 
                         # Get messages with retry logic
                         retry_count = 0
@@ -505,6 +559,7 @@ async def telethon_task(queue):
                                         logger.error(f"Failed to get messages from '{channel.name}' after {max_retries} attempts")
                             except Exception as e:
                                 logger.error(f"Error getting messages from channel '{channel.name}': {e}")
+                                logger.error(traceback.format_exc())
                                 retry_count += 1
                                 if retry_count < max_retries:
                                     await asyncio.sleep(retry_count * 2)
@@ -539,7 +594,7 @@ async def telethon_task(queue):
 
                     except Exception as e:
                         logger.error(f"Error in telethon_task for channel '{channel.name}': {e}")
-                        logger.error(f"Traceback: {traceback.format_exc()}")
+                        logger.error(traceback.format_exc())
 
                     # Small sleep between processing channels to avoid rate limiting
                     await asyncio.sleep(5)
@@ -553,11 +608,12 @@ async def telethon_task(queue):
                 
             except Exception as e:
                 logger.error(f"Error reading or processing channels: {e}")
+                logger.error(traceback.format_exc())
                 await asyncio.sleep(30)  # Wait before retrying
                 
     except Exception as e:
         logger.error(f"Error in telethon_task: {e}")
-        logger.error(f"Traceback: {traceback.format_exc()}")
+        logger.error(traceback.format_exc())
     finally:
         # Ensure all clients are properly disconnected
         for session_id, client_info in list(telethon_clients.items()):
@@ -603,8 +659,7 @@ def telethon_worker_process(queue):
         stop_event = True
     except Exception as e:
         logger.error(f"Error in parser process: {e}")
-        import traceback
-        logger.error(f"Traceback: {traceback.format_exc()}")
+        logger.error(traceback.format_exc())
     finally:
         # Cancel pending tasks
         pending_tasks = [task for task in asyncio.all_tasks(loop) if not task.done()]
