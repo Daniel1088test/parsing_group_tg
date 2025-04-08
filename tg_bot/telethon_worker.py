@@ -240,6 +240,431 @@ async def get_channel_messages(client, channel_identifier, max_messages=10):
 
 async def download_media(client, message, media_dir):
     """
+    downloading media from the message and returning the path to the file
+    """
+    try:
+        if message.media:
+            os.makedirs(media_dir, exist_ok=True)
+            timestamp = message.date.strftime("%Y%m%d_%H%M%S")
+            file_path = await message.download_media(
+                file=os.path.join(media_dir, f"{message.id}_{timestamp}")
+            )
+            if file_path:
+                logger.debug(f"Downloaded media: {os.path.basename(file_path)}")
+                return os.path.basename(file_path)
+            else:
+                logger.warning(f"Unable to download media for message {message.id}")
+                return None
+        return None
+    except Exception as e:
+        logger.error(f"Error downloading media: {e}")
+        return None
+
+async def save_message_to_data(message, channel, queue, category_id=None, client=None, session=None):
+    """
+    saving the message and sending information to the queue
+    """
+    try:        
+        # data about media
+        media_type = None
+        media_file = None
+        original_url = None
+        
+        # determine the type of media and download it
+        if message.media and client:
+            if isinstance(message.media, MessageMediaPhoto):
+                media_type = "photo"
+                
+                # First try to create an embed URL
+                try:
+                    original_url = f"https://t.me/c/{message.peer_id.channel_id}/{message.id}?embed=1"
+                    logger.info(f"Created embed URL for photo: {original_url}")
+                except Exception as e:
+                    logger.warning(f"Could not create embed URL: {e}")
+                
+                # Check if media directory is accessible
+                if os.path.exists("media/messages") and os.access("media/messages", os.W_OK):
+                    logger.info(f"Media directory is writable: {os.path.abspath('media/messages')}")
+                    
+                    # Download the media file
+                    media_file = await download_media(client, message, "media/messages")
+                    
+                    # Add extension if missing
+                    if media_file and not os.path.splitext(media_file)[1]:
+                        # Add .jpg extension if missing
+                        new_path = f"{media_file}.jpg"
+                        try:
+                            # Rename the file
+                            os.rename(
+                                os.path.join("media/messages", media_file),
+                                os.path.join("media/messages", new_path)
+                            )
+                            logger.info(f"Added .jpg extension to media file: {new_path}")
+                            media_file = new_path
+                        except Exception as e:
+                            logger.error(f"Error adding extension to media file: {e}")
+                    
+                    logger.info(f"Successfully downloaded media: {media_file}")
+                else:
+                    logger.warning("Media directory is not accessible, skipping download")
+                
+                logger.debug(f"Media type: photo, file: {media_file}")
+                
+            elif isinstance(message.media, MessageMediaDocument):
+                if message.media.document.mime_type.startswith('video'):
+                    media_type = "video"
+                    # Create embed URL for videos
+                    try:
+                        original_url = f"https://t.me/c/{message.peer_id.channel_id}/{message.id}?embed=1"
+                    except Exception as e:
+                        logger.warning(f"Could not create embed URL: {e}")
+                elif message.media.document.mime_type.startswith('image'):
+                    media_type = "gif" if message.media.document.mime_type == 'image/gif' else "image"
+                else:
+                    media_type = "document"
+                
+                # Check if media directory is accessible
+                if os.path.exists("media/messages") and os.access("media/messages", os.W_OK):
+                    logger.info(f"Media directory is writable: {os.path.abspath('media/messages')}")
+                    
+                    # Download the media file
+                    media_file = await download_media(client, message, "media/messages")
+                    
+                    # Add extension if missing
+                    if media_file and not os.path.splitext(media_file)[1]:
+                        # Determine extension based on media type
+                        extension = ""
+                        if media_type == "video":
+                            extension = ".mp4"
+                        elif media_type in ["gif", "image"]:
+                            extension = ".gif" if media_type == "gif" else ".jpg"
+                        
+                        if extension:
+                            new_path = f"{media_file}{extension}"
+                            try:
+                                # Rename the file
+                                os.rename(
+                                    os.path.join("media/messages", media_file),
+                                    os.path.join("media/messages", new_path)
+                                )
+                                logger.info(f"Added {extension} extension to media file: {new_path}")
+                                media_file = new_path
+                            except Exception as e:
+                                logger.error(f"Error adding extension to media file: {e}")
+                    
+                    if media_file:
+                        logger.info(f"Successfully downloaded media: {media_file}")
+                        logger.debug(f"Downloaded media bytes: {os.path.getsize(os.path.join('media/messages', media_file))} bytes")
+                else:
+                    logger.warning("Media directory is not accessible, skipping download")
+                
+                logger.debug(f"Media type: {media_type}, file: {media_file}")
+                
+            elif isinstance(message.media, MessageMediaWebPage):
+                media_type = "webpage"
+                
+                # Check if the webpage has a photo
+                if hasattr(message.media.webpage, 'photo') and message.media.webpage.photo:
+                    media_type = "webpage_photo"
+                    
+                    # Try to download the preview image
+                    if os.path.exists("media/messages") and os.access("media/messages", os.W_OK):
+                        logger.info(f"Media directory is writable: {os.path.abspath('media/messages')}")
+                        media_file = await download_media(client, message, "media/messages")
+                        
+                        # Add extension if missing
+                        if media_file and not os.path.splitext(media_file)[1]:
+                            new_path = f"{media_file}.jpg"
+                            try:
+                                os.rename(
+                                    os.path.join("media/messages", media_file),
+                                    os.path.join("media/messages", new_path)
+                                )
+                                logger.info(f"Added .jpg extension to webpage preview: {new_path}")
+                                media_file = new_path
+                            except Exception as e:
+                                logger.error(f"Error adding extension to webpage preview: {e}")
+                    
+                # If there's a URL, save it as the original URL
+                if hasattr(message.media.webpage, 'url') and message.media.webpage.url:
+                    original_url = message.media.webpage.url
+                    logger.info(f"Media type: {media_type}, webpage URL: {original_url}")
+        
+        # get the channel name
+        channel_name = getattr(channel, 'title', None) or getattr(channel, 'name', 'Unknown channel')
+        
+        # save the message
+        message_info = {
+            'text': message.text,
+            'media': "messages/" + media_file if media_file else "",
+            'media_type': media_type if media_type else None,
+            'message_id': message.id,
+            'channel_id': message.peer_id.channel_id,
+            'channel_name': channel_name,
+            'link': f"https://t.me/c/{message.peer_id.channel_id}/{message.id}",
+            'date': message.date.strftime("%Y-%m-%d %H:%M:%S"),
+            'session_used': session,
+            'original_url': original_url
+        }
+        
+        # save to DB
+        db_message = await save_message_to_db(message_info)
+        
+        # Add session info to the log
+        session_info = f" (via {session.phone})" if session else ""
+        
+        # Log detailed information about the saved message
+        if media_file:
+            logger.info(f"Saved message {message.id} from channel '{channel_name}', with media: {media_file}, original URL: {original_url}{session_info}")
+        else:
+            logger.info(f"Saved message {message.id} from channel '{channel_name}'{session_info}")
+        
+        # send to queue
+        queue.put({
+            'message_info': message_info, 
+            'category_id': category_id
+import asyncio
+import json
+import os
+import signal
+import re
+import logging
+import traceback
+from datetime import datetime
+import django
+from typing import Dict, Optional, Tuple
+
+from telethon import TelegramClient, errors, client
+from telethon.tl.functions.channels import JoinChannelRequest
+from telethon.tl.types import MessageMediaPhoto, MessageMediaDocument, MessageMediaWebPage
+from asgiref.sync import sync_to_async
+from tg_bot.config import (
+    API_ID, API_HASH, FILE_JSON, MAX_MESSAGES,
+    CATEGORIES_JSON, DATA_FOLDER, MESSAGES_FOLDER
+)
+
+# configuration of logging
+logging.basicConfig(    
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S',
+)
+logger = logging.getLogger('telegram_parser')
+
+# config Django
+os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'core.settings')
+django.setup()
+
+# import models and auth module
+from admin_panel import models
+from tg_bot.auth_telethon import verify_session, create_session_file, restore_session_from_db
+
+def _save_message_to_db(message_data):
+    """
+    save message to db
+    """
+    try:
+        channel = models.Channel.objects.get(name=message_data['channel_name'])
+        
+        # Validate media file existence if media path is provided
+        media_path = message_data.get('media', '')
+        if media_path:
+            from django.conf import settings
+            import os
+            
+            # Add messages/ prefix if it doesn't have it already
+            if not media_path.startswith('messages/'):
+                media_path = f"messages/{media_path}"
+            
+            # Check if the file exists
+            full_path = os.path.join(settings.MEDIA_ROOT, media_path)
+            if not os.path.exists(full_path):
+                logger.warning(f"Media file not found: {full_path}")
+                
+                # Try harder to find the file - look for similar files with different extensions
+                dir_name = os.path.dirname(full_path)
+                file_name_base = os.path.basename(full_path).split('.')[0]
+                
+                if os.path.exists(dir_name):
+                    potential_files = [f for f in os.listdir(dir_name) 
+                                     if f.startswith(file_name_base)]
+                    
+                    if potential_files:
+                        # Use the first match
+                        found_file = potential_files[0]
+                        media_path = f"messages/{found_file}"
+                        logger.info(f"Found alternative media file: {found_file}")
+                    else:
+                        # If we have an original URL, keep the media_type but clear the media path
+                        if message_data.get('original_url'):
+                            logger.info(f"No media file found, but have original URL: {message_data.get('original_url')}")
+                            media_path = ""
+                        else:
+                            # Don't save non-existent media paths if no original URL
+                            media_path = ""
+                            logger.warning(f"No media file found and no original URL available")
+                else:
+                    # Create the directory if it doesn't exist - this helps with future saves
+                    try:
+                        os.makedirs(dir_name, exist_ok=True)
+                        logger.info(f"Created directory for media: {dir_name}")
+                    except Exception as e:
+                        logger.warning(f"Could not create media directory: {e}")
+                    
+                    # If we have an original URL, keep the media_type but clear the media path
+                    if message_data.get('original_url'):
+                        logger.info(f"Media directory doesn't exist, but have original URL: {message_data.get('original_url')}")
+                        media_path = ""
+                    else:
+                        # Don't save non-existent media paths if no original URL
+                        media_path = ""
+        
+        # Get original URL from message_data if available
+        original_url = message_data.get('original_url')
+        
+        message = models.Message(
+            text=message_data['text'],
+            media=media_path,
+            media_type=message_data['media_type'],
+            original_url=original_url,
+            telegram_message_id=message_data['message_id'],
+            telegram_channel_id=message_data['channel_id'],
+            telegram_link=message_data['link'],
+            channel=channel,
+            created_at=message_data['date'],
+            session_used=message_data.get('session_used')
+        )
+        message.save()
+        
+        media_info = f", with media: {media_path}" if media_path else ""
+        orig_url_info = f", original URL: {original_url}" if original_url else ""
+        session_info = f" (via {message_data.get('session_used').phone})" if message_data.get('session_used') else ""
+        logger.info(f"Saved message: channel '{channel.name}', message ID {message_data['message_id']}{media_info}{orig_url_info}{session_info}")
+        
+        return message
+    except Exception as e:
+        logger.error(f"Error saving message: {e}")
+        logger.error(traceback.format_exc())
+        return None
+
+def _get_channels():
+    try:
+        channels = list(models.Channel.objects.filter(is_active=True).select_related('category', 'session').order_by('id'))
+        logger.debug(f"Retrieved {len(channels)} active channels from database")
+        return channels
+    except Exception as e:
+        logger.error(f"Error getting channels from database: {e}")
+        logger.error(traceback.format_exc())
+        return []
+
+def _get_telegram_sessions():
+    try:
+        # Використовуємо values() для явного вказання потрібних полів, без поля needs_auth
+        sessions = list(models.TelegramSession.objects.filter(is_active=True)
+                        .values('id', 'phone', 'api_id', 'api_hash', 'is_active', 'session_file')
+                        .order_by('id'))
+        logger.debug(f"Retrieved {len(sessions)} active Telegram sessions from database")
+        return sessions
+    except Exception as e:
+        logger.error(f"Error getting Telegram sessions from database: {e}")
+        logger.error(traceback.format_exc())
+        return []
+
+def _get_session_by_id(session_id):
+    if not session_id:
+        return None
+    try:
+        # Use values() to explicitly select only the fields we need
+        # This avoids accessing fields that might not exist in the database
+        session_data = models.TelegramSession.objects.filter(id=session_id).values(
+            'id', 'phone', 'api_id', 'api_hash', 'is_active', 'session_file'
+        ).first()
+        
+        if not session_data:
+            logger.warning(f"Telegram session with ID {session_id} not found")
+            return None
+            
+        # Create a session object manually from the values
+        session = models.TelegramSession()
+        for key, value in session_data.items():
+            setattr(session, key, value)
+            
+        return session
+    except Exception as e:
+        logger.error(f"Error getting Telegram session with ID {session_id}: {e}")
+        logger.error(traceback.format_exc())
+        return None
+
+def _get_category_id(channel):
+    """
+    getting the category ID for the channel
+    """
+    try:
+        if hasattr(channel, 'category_id') and channel.category_id:
+            return channel.category_id
+        elif hasattr(channel, 'category') and channel.category:
+            return channel.category.id
+        else:
+            # Створюємо дефолтну категорію, якщо канал без категорії
+            default_category, created = models.Category.objects.get_or_create(
+                name="Uncategorized",
+                defaults={
+                    'description': 'Default category for channels',
+                    'is_active': True
+                }
+            )
+            if created:
+                logger.info(f"Created default category 'Uncategorized' for channels without category")
+            
+            # Оновлюємо канал з дефолтною категорією
+            channel.category = default_category
+            channel.save()
+            
+            logger.info(f"Assigned default category to channel '{channel.name}'")
+            return default_category.id
+    except Exception as e:
+        logger.error(f"Error getting/creating category for channel '{channel.name}': {e}")
+        logger.error(traceback.format_exc())
+        return None
+
+save_message_to_db = sync_to_async(_save_message_to_db)
+get_channels = sync_to_async(_get_channels)
+get_category_id = sync_to_async(_get_category_id)
+get_telegram_sessions = sync_to_async(_get_telegram_sessions)
+get_session_by_id = sync_to_async(_get_session_by_id)
+
+last_processed_message_ids = {}
+
+# flag for stop bot
+stop_event = False
+
+# Dictionary to store Telethon clients for different sessions
+telethon_clients = {}
+
+async def get_channel_messages(client, channel_identifier, max_messages=10):
+    """
+    getting messages from the specified channel
+    """
+    try:
+        await client.get_dialogs()  # update the dialog cache
+        channel = await client.get_entity(channel_identifier)
+        messages = await client.get_messages(channel, max_messages)  # get the last N messages
+        logger.debug(f"Received {len(messages)} messages from channel {getattr(channel, 'title', channel_identifier)}")
+        return messages, channel
+    except errors.ChannelInvalidError:
+        logger.warning(f"Channel {channel_identifier} not found or unavailable")
+        return [], None
+    except errors.FloodError as e:
+        logger.warning(f"FloodError when getting messages from {channel_identifier}: waiting for {e.seconds} seconds")
+        await asyncio.sleep(e.seconds)
+        return [], None
+    except Exception as e:
+        logger.error(f"Error getting messages from channel {channel_identifier}: {e}")
+        logger.error(traceback.format_exc())
+        return [], None
+
+async def download_media(client, message, media_dir):
+    """
     Download media from the message and return the path to the file.
     This version is optimized for Railway's ephemeral filesystem.
     """

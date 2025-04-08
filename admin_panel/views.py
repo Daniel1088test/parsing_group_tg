@@ -4,53 +4,139 @@ from django.contrib.auth import login, authenticate, logout
 from django.shortcuts import redirect
 from django.contrib import messages
 from django.contrib.auth.forms import AuthenticationForm
-from .models import Category, Message, Channel, TelegramSession
+from .models import Category, Message, Channel, TelegramSession, BotSettings
 from .forms import ChannelForm, CategoryForm, MessageForm, UserRegistrationForm
-from django.core.paginator import Paginator
+from django.http import HttpResponse
+import logging
+import traceback
+import os
 from django.conf import settings
-from .forms import TelegramSessionForm
-from .models import BotSettings
+import time
+from urllib.parse import quote_plus
+
+logger = logging.getLogger(__name__)
 
 def index_view(request):
-    # Get filtering parameters from the request
-    category_id = request.GET.get('category')
-    session_filter = request.GET.get('session')
-    count = int(request.GET.get('count', 5))  # Default to 5 messages
-    
-    # Get messages with filtering
-    messages_query = Message.objects.all().order_by('-created_at').select_related('channel', 'channel__category')
-    
-    # Apply filters if provided
-    if category_id and category_id != 'None' and category_id != 'undefined':
-        messages_query = messages_query.filter(channel__category_id=category_id)
-    
-    if session_filter and session_filter != 'None' and session_filter != 'undefined':
-        messages_query = messages_query.filter(channel__session_id=session_filter)
-    
-    # Limit the number of messages
-    messages = messages_query[:count]
-    
-    # Get categories for the filter
-    categories = Category.objects.all().order_by('name')
-    
-    # Get sessions for filter dropdown (handle missing fields safely)
+    """Головна сторінка сайту"""
     try:
-        sessions = TelegramSession.objects.all().order_by('phone').only('id', 'phone', 'is_active')
-    except Exception as e:
-        # If there's any issue with the TelegramSession model fields, return empty list
-        sessions = []
+        # Логуємо початок виконання
+        logger.info("Початок виконання index_view")
         
-    # Build context for template
-    context = {
-        'messages': messages,
-        'categories': categories,
-        'sessions': sessions,
-        'selected_category': category_id if category_id and category_id != 'None' and category_id != 'undefined' else '',
-        'selected_session': session_filter if session_filter and session_filter != 'None' and session_filter != 'undefined' else '',
-        'current_count': count,
-    }
-    
-    return render(request, 'admin_panel/index.html', context)
+        # Отримуємо параметри фільтрації
+        category_id = request.GET.get('category')
+        count = int(request.GET.get('count', 5))
+        session_filter = request.GET.get('session')
+        
+        # Завантажуємо категорії
+        try:
+            categories = Category.objects.all()
+            logger.info(f"Завантажено {len(categories)} категорій")
+        except Exception as e:
+            categories = []
+            logger.error(f"Помилка завантаження категорій: {str(e)}")
+        
+        # Завантажуємо повідомлення
+        try:
+            messages_query = Message.objects.select_related('channel', 'session_used', 'channel__session').order_by('-created_at')
+            
+            # Фільтруємо за категорією, якщо вона вказана
+            if category_id and category_id != 'None' and category_id != 'undefined':
+                try:
+                    category_id = int(category_id)
+                    messages_query = messages_query.filter(channel__category_id=category_id)
+                except (ValueError, TypeError):
+                    pass
+            
+            # Фільтруємо за сесією, якщо вона вказана
+            if session_filter and session_filter != 'None' and session_filter != 'undefined':
+                try:
+                    session_id = int(session_filter)
+                    messages_query = messages_query.filter(session_used_id=session_id)
+                except (ValueError, TypeError):
+                    pass
+            
+            # Обмежуємо кількість повідомлень
+            messages_list = messages_query[:count]
+            logger.info(f"Завантажено {len(messages_list)} повідомлень")
+        except Exception as e:
+            messages_list = []
+            logger.error(f"Помилка завантаження повідомлень: {str(e)}")
+        
+        # Завантажуємо активні сесії
+        try:
+            sessions = TelegramSession.objects.filter(is_active=True).order_by('phone')
+            logger.info(f"Завантажено {len(sessions)} сесій")
+        except Exception as e:
+            sessions = []
+            logger.error(f"Помилка завантаження сесій: {str(e)}")
+        
+        # Формуємо контекст для шаблону
+        context = {
+            'categories': categories,
+            'messages': messages_list,
+            'sessions': sessions,
+            'selected_category': category_id if category_id and category_id != 'None' and category_id != 'undefined' else '',
+            'selected_session': session_filter if session_filter and session_filter != 'None' and session_filter != 'undefined' else '',
+            'current_count': count
+        }
+        
+        # Перевіряємо, чи існує шаблон
+        template_path = os.path.join(settings.BASE_DIR, 'templates', 'admin_panel', 'index.html')
+        if os.path.exists(template_path):
+            logger.info(f"Шаблон знайдено: {template_path}")
+        else:
+            logger.error(f"Шаблон не знайдено: {template_path}")
+            # Спробуємо знайти будь-який шаблон в папці admin_panel
+            template_dir = os.path.join(settings.BASE_DIR, 'templates', 'admin_panel')
+            if os.path.exists(template_dir):
+                templates = [f for f in os.listdir(template_dir) if f.endswith('.html')]
+                logger.info(f"Доступні шаблони: {templates}")
+        
+        # Рендеримо шаблон
+        logger.info("Рендеримо шаблон index.html")
+        return render(request, 'admin_panel/index.html', context)
+        
+    except Exception as e:
+        logger.error(f"Критична помилка в index_view: {str(e)}\n{traceback.format_exc()}")
+        
+        # Повертаємо просту HTML-сторінку
+        return HttpResponse(f"""
+        <!DOCTYPE html>
+        <html lang="uk">
+        <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>Telegram Parser</title>
+            <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+            <style>
+                body {{ padding: 20px; }}
+                .error {{ color: red; background: #ffeeee; padding: 10px; border-radius: 5px; margin: 20px 0; }}
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <div class="row">
+                    <div class="col-md-8 offset-md-2">
+                        <h1 class="text-primary mt-5">Telegram Channel Parser</h1>
+                        <p class="lead">Додаток працює, але виникла помилка при завантаженні повної сторінки.</p>
+                        
+                        <div class="error">
+                            <h4>Деталі помилки:</h4>
+                            <p>{str(e)}</p>
+                        </div>
+                        
+                        <div class="d-grid gap-3 col-md-6 mx-auto mt-4">
+                            <a href="/admin/" class="btn btn-primary">Адмін-панель Django</a>
+                            <a href="https://t.me/Channels_hunt_bot" class="btn btn-info">Відкрити Telegram бот</a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+        </body>
+        </html>
+        """)
 
 
 def login_view(request):
@@ -96,6 +182,7 @@ def admin_panel_view(request):
     categories_count = Category.objects.count()
     active_channels_count = Channel.objects.filter(is_active=True).count()
     messages_count = Message.objects.count()
+    sessions_count = TelegramSession.objects.count()
     latest_messages = Message.objects.order_by('-created_at')
     return render(
         request, 
@@ -104,6 +191,7 @@ def admin_panel_view(request):
          'categories_count': categories_count, 
          'active_channels_count': active_channels_count, 
          'messages_count': messages_count,
+         'sessions_count': sessions_count,
          'latest_messages': latest_messages})
 
 @login_required
@@ -222,294 +310,254 @@ def category_delete_view(request, category_id):
 
 @login_required
 def messages_list_view(request):
-    """View for listing all messages"""
-    if not request.user.is_authenticated:
-        return redirect('login')
-    
-    # Get messages with pagination
-    messages = Message.objects.all().select_related('channel').order_by('-created_at')
-    
-    # Apply filters if provided
-    channel_id = request.GET.get('channel')
-    category_id = request.GET.get('category')
-    
-    if channel_id:
-        messages = messages.filter(channel_id=channel_id)
-    
-    if category_id:
-        messages = messages.filter(channel__category_id=category_id)
-    
-    # Get channels and categories for filter dropdowns
-    channels = Channel.objects.all()
-    categories = Category.objects.all()
-    
-    # Pagination
-    paginator = Paginator(messages, 20)  # Show 20 messages per page
-    page_number = request.GET.get('page')
-    page_obj = paginator.get_page(page_number)
-    
-    context = {
-        'page_obj': page_obj,
-        'channels': channels,
-        'categories': categories,
-        'active_tab': 'messages',
-        'selected_channel': channel_id,
-        'selected_category': category_id,
-    }
-    
-    return render(request, 'admin_panel/messages_list.html', context)
+    messages = Message.objects.all()
+    return render(request, 'admin_panel/messages_list.html', {'messages': messages})
 
 @login_required
 def message_detail_view(request, message_id):
-    """View for viewing message details"""
-    if not request.user.is_authenticated:
-        return redirect('login')
-    
-    message = get_object_or_404(Message, id=message_id)
-    
-    context = {
-        'message': message,
-        'active_tab': 'messages',
-    }
-    
-    return render(request, 'admin_panel/message_detail.html', context)
+    message = get_object_or_404(Message, pk=message_id)
+    return render(request, 'admin_panel/message_detail.html', {'message': message}) 
 
 @login_required
 def message_delete_view(request, message_id):
-    """View for deleting a message"""
-    if not request.user.is_authenticated:
-        return redirect('login')
-    
-    message = get_object_or_404(Message, id=message_id)
-    
-    if request.method == 'POST':
-        message.delete()
-        messages.success(request, 'Message deleted successfully.')
-        return redirect('messages_list')
-    
-    context = {
-        'message': message,
-        'active_tab': 'messages',
-    }
-    
-    return render(request, 'admin_panel/message_delete.html', context)
+    message = get_object_or_404(Message, pk=message_id)
+    message.delete()
+    return redirect('messages_list')
 
-# Add the missing session management views
 @login_required
 def sessions_list_view(request):
     """View for listing all Telegram sessions"""
-    if not request.user.is_authenticated:
-        return redirect('login')
+    
+    # Process any session fixer actions
+    if request.method == 'POST' and 'action' in request.POST:
+        action = request.POST.get('action')
+        session_id = request.POST.get('session_id')
+        
+        if action == 'fix_session' and session_id:
+            try:
+                session = TelegramSession.objects.get(id=session_id)
+                
+                # Check for a session file and ensure we mark it as authenticated if found
+                session_name = session.session_file or f"telethon_session_{session.phone.replace('+', '')}"
+                session_paths = [
+                    f"{session_name}.session",
+                    f"data/sessions/{session_name}.session"
+                ]
+                
+                file_found = False
+                for path in session_paths:
+                    if os.path.exists(path):
+                        file_found = True
+                        break
+                
+                if file_found or session.session_data:
+                    # We have either a session file or encoded data, mark as authenticated
+                    session.needs_auth = False
+                    session.save(update_fields=['needs_auth'])
+                    messages.success(request, f'Session {session.phone} marked as authenticated')
+                    
+                    # If we only have session data but no file, restore the file
+                    if not file_found and session.session_data:
+                        try:
+                            import base64
+                            session_data = base64.b64decode(session.session_data)
+                            os.makedirs('data/sessions', exist_ok=True)
+                            for path in session_paths:
+                                with open(path, 'wb') as f:
+                                    f.write(session_data)
+                            messages.success(request, f'Session file restored from database data')
+                        except Exception as e:
+                            messages.error(request, f'Error restoring session file: {str(e)}')
+                else:
+                    messages.error(request, f'No session file or data found for {session.phone}')
+                
+            except TelegramSession.DoesNotExist:
+                messages.error(request, f'Session with ID {session_id} not found')
+                
+        elif action == 'fix_auth_status':
+            # Fix auth status for all sessions with session data
+            fixed = 0
+            for session in TelegramSession.objects.filter(needs_auth=True, session_data__isnull=False).exclude(session_data=''):
+                session.needs_auth = False
+                session.save(update_fields=['needs_auth'])
+                fixed += 1
+            
+            messages.success(request, f'Fixed auth status for {fixed} sessions')
+            
+        elif action == 'fix_media':
+            try:
+                # Run management command to fix media
+                from django.core.management import call_command
+                call_command('fix_sessions', media_only=True)
+                messages.success(request, f'Media files fixed. Check the console for details.')
+            except Exception as e:
+                messages.error(request, f'Error fixing media files: {str(e)}')
     
     # Get all sessions
-    sessions = TelegramSession.objects.all().order_by('phone')
+    sessions = TelegramSession.objects.all().order_by('-is_active', 'id')
+    
+    # Check if we need to update session status (has valid data but marked as needs_auth)
+    for session in sessions:
+        if hasattr(session, 'needs_auth') and session.needs_auth and session.session_data:
+            # If we have session data, but it's marked as needing auth, update it
+            session.needs_auth = False
+            session.save(update_fields=['needs_auth'])
+            
+    # Count channels per session
+    for session in sessions:
+        session.channels_count = session.channels.count() if hasattr(session, 'channels') else 0
+        session.messages_count = session.messages.count() if hasattr(session, 'messages') else 0
     
     context = {
         'sessions': sessions,
-        'active_tab': 'sessions',
     }
-    
     return render(request, 'admin_panel/sessions_list.html', context)
 
 @login_required
 def session_create_view(request):
     """View for creating a new Telegram session"""
-    if not request.user.is_authenticated:
-        return redirect('login')
-    
     if request.method == 'POST':
-        form = TelegramSessionForm(request.POST)
-        if form.is_valid():
-            session = form.save(commit=False)
-            
-            # Set default values if needed
-            if not session.api_id:
-                session.api_id = settings.DEFAULT_API_ID
-            if not session.api_hash:
-                session.api_hash = settings.DEFAULT_API_HASH
-                
-            session.save()
-            messages.success(request, f'Telegram session for {session.phone} created successfully.')
+        phone = request.POST.get('phone')
+        api_id = request.POST.get('api_id', '')
+        api_hash = request.POST.get('api_hash', '')
+        
+        if not phone:
+            messages.error(request, 'Phone number is required')
             return redirect('sessions_list')
-    else:
-        form = TelegramSessionForm()
-    
-    context = {
-        'form': form,
-        'active_tab': 'sessions',
-    }
-    
-    return render(request, 'admin_panel/session_form.html', context)
+        
+        # Create the session
+        try:
+            session_data = {
+                'phone': phone,
+                'api_id': api_id or settings.TELEGRAM_API_ID,
+                'api_hash': api_hash or settings.TELEGRAM_API_HASH,
+                'is_active': True,
+            }
+            
+            # needs_auth field is temporarily removed 
+            session = TelegramSession(**session_data)
+            session.save()
+            
+            messages.success(request, f'Session created for {phone}. Please authenticate it using the command:')
+            messages.info(request, f'python manage.py authsession --auth {session.id}')
+            
+        except Exception as e:
+            messages.error(request, f'Error creating session: {str(e)}')
+            
+    return redirect('sessions_list')
 
 @login_required
 def session_update_view(request, session_id):
     """View for updating a Telegram session"""
-    if not request.user.is_authenticated:
-        return redirect('login')
-    
-    session = get_object_or_404(TelegramSession, id=session_id)
+    session = get_object_or_404(TelegramSession, pk=session_id)
     
     if request.method == 'POST':
-        form = TelegramSessionForm(request.POST, instance=session)
-        if form.is_valid():
-            form.save()
-            messages.success(request, f'Telegram session for {session.phone} updated successfully.')
-            return redirect('sessions_list')
-    else:
-        form = TelegramSessionForm(instance=session)
-    
-    context = {
-        'form': form,
-        'session': session,
-        'active_tab': 'sessions',
-    }
-    
-    return render(request, 'admin_panel/session_form.html', context)
+        # Update basic properties
+        session.phone = request.POST.get('phone', session.phone)
+        session.api_id = request.POST.get('api_id', session.api_id)
+        session.api_hash = request.POST.get('api_hash', session.api_hash)
+        session.is_active = request.POST.get('is_active') == 'on'
+        
+        # Save the session
+        session.save()
+        
+        messages.success(request, f'Session {session.phone} updated')
+        
+    return redirect('sessions_list')
 
 @login_required
 def session_delete_view(request, session_id):
     """View for deleting a Telegram session"""
-    if not request.user.is_authenticated:
-        return redirect('login')
+    session = get_object_or_404(TelegramSession, pk=session_id)
     
-    session = get_object_or_404(TelegramSession, id=session_id)
-    
-    if request.method == 'POST':
-        session.delete()
-        messages.success(request, f'Telegram session for {session.phone} deleted successfully.')
+    # Check if this session is in use
+    if Channel.objects.filter(session=session).exists():
+        messages.error(request, f'Cannot delete session {session.phone} as it is used by channels')
         return redirect('sessions_list')
+        
+    if Message.objects.filter(session_used=session).exists():
+        messages.warning(request, f'Deleting session {session.phone} which has associated messages')
     
-    context = {
-        'session': session,
-        'active_tab': 'sessions',
-    }
+    # Delete the session
+    session.delete()
+    messages.success(request, f'Session {session.phone} deleted')
     
-    return render(request, 'admin_panel/session_delete.html', context)
-
-@login_required
-def authorize_session_view(request, session_id):
-    """View for authorizing a Telegram session"""
-    if not request.user.is_authenticated:
-        return redirect('login')
-    
-    session = get_object_or_404(TelegramSession, id=session_id)
-    
-    # Check if the database has been updated with the new fields
-    has_verification_field = hasattr(session, 'verification_code')
-    has_password_field = hasattr(session, 'password')
-    
-    # Handling session authorization
-    if request.method == 'POST':
-        if 'code' in request.POST and has_verification_field:
-            # Handle verification code input
-            code = request.POST.get('code')
-            try:
-                session.verification_code = code
-                session.save(update_fields=['verification_code'])
-                messages.success(request, 'Verification code saved. The system will attempt to authenticate.')
-            except Exception as e:
-                messages.error(request, f'Error saving verification code: {str(e)}')
-            return redirect('sessions_list')
-        elif 'password' in request.POST and has_password_field:
-            # Handle 2FA password input
-            password = request.POST.get('password')
-            try:
-                session.password = password
-                session.save(update_fields=['password'])
-                messages.success(request, 'Two-factor password saved. The system will attempt to authenticate.')
-            except Exception as e:
-                messages.error(request, f'Error saving password: {str(e)}')
-            return redirect('sessions_list')
-        else:
-            # Fallback if fields are missing
-            messages.warning(request, 'Database schema update required. Please run migrations first.')
-            return redirect('sessions_list')
-    
-    # Check if we need to show a database update warning
-    show_warning = not (has_verification_field and has_password_field)
-    
-    context = {
-        'session': session,
-        'active_tab': 'sessions',
-        'show_db_warning': show_warning,
-        'has_verification_field': has_verification_field,
-        'has_password_field': has_password_field,
-    }
-    
-    return render(request, 'admin_panel/authorize_session.html', context)
+    return redirect('sessions_list')
 
 @login_required
 def auth_help_view(request):
-    """View for displaying authentication help information"""
-    if not request.user.is_authenticated:
-        return redirect('login')
-    
-    context = {
-        'active_tab': 'sessions',
-    }
-    
-    return render(request, 'admin_panel/auth_help.html', context)
+    """View for the Telegram authentication help page"""
+    return render(request, 'admin_panel/auth_help.html')
 
 @login_required
 def bot_settings_view(request):
-    """View for configuring bot settings"""
-    if not request.user.is_authenticated:
-        return redirect('login')
-    
-    # Get or create bot settings
-    settings_obj, created = BotSettings.objects.get_or_create(pk=1)
+    """View for managing bot settings"""
+    # Get or create settings
+    settings = BotSettings.get_settings()
     
     if request.method == 'POST':
-        form = BotSettingsForm(request.POST, instance=settings_obj)
-        if form.is_valid():
-            form.save()
-            messages.success(request, 'Bot settings updated successfully.')
-            return redirect('bot_settings')
-    else:
-        form = BotSettingsForm(instance=settings_obj)
+        # Update settings
+        settings.bot_username = request.POST.get('bot_username', settings.bot_username)
+        settings.bot_name = request.POST.get('bot_name', settings.bot_name)
+        settings.auth_guide_text = request.POST.get('auth_guide_text', settings.auth_guide_text)
+        settings.welcome_message = request.POST.get('welcome_message', settings.welcome_message)
+        settings.menu_style = request.POST.get('menu_style', settings.menu_style)
+        settings.save()
+        
+        messages.success(request, "Bot settings updated successfully")
+        
+        # Restart the bot process if requested
+        if request.POST.get('restart_bot') == 'on':
+            try:
+                import subprocess
+                subprocess.run(["python", "manage.py", "runbot"], start_new_session=True)
+                messages.success(request, "Bot process restarted")
+            except Exception as e:
+                messages.error(request, f"Failed to restart bot: {str(e)}")
     
-    context = {
-        'form': form,
-        'active_tab': 'settings',
-    }
-    
-    return render(request, 'admin_panel/bot_settings.html', context)
+    return render(request, 'admin_panel/bot_settings.html', {
+        'settings': settings,
+        'title': 'Bot Settings'
+    })
 
 @login_required
 def user_guide_view(request):
-    """View for displaying the user guide"""
-    if not request.user.is_authenticated:
-        return redirect('login')
-    
-    context = {
-        'active_tab': 'guide',
-    }
-    
-    return render(request, 'admin_panel/user_guide.html', context)
+    """View for the user guide page"""
+    return render(request, 'admin_panel/user_guide.html', {
+        'title': 'User Guide'
+    })
 
 @login_required
-def run_migrations_view(request):
-    """View for running database migrations from the web UI"""
-    if not request.user.is_authenticated or not request.user.is_superuser:
-        messages.error(request, 'Only superusers can run migrations')
-        return redirect('admin_panel')
+def authorize_session_view(request, session_id):
+    """View for authorizing a Telegram session directly from the website"""
+    session = get_object_or_404(TelegramSession, pk=session_id)
     
     if request.method == 'POST':
         try:
-            # Import the migrations script and run it
-            from scripts.run_migrations import run_migrations
+            # Generate QR code authorization link
+            authorization_token = f"auth_{session_id}_{int(time.time())}"
             
-            success = run_migrations()
+            # Store the authorization token in the session
+            if not hasattr(session, 'auth_token') or not session.auth_token:
+                session.auth_token = authorization_token
+                session.save()
             
-            if success:
-                messages.success(request, 'Migrations applied successfully')
-            else:
-                messages.error(request, 'Error applying migrations')
+            # Send success message with link
+            messages.success(request, 'Click the button below to authorize this session via Telegram bot')
+            
+            context = {
+                'session': session,
+                'authorization_token': authorization_token,
+                'title': f'Authorize Session: {session.phone}'
+            }
+            return render(request, 'admin_panel/authorize_session.html', context)
+            
         except Exception as e:
-            messages.error(request, f'Error: {str(e)}')
+            messages.error(request, f'Error starting authorization: {str(e)}')
     
+    # If GET request, show confirmation page
     context = {
-        'active_tab': 'settings',
+        'session': session,
+        'title': f'Authorize Session: {session.phone}'
     }
-    
-    return render(request, 'admin_panel/run_migrations.html', context)
+    return render(request, 'admin_panel/authorize_session_confirm.html', context)
