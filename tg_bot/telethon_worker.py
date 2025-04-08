@@ -55,8 +55,26 @@ def _save_message_to_db(message_data):
             full_path = os.path.join(settings.MEDIA_ROOT, media_path)
             if not os.path.exists(full_path):
                 logger.warning(f"Media file not found: {full_path}")
-                # Don't save non-existent media paths
-                media_path = ""
+                
+                # Try harder to find the file - look for similar files with different extensions
+                dir_name = os.path.dirname(full_path)
+                file_name_base = os.path.basename(full_path).split('.')[0]
+                
+                if os.path.exists(dir_name):
+                    potential_files = [f for f in os.listdir(dir_name) 
+                                     if f.startswith(file_name_base)]
+                    
+                    if potential_files:
+                        # Use the first match
+                        found_file = potential_files[0]
+                        media_path = f"messages/{found_file}"
+                        logger.info(f"Found alternative media file: {found_file}")
+                    else:
+                        # Don't save non-existent media paths
+                        media_path = ""
+                else:
+                    # Don't save non-existent media paths
+                    media_path = ""
         
         message = models.Message(
             text=message_data['text'],
@@ -206,6 +224,8 @@ async def download_media(client, message, media_dir):
             # Get the absolute path for media directory
             from django.conf import settings
             import os
+            import re
+            import uuid
             
             # Use Django's MEDIA_ROOT to ensure we're saving in the right place
             absolute_media_dir = os.path.join(settings.MEDIA_ROOT, media_dir)
@@ -216,8 +236,12 @@ async def download_media(client, message, media_dir):
             # Format timestamp correctly
             timestamp = message.date.strftime("%Y%m%d_%H%M%S")
             
-            # Create file name without special characters
-            file_name = f"{message.id}_{timestamp}"
+            # Create a unique file ID to avoid any conflicts
+            unique_id = str(uuid.uuid4().hex[:8])
+            
+            # Create safe file name without special characters
+            file_name = f"{message.id}_{timestamp}_{unique_id}"
+            file_name = re.sub(r'[^\w\-_\.]', '_', file_name)  # Replace any non-safe chars
             safe_path = os.path.join(absolute_media_dir, file_name)
             
             # Download the media with the safe path
@@ -326,7 +350,7 @@ async def save_message_to_data(message, channel, queue, category_id=None, client
         # save the message
         message_info = {
             'text': message.text or "",
-            'media': f"{media_file}" if media_file else "",
+            'media': media_file or "",
             'media_type': media_type if media_type else None,
             'message_id': message.id,
             'channel_id': channel_id,

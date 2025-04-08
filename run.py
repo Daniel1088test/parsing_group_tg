@@ -9,6 +9,9 @@ import queue
 import time
 import traceback
 from datetime import datetime
+import argparse
+import django
+from multiprocessing import Queue
 
 # Configuration of logging for the entire project
 logging.basicConfig(
@@ -26,6 +29,19 @@ logger = logging.getLogger('run_script')
 telethon_process = None
 processor_process = None
 message_queue = None
+
+# setup Django
+os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'core.settings')
+django.setup()
+
+# Create necessary media directories
+from django.conf import settings
+os.makedirs(settings.MEDIA_ROOT, exist_ok=True)
+os.makedirs(os.path.join(settings.MEDIA_ROOT, 'messages'), exist_ok=True)
+logger.info(f"Ensured media directories exist: {settings.MEDIA_ROOT}/messages")
+
+# Import the workers
+from tg_bot.telethon_worker import telethon_worker_process
 
 async def run_bot():
     """Start Telegram bot"""
@@ -97,7 +113,6 @@ def run_telethon_parser(message_queue):
             logger.warning("Telethon parser will not be started.")
             return
             
-        from tg_bot.telethon_worker import telethon_worker_process
         telethon_worker_process(message_queue)
     except ImportError as e:
         logger.error(f"ImportError: {e}. Make sure all dependencies are installed.")
