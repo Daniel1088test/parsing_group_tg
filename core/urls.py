@@ -18,10 +18,18 @@ from django.contrib import admin
 from django.urls import path, include
 from django.conf import settings
 from django.conf.urls.static import static
+from admin_panel.views import index_view
 
+# Перевизначаємо порядок URL-патернів - спочатку наш основний index_view, потім інші патерни
 urlpatterns = [
-    path('admin/', admin.site.urls),
-    path('', include('admin_panel.urls')),
+    path('', index_view, name='index'),  # Головна сторінка - index.html з admin_panel
+    path('admin/', admin.site.urls),     # Django admin
+    path('admin_panel/', include('admin_panel.urls')),  # Включаємо решту URL з admin_panel
 ]
+
+# Serve media and static files
 if settings.DEBUG:
+    urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
+    urlpatterns += static(settings.STATIC_URL, document_root=settings.STATIC_ROOT)
+else:
     urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

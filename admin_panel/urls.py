@@ -2,11 +2,11 @@ from django.urls import path
 from . import views
 
 urlpatterns = [
-    path('', views.index_view, name='index'),
+    # Всі інші адреси крім кореневої (index прибраний, оскільки він тепер в core/urls.py)
     path('login/', views.login_view, name='login'),
     path('logout/', views.logout_view, name='logout'),
     path('register/', views.register_view, name='register'),
-    path('admin-panel/', views.admin_panel_view, name='admin_panel'),
+    path('dashboard/', views.admin_panel_view, name='admin_panel'),
     # Channels
     path('channels-list/', views.channels_list_view, name='channels_list'),
     path('channel-create/', views.channel_create_view, name='channel_create'),
