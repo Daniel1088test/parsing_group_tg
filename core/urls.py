@@ -31,7 +31,7 @@ from .views import serve_media
 
 logger = logging.getLogger('media_handler')
 
-# Простий health check endpoint
+# Health check endpoint
 @csrf_exempt
 @require_GET
 def health_check(request):
@@ -150,19 +150,19 @@ def serve_media(request, path):
     # If all else fails, return 404
     return HttpResponse("Media not found", status=404)
 
-# Перевизначаємо порядок URL-патернів - спочатку наш основний index_view, потім інші патерни
+# URL patterns
 urlpatterns = [
-    # Додаємо всі можливі шляхи для health check
-    path('health', health_check),  # Без слешу
-    path('health/', health_check, name='health'),  # Зі слешем
-    path('healthz', health_check),  # Альтернативний - без слешу
-    path('healthz/', health_check, name='healthz'),  # Альтернативний - зі слешем
-    path('health.html', health_check),  # Варіант з розширенням
+    # Health check endpoints (first for quick response)
+    path('health', health_check),  # Without slash
+    path('health/', health_check, name='health'),  # With slash
+    path('healthz', health_check),  # Alternative - without slash
+    path('healthz/', health_check, name='healthz'),  # Alternative - with slash
+    path('health.html', health_check),  # HTML variant
     
-    # Основні URL-шляхи
-    path('', index_view, name='index'),          # Головна сторінка - index.html з admin_panel
-    path('admin/', admin.site.urls),             # Django admin
-    path('admin_panel/', include('admin_panel.urls')),  # Включаємо решту URL з admin_panel
+    # Main application URLs
+    path('', index_view, name='index'),  # Homepage - index.html from admin_panel
+    path('admin/', admin.site.urls),  # Django admin
+    path('admin_panel/', include('admin_panel.urls')),  # Include admin_panel URLs
     
     # Custom media handler
     path('messages/<path:path>', serve_media, name='serve_media'),
@@ -171,6 +171,6 @@ urlpatterns = [
 # Static files handling
 urlpatterns += static(settings.STATIC_URL, document_root=settings.STATIC_ROOT)
 
-# Media files handling (fallback)
+# Media files handling (fallback - mainly for development)
 if settings.DEBUG:
     urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
