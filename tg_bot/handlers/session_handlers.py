@@ -8,6 +8,7 @@ from django.core.validators import RegexValidator
 from asgiref.sync import sync_to_async
 import asyncio
 import os
+import logging
 from telethon import TelegramClient, errors
 
 from tg_bot.keyboards.session_menu import (
@@ -20,6 +21,7 @@ from admin_panel.models import TelegramSession
 from tg_bot.config import API_ID, API_HASH, ADMIN_ID
 
 router = Router()
+logger = logging.getLogger('session_handlers')
 
 class AddSessionStates(StatesGroup):
     waiting_for_phone = State()
@@ -343,8 +345,55 @@ async def process_code(message: Message, state: FSMContext):
             # Get user info
             me = await telethon_client.get_me()
             
+            # Update the database - this is the key part to fix
+            @sync_to_async
+            def update_session_in_database():
+                try:
+                    # Find session by phone number
+                    session = TelegramSession.objects.get(phone=telethon_phone)
+                    
+                    # Update session file
+                    session_name = f"telethon_session_{telethon_phone.replace('+', '')}"
+                    session.session_file = session_name
+                    
+                    # Mark as authenticated
+                    if hasattr(session, 'needs_auth'):
+                        session.needs_auth = False
+                    
+                    # Make sure it's active
+                    session.is_active = True
+                    session.save()
+                    
+                    logger.info(f"Updated session in database for {telethon_phone}: needs_auth=False, session_file={session_name}")
+                    return True
+                except TelegramSession.DoesNotExist:
+                    logger.error(f"Session for phone {telethon_phone} not found in database")
+                    return False
+                except Exception as e:
+                    logger.error(f"Error updating session in database: {e}")
+                    return False
+                    
+            # Update database and log result
+            db_updated = await update_session_in_database()
+            
+            # Copy session file to data/sessions directory for redundancy
+            src_file = f"telethon_user_session.session"
+            dst_dir = "data/sessions"
+            os.makedirs(dst_dir, exist_ok=True)
+            dst_file = f"{dst_dir}/telethon_session_{telethon_phone.replace('+', '')}.session"
+            
+            if os.path.exists(src_file):
+                import shutil
+                try:
+                    shutil.copy2(src_file, dst_file)
+                    logger.info(f"Session file copied to {dst_file}")
+                except Exception as e:
+                    logger.error(f"Error copying session file: {e}")
+            
+            # Success message
+            auth_status = "і оновлено в базі даних" if db_updated else "але не вдалося оновити базу даних"
             await message.answer(
-                f"✅ Успішна авторизація як {me.first_name} (@{me.username or 'None'})!\n"
+                f"✅ Успішна авторизація як {me.first_name} (@{me.username or 'None'})! {auth_status}\n"
                 f"Файл сесії створено. Тепер ви можете використовувати парсинг Telethon.",
                 reply_markup=main_menu_keyboard
             )

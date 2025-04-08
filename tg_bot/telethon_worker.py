@@ -217,8 +217,23 @@ async def download_media(client, message, media_dir):
             )
             
             if file_path:
-                logger.info(f"Successfully downloaded media: {os.path.basename(file_path)}")
-                return os.path.basename(file_path)
+                # Verify the file actually exists
+                if os.path.exists(file_path):
+                    logger.info(f"Successfully downloaded media: {os.path.basename(file_path)}")
+                    
+                    # Make sure the file is readable
+                    try:
+                        with open(file_path, 'rb') as f:
+                            # Just check if we can read a few bytes
+                            f.read(10)
+                    except Exception as e:
+                        logger.error(f"Downloaded file exists but is not readable: {e}")
+                        return None
+                    
+                    return os.path.basename(file_path)
+                else:
+                    logger.warning(f"Download completed but file doesn't exist: {file_path}")
+                    return None
             else:
                 logger.warning(f"Unable to download media for message {message.id}")
                 return None
