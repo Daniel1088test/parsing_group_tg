@@ -42,17 +42,20 @@ class ChannelForm(forms.ModelForm):
 class CategoryForm(forms.ModelForm):
     class Meta:
         model = Category
-        fields = ['name', 'session']
+        fields = ['name', 'description', 'session']
         widgets = {
             'name': forms.TextInput(attrs={'class': 'form-control', 'required': True}),
+            'description': forms.Textarea(attrs={'class': 'form-control', 'rows': 3}),
             'session': forms.Select(attrs={'class': 'form-control'}),
         }   
         labels = {
             'name': 'Category name',
+            'description': 'Description',
             'session': 'Telegram Session',
         }
         help_texts = {
             'name': 'Enter the category name',
+            'description': 'Enter the category description (optional)',
             'session': 'Select the Telegram session for this category',
         }
         error_messages = {

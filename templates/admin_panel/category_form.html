@@ -31,6 +31,19 @@
             </div>
 
             <div class="mb-4">
+                <label for="id_description" class="form-label">Description</label>
+                <textarea name="description" id="id_description" 
+                       class="form-control {% if form.description.errors %}is-invalid{% endif %}"
+                       rows="3">{{ form.description.value|default:'' }}</textarea>
+                {% if form.description.errors %}
+                    <div class="invalid-feedback">
+                        {{ form.description.errors|join:", " }}
+                    </div>
+                {% endif %}
+                <div class="form-text">Enter the category description (optional)</div>
+            </div>
+
+            <div class="mb-4">
                 <label for="id_session" class="form-label">Telegram Session</label>
                 <select name="session" id="id_session" class="form-control {% if form.session.errors %}is-invalid{% endif %}">
                     <option value="">-- No session (use default) --</option>
