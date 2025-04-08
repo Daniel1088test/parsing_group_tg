@@ -79,6 +79,19 @@ async def start_telethon_auth(message: Message, state: FSMContext):
         )
         return
     
+    # Clear any existing state first
+    await state.clear()
+    
+    # Reset global variables to avoid confusion with previous sessions
+    global telethon_client, telethon_phone
+    if telethon_client:
+        try:
+            await telethon_client.disconnect()
+        except:
+            pass
+    telethon_client = None
+    telethon_phone = None
+    
     # Check if session file already exists and offer to delete it
     if os.path.exists('telethon_user_session.session'):
         # Create inline keyboard with button to delete session
@@ -133,8 +146,21 @@ async def delete_session_file(callback: CallbackQuery, state: FSMContext):
         )
 
 @router.callback_query(F.data == "cancel_auth")
-async def cancel_auth(callback: CallbackQuery):
+async def cancel_auth(callback: CallbackQuery, state: FSMContext):
     """Cancel the authorization process"""
+    # Clean up client if it exists
+    global telethon_client, telethon_phone
+    if telethon_client:
+        try:
+            await telethon_client.disconnect()
+        except:
+            pass
+    telethon_client = None
+    telethon_phone = None
+    
+    # Clear the state
+    await state.clear()
+    
     await callback.message.edit_text(
         "Авторизацію скасовано. Оберіть інший пункт меню.",
     )
@@ -348,12 +374,28 @@ async def process_code(message: Message, state: FSMContext):
                     "✅ Парсер запущено! Повідомлення будуть автоматично завантажуватися до бази даних.",
                     reply_markup=main_menu_keyboard
                 )
+                
+                # Clear the state to ensure the conversation ends
+                await state.clear()
+                
+                # Reset Telethon client variables
+                telethon_client = None
+                telethon_phone = None
+                
             except Exception as e:
                 await message.answer(
                     f"❌ Помилка запуску парсера: {str(e)}\n"
                     f"Ви можете запустити його вручну командою: python manage.py runtelethon",
                     reply_markup=main_menu_keyboard
                 )
+                
+                # Clean up and clear state
+                if telethon_client:
+                    await telethon_client.disconnect()
+                    telethon_client = None
+                    telethon_phone = None
+                
+                await state.clear()
             
         except errors.SessionPasswordNeededError:
             # Two-factor authentication is enabled
@@ -363,6 +405,14 @@ async def process_code(message: Message, state: FSMContext):
                 "Будь ласка, створіть новий сеанс через команду: python -m tg_bot.auth_telethon",
                 reply_markup=main_menu_keyboard
             )
+            
+            # Clean up and clear state
+            if telethon_client:
+                await telethon_client.disconnect()
+                telethon_client = None
+                telethon_phone = None
+            await state.clear()
+            
         except errors.PhoneCodeInvalidError:
             await message.answer(
                 "❌ Введений код невірний. Спробуйте ще раз:",
@@ -386,16 +436,17 @@ async def process_code(message: Message, state: FSMContext):
                 f"❌ Помилка входу: {str(e)}",
                 reply_markup=main_menu_keyboard
             )
+            
+            # Clean up and clear state
+            if telethon_client:
+                await telethon_client.disconnect()
+                telethon_client = None
+                telethon_phone = None
+            await state.clear()
     finally:
-        # Clean up resources properly only if authentication is complete or failed with an error
-        # We don't clean up on invalid code since we want to allow the user to try again
-        if not isinstance(message.text, str) or message.text != "❌ Cancel":
-            current_state = await state.get_state()
-            if current_state != AddSessionStates.waiting_for_code:
-                if telethon_client:
-                    await telethon_client.disconnect()
-                    telethon_client = None
-                    telethon_phone = None
+        # We don't need to do anything more in the finally block
+        # since we've added proper cleanup in each case above
+        pass
 
 @router.message(F.text == "➕ Add new session")
 async def start_add_session(message: Message, state: FSMContext):
