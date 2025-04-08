@@ -1,159 +1,240 @@
 #!/bin/bash
 
-# Make script exit on any error
+# Exit on any error
 set -e
 
-# Install missing packages that are critical
-pip install -U dj-database-url psycopg2-binary
+echo "Starting deployment script at $(date)"
 
-# Set the PORT from the environment variable or use default 8000
-export PORT=${PORT:-8000}
-echo "Using PORT: $PORT"
-
-# Print all environment variables related to PostgreSQL (masked)
-echo "PostgreSQL related environment variables:"
-env | grep -i "PG\|DATABASE\|POSTGRES" | sed 's/\(PASSWORD\|SECRET\)=.*/\1=********/' | sort || true
-
-# Handle Railway's PostgreSQL connection variables
-if [ -z "$DATABASE_URL" ]; then
-    echo "DATABASE_URL not found, attempting to construct from available variables..."
-    
-    # Check for all possible Railway PostgreSQL formats
-    if [ ! -z "$DATABASE_PUBLIC_URL" ]; then
-        export DATABASE_URL="$DATABASE_PUBLIC_URL"
-        echo "Using DATABASE_PUBLIC_URL as DATABASE_URL"
-    elif [ ! -z "$POSTGRES_URL" ]; then
-        export DATABASE_URL="$POSTGRES_URL"
-        echo "Using POSTGRES_URL as DATABASE_URL"
-    elif [ ! -z "$PGHOST" ] && [ ! -z "$PGPORT" ] && [ ! -z "$PGDATABASE" ] && [ ! -z "$PGUSER" ] && [ ! -z "$PGPASSWORD" ]; then
-        # Use Railway TCP Proxy for external access if available
-        if [ ! -z "$RAILWAY_TCP_PROXY_DOMAIN" ] && [ ! -z "$RAILWAY_TCP_PROXY_PORT" ]; then
-            export DATABASE_URL="postgresql://${PGUSER}:${PGPASSWORD}@${RAILWAY_TCP_PROXY_DOMAIN}:${RAILWAY_TCP_PROXY_PORT}/${PGDATABASE}?sslmode=require"
-            echo "Constructed DATABASE_URL using Railway TCP Proxy"
-        else
-            # Fallback to direct connection
-            export DATABASE_URL="postgresql://${PGUSER}:${PGPASSWORD}@${PGHOST}:${PGPORT}/${PGDATABASE}"
-            echo "Constructed DATABASE_URL from PostgreSQL variables"
-        fi
-    else
-        echo "WARNING: Could not find PostgreSQL variables. Using SQLite database."
-        export DATABASE_URL=""
-    fi
-fi
-
-# Print DATABASE_URL (with password masked)
-if [ ! -z "$DATABASE_URL" ]; then
-    DB_URL_MASKED=$(echo $DATABASE_URL | sed -E 's/\/\/([^:]+):([^@]+)@/\/\/\1:********@/g')
-    echo "Using DATABASE_URL: $DB_URL_MASKED"
-
-    # Extract PostgreSQL connection details
-    export PGUSER=$(echo $DATABASE_URL | grep -oP '://\K[^:]+')
-    export PGPASSWORD=$(echo $DATABASE_URL | grep -oP '://[^:]+:\K[^@]+')
-    export PGHOST=$(echo $DATABASE_URL | grep -oP '@\K[^:]+')
-    export PGPORT=$(echo $DATABASE_URL | grep -oP '@[^:]+:\K[0-9]+')
-    export PGDATABASE=$(echo $DATABASE_URL | grep -oP '/\K[^?]+')
-
-    echo "PostgreSQL connection details: host=$PGHOST, port=$PGPORT, database=$PGDATABASE, user=$PGUSER"
-else
-    echo "No DATABASE_URL set. Using SQLite database."
-fi
-
-# Wait for PostgreSQL to be ready if we have a connection
-if [ ! -z "$DATABASE_URL" ]; then
-    echo "Waiting for PostgreSQL to be ready..."
-    
-    # Try to connect to PostgreSQL
-    max_retries=30
-    retries=0
-    
-    until PGPASSWORD=$PGPASSWORD psql -h $PGHOST -p $PGPORT -U $PGUSER -d $PGDATABASE -c "SELECT 1" > /dev/null 2>&1; do
-        retries=$((retries+1))
-        if [ $retries -ge $max_retries ]; then
-            echo "WARNING: PostgreSQL not available after $max_retries attempts. Continuing anyway."
-            break
-        fi
-        echo "PostgreSQL not ready yet. Retrying in 2 seconds... (Attempt $retries/$max_retries)"
-        sleep 2
-    done
-    
-    if [ $retries -lt $max_retries ]; then
-        echo "PostgreSQL is ready!"
-    fi
-    
-    # Test database connection
-    echo "Testing database connection with psql..."
-    PGPASSWORD=$PGPASSWORD psql -h $PGHOST -p $PGPORT -U $PGUSER -d $PGDATABASE -c "SELECT version();" || echo "Failed to connect with psql, but continuing..."
-fi
-
-# Set Railway environment variables for the application
+# Set required environment variables
+export PORT=${PORT:-8080}
 export RAILWAY_PUBLIC_DOMAIN="${RAILWAY_PUBLIC_DOMAIN:-parsinggrouptg-production.up.railway.app}"
 export PUBLIC_URL="https://$RAILWAY_PUBLIC_DOMAIN"
-echo "Setting PUBLIC_URL to $PUBLIC_URL"
+export WEB_SERVER_PORT=8000
 
-# Export bot-specific environment variables from Railway
-export BOT_TOKEN="${BOT_TOKEN:-7923260865:AAGWm7t0Zz2PqFPI5PldEVwrOC4HZ_5oP0c}"
-export API_ID="${API_ID:-19840544}"
-export API_HASH="${API_HASH:-c839f28bad345082329ec086fca021fa}"
-export ADMIN_ID="${ADMIN_ID:-574349489}"
-export BOT_USERNAME="${BOT_USERNAME:-@Channels_hunt_bot}"
+echo "Using PORT: $PORT for Gunicorn (external)"
+echo "Using WEB_SERVER_PORT: $WEB_SERVER_PORT for internal Django server"
+echo "PUBLIC_URL: $PUBLIC_URL"
 
 # Create necessary directories
-mkdir -p staticfiles
-mkdir -p media
-mkdir -p data/messages
-mkdir -p data/sessions
+mkdir -p staticfiles media data/messages data/sessions
 
-# Run migrations (without failing if they don't work)
-echo "Running migrations..."
-python manage.py migrate --noinput || echo "Migrations failed, but continuing"
+# Prepare the environment
+echo "Preparing environment..."
+python manage.py collectstatic --noinput
+python manage.py migrate --noinput
 
-# Collect static files
-echo "Collecting static files..."
-python manage.py collectstatic --noinput || echo "Static file collection failed, but continuing"
+# Kill any existing processes that might interfere
+echo "Cleaning up any existing processes..."
+pkill -f gunicorn || echo "No gunicorn processes running."
+pkill -f "python run.py" || echo "No run.py processes running."
+pkill -f "runserver" || echo "No Django runserver processes running."
 
-# Check if compress command exists before running it
-if python manage.py help | grep -q "compress"; then
-    echo "Compressing static files..."
-    python manage.py compress --force
-else
-    echo "Compress command not available, skipping static file compression."
-fi
-
-# Aggressively terminate any existing bot processes
-echo "Terminating any existing bot processes..."
-(
-  # Kill any Python processes that might be running bots (but not this script)
-  for pid in $(find /proc -maxdepth 1 -name "[0-9]*" 2>/dev/null); do
-    pid=$(basename $pid)
-    if [ "$pid" != "$$" ] && [ -e "/proc/$pid/cmdline" ]; then
-      if grep -q "python" "/proc/$pid/cmdline" 2>/dev/null && grep -q "bot.py\|run.py" "/proc/$pid/cmdline" 2>/dev/null; then
-        echo "Killing Python bot process $pid"
-        kill -9 $pid >/dev/null 2>&1 || true
-      fi
-    fi
-  done
-) || echo "Process cleanup failed, but continuing..."
-
-# Clear any existing session files that might cause conflicts
-echo "Clearing any existing bot sessions..."
-find . -type f -name "*.session*" -delete 2>/dev/null || true
-find /app -type f -name "*.session*" -delete 2>/dev/null || true
-
-echo "Starting the application..."
-
-# Start the main application with gunicorn
-gunicorn core.wsgi:application --bind 0.0.0.0:$PORT --timeout 300 --workers 2 --preload &
+# Start Gunicorn as a background process for external web access
+echo "Starting Gunicorn web server (PORT=$PORT)..."
+gunicorn core.wsgi:application --bind 0.0.0.0:$PORT --workers=2 --threads=4 --worker-tmp-dir /dev/shm --log-level info &
 GUNICORN_PID=$!
+echo "Gunicorn started with PID: $GUNICORN_PID"
 
-# Wait for gunicorn to start
+# Give Gunicorn time to fully start
+echo "Waiting for web server to initialize..."
 sleep 5
-echo "Main application started"
 
-# Start our bot in a separate process
-cd /app
-python run.py &
+# Create a modified run.py that doesn't kill other processes
+cat > run_bot_only.py << 'EOF'
+import sys
+import os
+import signal
+import asyncio
+import logging
+import multiprocessing
+import queue
+import traceback
+from datetime import datetime
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S',
+    handlers=[
+        logging.StreamHandler(),
+        logging.FileHandler('bot.log', encoding='utf-8')
+    ]
+)
+logger = logging.getLogger('bot_runner')
+
+# Global variables to track processes
+telethon_process = None
+processor_process = None
+message_queue = None
+
+async def run_bot():
+    """Start Telegram bot without starting Django server"""
+    logger.info("Starting Telegram bot...")
+    try:
+        # Use existing Django setup
+        import django
+        os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'core.settings')
+        django.setup()
+        
+        from tg_bot.bot import main
+        await main()
+    except Exception as e:
+        logger.error(f"Error starting bot: {e}")
+        logger.error(f"Traceback: {traceback.format_exc()}")
+        raise
+
+def run_telethon_parser(message_queue):
+    """Start Telethon parser"""
+    logger.info("Starting Telethon parser...")
+    try:
+        # Use existing Django setup
+        import django
+        os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'core.settings')
+        django.setup()
+        
+        # Import configuration
+        from tg_bot.config import DATA_FOLDER
+        
+        # Create session directory if it doesn't exist
+        session_dir = os.path.join(DATA_FOLDER, 'sessions')
+        os.makedirs(session_dir, exist_ok=True)
+        
+        # Check for session files in multiple locations
+        session_paths = [
+            'telethon_user_session.session',
+            'telethon_session.session',
+            os.path.join(session_dir, 'telethon_user_session.session'),
+            os.path.join(session_dir, 'telethon_session.session')
+        ]
+        
+        session_exists = any(os.path.exists(path) for path in session_paths)
+        
+        if not session_exists:
+            logger.warning("No Telethon session file found. Please authorize using the Telegram bot.")
+            logger.warning("IMPORTANT: You must use a regular user account, NOT a bot!")
+            logger.warning("Telethon parser will not be started.")
+            return
+            
+        from tg_bot.telethon_worker import telethon_worker_process
+        telethon_worker_process(message_queue)
+    except Exception as e:
+        logger.error(f"Error starting Telethon parser: {e}")
+        logger.error(f"Traceback: {traceback.format_exc()}")
+
+def message_processor(message_queue):
+    """Process messages from Telethon parser"""
+    logger.info("Starting message processor...")
+    try:
+        # Use existing Django setup
+        import django
+        os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'core.settings')
+        django.setup()
+        
+        while True:
+            try:
+                # Get message from queue (if queue is empty, wait)
+                message = message_queue.get(block=True, timeout=1)
+                logger.debug(f"Received message from queue: {message.get('message_info', {}).get('message_id')}")
+            except queue.Empty:
+                continue
+            except Exception as e:
+                logger.error(f"Error processing message: {e}")
+    except Exception as e:
+        logger.error(f"Fatal error in message processor: {e}")
+        logger.error(f"Traceback: {traceback.format_exc()}")
+
+async def run_services():
+    """Main function to run all services"""
+    global telethon_process, processor_process, message_queue
+    
+    start_time = datetime.now()
+    logger.info(f"====== Starting bot services {start_time.strftime('%Y-%m-%d %H:%M:%S')} ======")
+    
+    # Create a queue for inter-process communication
+    message_queue = multiprocessing.Queue()
+    
+    try:
+        # Don't mess with any other Python processes - that's the key fix
+        logger.info("Using existing web server...")
+        
+        # Start message processor
+        processor_process = multiprocessing.Process(
+            target=message_processor,
+            args=(message_queue,)
+        )
+        processor_process.daemon = True
+        processor_process.start()
+        logger.info(f"Message processor process started (PID: {processor_process.pid})")
+        
+        # Start Telethon parser
+        telethon_process = multiprocessing.Process(
+            target=run_telethon_parser,
+            args=(message_queue,)
+        )
+        telethon_process.daemon = True
+        telethon_process.start()
+        logger.info(f"Telethon parser process started (PID: {telethon_process.pid})")
+        
+        # Start bot
+        await run_bot()
+        
+    except KeyboardInterrupt:
+        logger.info("\nReceived termination signal (KeyboardInterrupt)")
+    except Exception as e:
+        logger.error(f"Critical error during service execution: {e}")
+        logger.error(f"Traceback: {traceback.format_exc()}")
+    finally:
+        # Shut down our processes
+        await shutdown_services()
+        
+        # Log runtime information
+        end_time = datetime.now()
+        runtime = end_time - start_time
+        logger.info(f"Bot services stopped. Runtime: {runtime}")
+        logger.info("====== End ======")
+
+async def shutdown_services():
+    """Shutdown all services cleanly"""
+    global telethon_process, processor_process
+    
+    logger.info("Stopping bot services...")
+    
+    # Stop Telethon parser
+    if telethon_process and telethon_process.is_alive():
+        logger.info("Stopping Telethon parser...")
+        telethon_process.terminate()
+        telethon_process.join(timeout=5)
+        if telethon_process.is_alive():
+            logger.warning("Telethon parser did not terminate gracefully, forcing...")
+            os.kill(telethon_process.pid, signal.SIGKILL)
+    
+    # Stop message processor
+    if processor_process and processor_process.is_alive():
+        logger.info("Stopping message processor...")
+        processor_process.terminate()
+        processor_process.join(timeout=5)
+        if processor_process.is_alive():
+            logger.warning("Message processor did not terminate gracefully, forcing...")
+            os.kill(processor_process.pid, signal.SIGKILL)
+
+if __name__ == "__main__":
+    logger.info("Starting Bot Process")
+    
+    try:
+        asyncio.run(run_services())
+    except Exception as e:
+        logger.error(f"Fatal error in main process: {e}")
+        logger.error(f"Traceback: {traceback.format_exc()}")
+        sys.exit(1)
+EOF
+
+# Start the modified bot script that won't kill gunicorn
+echo "Starting bot process without killing other processes..."
+python run_bot_only.py &
 BOT_PID=$!
-echo "Bot started (PID: $BOT_PID)"
+echo "Bot started with PID: $BOT_PID"
 
-# Wait for both processes
-wait $GUNICORN_PID $BOT_PID 
+# Monitor main web process
+echo "All processes started. Monitoring..."
+wait $GUNICORN_PID 

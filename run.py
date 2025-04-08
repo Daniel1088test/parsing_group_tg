@@ -23,41 +23,9 @@ logging.basicConfig(
 logger = logging.getLogger('run_script')
 
 # Global variables to track processes
-django_process = None
 telethon_process = None
 processor_process = None
 message_queue = None
-
-def run_django():
-    """Start Django server"""
-    logger.info("Starting Django server...")
-    try:
-        from tg_bot.config import WEB_SERVER_HOST, WEB_SERVER_PORT
-        
-        # Always use 127.0.0.1 for the bot's internal Django server
-        host = "127.0.0.1"
-        port = WEB_SERVER_PORT
-        
-        django_process = subprocess.Popen(
-            [sys.executable, 'manage.py', 'runserver', f"{host}:{port}"],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            universal_newlines=True
-        )
-        logger.info(f"Django server started (PID: {django_process.pid})")
-        
-        # Check if Django started successfully
-        for i in range(5):  # Try for 5 seconds
-            if django_process.poll() is not None:
-                stdout, stderr = django_process.communicate()
-                logger.error(f"Django server failed to start: {stderr}")
-                return None
-            time.sleep(1)
-            
-        return django_process
-    except Exception as e:
-        logger.error(f"Error starting Django server: {e}")
-        return None
 
 async def run_bot():
     """Start Telegram bot"""
@@ -137,38 +105,18 @@ def message_processor(message_queue):
 
 async def run_services():
     """Main function to run all services"""
-    global django_process, telethon_process, processor_process, message_queue
+    global telethon_process, processor_process, message_queue
     
     start_time = datetime.now()
-    logger.info(f"====== Starting services {start_time.strftime('%Y-%m-%d %H:%M:%S')} ======")
-    
-    # Kill any existing Python processes
-    try:
-        for pid_dir in os.listdir('/proc'):
-            if pid_dir.isdigit():
-                try:
-                    with open(f'/proc/{pid_dir}/cmdline', 'r') as f:
-                        cmdline = f.read()
-                        if 'python' in cmdline and str(os.getpid()) != pid_dir:
-                            logger.info(f"Killing old Python process {pid_dir}")
-                            os.kill(int(pid_dir), signal.SIGKILL)
-                except (FileNotFoundError, ProcessLookupError):
-                    continue
-    except Exception as e:
-        logger.warning(f"Error while cleaning up old processes: {e}")
+    logger.info(f"====== Starting bot services {start_time.strftime('%Y-%m-%d %H:%M:%S')} ======")
     
     # Create a queue for inter-process communication
     message_queue = multiprocessing.Queue()
     
     try:
-        # Start Django server first - if this fails, we'll exit early
-        django_process = run_django()
-        if not django_process:
-            logger.error("Failed to start Django server. Aborting startup.")
-            return
-        
-        # Allow Django to fully initialize before starting other services
-        await asyncio.sleep(5)  # Increased wait time
+        # Give Django server time to fully initialize - it's started by the start.sh script
+        logger.info("Waiting for web server to be fully initialized...")
+        await asyncio.sleep(3)
         
         # Start message processor
         processor_process = multiprocessing.Process(
@@ -206,14 +154,14 @@ async def run_services():
         # Log runtime information
         end_time = datetime.now()
         runtime = end_time - start_time
-        logger.info(f"Services stopped. Runtime: {runtime}")
+        logger.info(f"Bot services stopped. Runtime: {runtime}")
         logger.info("====== End ======")
 
 async def shutdown_services():
     """Shutdown all services cleanly"""
-    global django_process, telethon_process, processor_process
+    global telethon_process, processor_process
     
-    logger.info("Stopping services...")
+    logger.info("Stopping bot services...")
     
     # Stop Telethon parser
     if telethon_process and telethon_process.is_alive():
@@ -232,41 +180,13 @@ async def shutdown_services():
         if processor_process.is_alive():
             logger.warning("Message processor did not terminate gracefully, forcing...")
             os.kill(processor_process.pid, signal.SIGKILL)
-    
-    # Stop Django server
-    if django_process:
-        logger.info("Stopping Django server...")
-        django_process.terminate()
-        try:
-            django_process.wait(timeout=5)
-        except subprocess.TimeoutExpired:
-            os.kill(django_process.pid, signal.SIGKILL)
-            
-    # Kill any remaining Python processes
-    try:
-        for pid_dir in os.listdir('/proc'):
-            if pid_dir.isdigit():
-                try:
-                    with open(f'/proc/{pid_dir}/cmdline', 'r') as f:
-                        cmdline = f.read()
-                        if 'python' in cmdline and str(os.getpid()) != pid_dir:
-                            logger.info(f"Killing remaining Python process {pid_dir}")
-                            os.kill(int(pid_dir), signal.SIGKILL)
-                except (FileNotFoundError, ProcessLookupError):
-                    continue
-    except Exception as e:
-        logger.warning(f"Error while final cleanup: {e}")
-
-def signal_handler(signum, frame):
-    """Handle termination signals"""
-    logger.info(f"Received signal {signum}. Initiating shutdown...")
-    asyncio.run(shutdown_services())
-    sys.exit(0)
 
 if __name__ == "__main__":
-    # Register signal handlers
-    signal.signal(signal.SIGTERM, signal_handler)
-    signal.signal(signal.SIGINT, signal_handler)
+    logger.info("Starting Bot Process")
     
-    # Run the main service
-    asyncio.run(run_services()) 
+    try:
+        asyncio.run(run_services())
+    except Exception as e:
+        logger.error(f"Fatal error in main process: {e}")
+        logger.error(f"Traceback: {traceback.format_exc()}")
+        sys.exit(1) 

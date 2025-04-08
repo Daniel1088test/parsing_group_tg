@@ -16,7 +16,7 @@ MAX_MESSAGES = 100000
 
 # Server configuration
 WEB_SERVER_HOST = os.environ.get('WEB_SERVER_HOST', "127.0.0.1")  # Internal server host
-WEB_SERVER_PORT = os.environ.get('WEB_SERVER_PORT', "8000")  # Internal server port
+WEB_SERVER_PORT = os.environ.get('WEB_SERVER_PORT', "8080")  # Internal server port
 WEB_SERVER_HOST2 = os.environ.get('WEB_SERVER_HOST2', "108.181.154.114")
 
 # Railway environment variables
