@@ -464,7 +464,8 @@
                                                            allowfullscreen="true"></iframe>
                                                 </div>
                                             {% elif message.media %}
-                                                <img src="{{ MEDIA_URL }}{{ message.media }}" 
+                                                <img src="{{ MEDIA_URL|default:'/media/' }}{{ message.media }}" 
+                                                     onerror="this.onerror=null; this.src='/staticfiles/img/placeholder-image.png';"
                                                      class="img-fluid rounded shadow-sm" alt="Image">
                                             {% else %}
                                                 <!-- Fallback for no media or URL -->
@@ -484,8 +485,10 @@
                                                 </div>
                                             {% elif message.media %}
                                                 <div class="ratio ratio-16x9">
-                                                    <video class="rounded shadow-sm" controls preload="metadata">
-                                                        <source src="{{ MEDIA_URL }}{{ message.media }}" type="video/mp4">
+                                                    <video class="rounded shadow-sm" controls preload="metadata"
+                                                           poster="/staticfiles/img/placeholder-video.png"
+                                                           onerror="this.style.display='none'; this.parentNode.innerHTML='<img src=\'/staticfiles/img/placeholder-video.png\' class=\'img-fluid rounded shadow-sm\' alt=\'Video thumbnail\'>'">
+                                                        <source src="{{ MEDIA_URL|default:'/media/' }}{{ message.media }}" type="video/mp4">
                                                         Your browser does not support video.
                                                     </video>
                                                 </div>
@@ -510,7 +513,8 @@
                                                            allowfullscreen="true"></iframe>
                                                 </div>
                                             {% elif message.media %}
-                                                <img src="{{ MEDIA_URL }}{{ message.media }}" 
+                                                <img src="{{ MEDIA_URL|default:'/media/' }}{{ message.media }}" 
+                                                     onerror="this.onerror=null; this.src='/staticfiles/img/placeholder-image.png';"
                                                      class="img-fluid rounded shadow-sm" alt="GIF">
                                             {% else %}
                                                 <!-- Fallback for no media or URL -->
@@ -522,10 +526,14 @@
                                         {% elif message.media_type == 'document' %}
                                             <div class="document-container p-3 bg-light rounded shadow-sm">
                                                 <i class="fas fa-file-alt me-2"></i>
-                                                <a href="{{ MEDIA_URL }}{{ message.media }}" 
+                                                {% if message.media %}
+                                                <a href="{{ MEDIA_URL|default:'/media/' }}{{ message.media }}" 
                                                    target="_blank" download>
                                                    Download file
                                                 </a>
+                                                {% else %}
+                                                <span class="text-muted">File not available</span>
+                                                {% endif %}
                                             </div>
                                         {% elif message.media_type == 'webpage' or message.media_type == 'webpage_photo' %}
                                             {% if message.original_url %}
@@ -536,8 +544,14 @@
                                                            allowfullscreen="true"></iframe>
                                                 </div>
                                             {% elif message.media %}
-                                                <img src="{{ MEDIA_URL }}{{ message.media }}" 
+                                                <img src="{{ MEDIA_URL|default:'/media/' }}{{ message.media }}" 
+                                                     onerror="this.onerror=null; this.src='/staticfiles/img/placeholder-image.png';"
                                                      class="img-fluid rounded shadow-sm" alt="Webpage preview">
+                                            {% else %}
+                                                <div class="alert alert-info text-center">
+                                                    <i class="fas fa-link fa-2x mb-2"></i><br>
+                                                    Webpage preview not available
+                                                </div>
                                             {% endif %}
                                         {% endif %}
                                     </div>
@@ -662,6 +676,22 @@
                 // Reload page with parameters
                 window.location.href = url;
             });
+            
+            // Fix broken images and videos
+            function checkMediaElements() {
+                // Set fallback for broken images
+                $('img').on('error', function() {
+                    $(this).attr('src', '/staticfiles/img/placeholder-image.png');
+                });
+                
+                // Fix video elements that fail to load
+                $('video').on('error', function() {
+                    $(this).parent().html('<img src="/staticfiles/img/placeholder-video.png" class="img-fluid rounded shadow-sm" alt="Video thumbnail">');
+                });
+            }
+            
+            // Run on page load
+            checkMediaElements();
         });
     </script>
 </body>
