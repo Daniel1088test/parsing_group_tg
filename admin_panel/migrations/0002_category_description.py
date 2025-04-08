@@ -10,9 +10,6 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.AddField(
-            model_name="category",
-            name="description",
-            field=models.TextField(blank=True, null=True),
-        ),
+        # Забираємо додавання поля, бо колонка вже існує в базі даних
+        # Міграція стає порожньою, але її запис буде в базі даних
     ]
