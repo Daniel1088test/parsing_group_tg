@@ -12,18 +12,18 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        # Re-add the fields from conflicting migrations
-        migrations.AddField(
+        # Use AlterField instead of AddField to handle existing columns
+        migrations.AlterField(
             model_name='telegramsession',
             name='verification_code',
             field=models.CharField(blank=True, help_text='Verification code for authentication', max_length=10, null=True),
         ),
-        migrations.AddField(
+        migrations.AlterField(
             model_name='telegramsession',
             name='password',
             field=models.CharField(blank=True, help_text='Password for 2FA if required', max_length=50, null=True),
         ),
-        migrations.AddField(
+        migrations.AlterField(
             model_name='telegramsession',
             name='session_data',
             field=models.TextField(blank=True, help_text='Encoded session data for persistent storage', null=True),
