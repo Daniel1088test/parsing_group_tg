@@ -75,12 +75,21 @@ for i in range(retries):
 
 print('Failed to connect to database after multiple attempts')
 sys.exit(1)
-" || echo "Database connection failed, but continuing..."
+" || { echo "Database connection failed, but continuing..."; sleep 5; }
 
 # Prepare the environment
 echo "Preparing environment..."
 python manage.py collectstatic --noinput
-python manage.py migrate --noinput || echo "Migrations failed, but continuing..."
+
+# Застосовуємо міграції з виведенням детальної інформації
+echo "Running migrations..."
+python manage.py migrate --noinput --verbosity 2 || { 
+    echo "Migrations failed! Checking database structure..."; 
+    python manage.py inspectdb admin_panel_category;
+    echo "Trying to run migrations again with more aggressive approach...";
+    python manage.py migrate --noinput --run-syncdb;
+    sleep 5;
+}
 
 # Kill any existing Gunicorn processes
 pkill -f gunicorn || echo "No gunicorn processes running."
@@ -91,13 +100,13 @@ find . -type f -name "*.session*" -delete 2>/dev/null || echo "No session files 
 
 # Start the web server
 echo "Starting web server..."
-gunicorn core.wsgi:application --bind 0.0.0.0:$PORT --workers=1 --threads=4 --worker-tmp-dir /dev/shm --log-level info &
+gunicorn core.wsgi:application --bind 0.0.0.0:$PORT --workers=1 --threads=4 --worker-tmp-dir /dev/shm --log-level info --timeout 120 &
 GUNICORN_PID=$!
 echo "Gunicorn started with PID: $GUNICORN_PID"
 
 # Give Gunicorn time to fully start
 echo "Waiting for web server to initialize..."
-sleep 5
+sleep 10
 
 # Start the bot
 echo "Starting bot process..."

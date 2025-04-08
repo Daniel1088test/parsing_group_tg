@@ -27,6 +27,12 @@ class Category(models.Model):
     def __str__(self):
         return self.name
     
+    def save(self, *args, **kwargs):
+        # Забезпечуємо наявність значення в полі description
+        if self.description is None:
+            self.description = ''
+        super().save(*args, **kwargs)
+    
     class Meta:
         verbose_name = 'Category'
         verbose_name_plural = 'Categories'

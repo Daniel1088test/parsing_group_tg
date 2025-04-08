@@ -122,6 +122,9 @@ if 'DATABASE_URL' in os.environ:
             default=os.environ.get('DATABASE_URL'),
             conn_max_age=600,
             conn_health_checks=True,
+            ssl_require=False,
+            engine='django.db.backends.postgresql',
+            options='-c statement_timeout=90000',
         )
     }
     print(f"Using DATABASE_URL for database connection")
@@ -144,7 +147,12 @@ elif all([
     import dj_database_url
     DATABASES = {
         'default': dj_database_url.parse(
-            f"postgresql://{PGUSER}:{PGPASSWORD}@{PGHOST}:{PGPORT}/{PGDATABASE}"
+            f"postgresql://{PGUSER}:{PGPASSWORD}@{PGHOST}:{PGPORT}/{PGDATABASE}",
+            conn_max_age=600,
+            conn_health_checks=True,
+            ssl_require=False,
+            engine='django.db.backends.postgresql',
+            options='-c statement_timeout=90000',
         )
     }
     print(f"Using PostgreSQL connection from environment variables: {PGHOST}:{PGPORT}/{PGDATABASE}")
@@ -197,24 +205,35 @@ LOGGING = {
             'class': 'logging.StreamHandler',
             'formatter': 'verbose',
         },
+        'file': {
+            'level': 'INFO',
+            'class': 'logging.FileHandler',
+            'filename': os.path.join(BASE_DIR, 'app.log'),
+            'formatter': 'verbose',
+        },
     },
     'root': {
-        'handlers': ['console'],
+        'handlers': ['console', 'file'],
         'level': 'INFO',
     },
     'loggers': {
         'django': {
-            'handlers': ['console'],
+            'handlers': ['console', 'file'],
             'level': 'INFO',
             'propagate': True,
         },
         'django.db.backends': {
-            'handlers': ['console'],
-            'level': 'INFO',  # Змінено на INFO для логування SQL-запитів
+            'handlers': ['console', 'file'],
+            'level': 'ERROR',  # Змінюємо на ERROR для логування тільки критичних помилок бази даних
             'propagate': False,
         },
         'admin_panel': {
-            'handlers': ['console'],
+            'handlers': ['console', 'file'],
+            'level': 'DEBUG',
+            'propagate': True,
+        },
+        'tg_bot': {
+            'handlers': ['console', 'file'],
             'level': 'DEBUG',
             'propagate': True,
         },
