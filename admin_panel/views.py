@@ -13,6 +13,7 @@ import os
 from django.conf import settings
 import time
 from urllib.parse import quote_plus
+from django.db import DatabaseError
 
 logger = logging.getLogger(__name__)
 
@@ -350,39 +351,29 @@ def sessions_list_view(request):
                         file_found = True
                         break
                 
-                if file_found or session.session_data:
-                    # We have either a session file or encoded data, mark as authenticated
-                    session.needs_auth = False
-                    session.save(update_fields=['needs_auth'])
-                    messages.success(request, f'Session {session.phone} marked as authenticated')
-                    
-                    # If we only have session data but no file, restore the file
-                    if not file_found and session.session_data:
-                        try:
-                            import base64
-                            session_data = base64.b64decode(session.session_data)
-                            os.makedirs('data/sessions', exist_ok=True)
-                            for path in session_paths:
-                                with open(path, 'wb') as f:
-                                    f.write(session_data)
-                            messages.success(request, f'Session file restored from database data')
-                        except Exception as e:
-                            messages.error(request, f'Error restoring session file: {str(e)}')
+                if file_found:
+                    try:
+                        if hasattr(session, 'needs_auth'):
+                            session.needs_auth = False
+                            session.save(update_fields=['needs_auth'])
+                            messages.success(request, f'Session {session.phone} marked as authenticated')
+                    except (AttributeError, DatabaseError):
+                        messages.warning(request, f'Cannot update needs_auth for session {session.phone} (database schema may need updating)')
                 else:
-                    messages.error(request, f'No session file or data found for {session.phone}')
-                
+                    messages.warning(request, f'No session file found for {session.phone}. Please authenticate this session.')
             except TelegramSession.DoesNotExist:
                 messages.error(request, f'Session with ID {session_id} not found')
-                
-        elif action == 'fix_auth_status':
-            # Fix auth status for all sessions with session data
-            fixed = 0
-            for session in TelegramSession.objects.filter(needs_auth=True, session_data__isnull=False).exclude(session_data=''):
-                session.needs_auth = False
-                session.save(update_fields=['needs_auth'])
-                fixed += 1
+            except Exception as e:
+                messages.error(request, f'Error fixing session: {str(e)}')
             
-            messages.success(request, f'Fixed auth status for {fixed} sessions')
+        elif action == 'fix_auth_status':
+            try:
+                # Run management command to fix sessions
+                from django.core.management import call_command
+                call_command('fix_sessions', sessions_only=True)
+                messages.success(request, f'Session authentication status fixed for all sessions.')
+            except Exception as e:
+                messages.error(request, f'Error fixing session authentication status: {str(e)}')
             
         elif action == 'fix_media':
             try:
@@ -396,12 +387,21 @@ def sessions_list_view(request):
     # Get all sessions
     sessions = TelegramSession.objects.all().order_by('-is_active', 'id')
     
+    # Add needs_auth attribute if it doesn't exist in the database
+    for session in sessions:
+        if not hasattr(session, 'needs_auth'):
+            session.needs_auth = True
+    
     # Check if we need to update session status (has valid data but marked as needs_auth)
     for session in sessions:
-        if hasattr(session, 'needs_auth') and session.needs_auth and session.session_data:
-            # If we have session data, but it's marked as needing auth, update it
-            session.needs_auth = False
-            session.save(update_fields=['needs_auth'])
+        try:
+            if hasattr(session, 'needs_auth') and session.needs_auth and hasattr(session, 'session_data') and session.session_data:
+                # If we have session data, but it's marked as needing auth, update it
+                session.needs_auth = False
+                session.save(update_fields=['needs_auth'])
+        except (AttributeError, DatabaseError):
+            # Skip if database fields are missing
+            pass
             
     # Count channels per session
     for session in sessions:

@@ -7,6 +7,8 @@ from admin_panel.models import TelegramSession, Message
 from django.conf import settings
 from pathlib import Path
 import traceback
+from django.db import DatabaseError
+import django.db.models
 
 logger = logging.getLogger(__name__)
 
@@ -35,61 +37,68 @@ class Command(BaseCommand):
         """Fix session authentication status in the database"""
         self.stdout.write('Checking and fixing Telegram sessions...')
         
-        # Get all sessions
-        sessions = TelegramSession.objects.all()
-        self.stdout.write(f'Found {len(sessions)} sessions in database')
-        
-        fixed_count = 0
-        
-        for session in sessions:
-            self.stdout.write(f'Processing session {session.id} ({session.phone})...')
+        try:
+            # Get all sessions
+            sessions = TelegramSession.objects.all()
+            self.stdout.write(f'Found {len(sessions)} sessions in database')
             
-            # Skip if already marked as authenticated and we're not forcing
-            if not force and hasattr(session, 'needs_auth') and not session.needs_auth:
-                self.stdout.write(f'  Session {session.id} is already marked as authenticated')
-                continue
+            fixed_count = 0
+            
+            # Check each session
+            for session in sessions:
+                self.stdout.write(f'Processing session {session.id} ({session.phone})...')
                 
-            # Check if session has encoded session data
-            if session.session_data:
-                self.stdout.write(f'  Session {session.id} has encoded session data')
+                # Skip if already marked as authenticated and we're not forcing
+                if not force:
+                    try:
+                        # Check if needs_auth field exists and is False
+                        if hasattr(session, 'needs_auth') and not session.needs_auth:
+                            self.stdout.write(f'  Session {session.id} is already marked as authenticated')
+                            continue
+                    except (AttributeError, DatabaseError):
+                        # Field might not exist in database yet
+                        self.stdout.write(f'  Session {session.id} needs to be checked (needs_auth field not available)')
                 
-                # Restore session file from encoded data
-                try:
-                    # Decode the session data
-                    session_data = base64.b64decode(session.session_data)
-                    
-                    # Determine session file path
-                    if session.session_file:
-                        session_path = session.session_file
-                    else:
-                        session_path = f"telethon_session_{session.phone.replace('+', '')}"
-                        
-                    # Create parent directories if needed
-                    os.makedirs('data/sessions', exist_ok=True)
-                    
-                    # Always write to both locations for redundancy
-                    paths = [
-                        f"{session_path}.session",
-                        f"data/sessions/{session_path}.session"
+                # Check for session files
+                if session.session_file:
+                    session_paths = [
+                        f"{session.session_file}.session",
+                        f"data/sessions/{session.session_file}.session"
                     ]
                     
-                    for path in paths:
-                        with open(path, 'wb') as f:
-                            f.write(session_data)
-                        self.stdout.write(f'  Restored session file to {path}')
+                    file_found = False
+                    for path in session_paths:
+                        if os.path.exists(path):
+                            self.stdout.write(f'  Found session file: {path}')
+                            file_found = True
+                            break
                     
-                    # Update the session in database
-                    session.needs_auth = False
-                    session.save(update_fields=['needs_auth'])
-                    
-                    fixed_count += 1
-                    self.stdout.write(self.style.SUCCESS(f'  Fixed session {session.id}'))
-                except Exception as e:
-                    self.stdout.write(self.style.ERROR(f'  Error restoring session from database: {e}'))
-            else:
-                self.stdout.write(self.style.WARNING(f'  Session {session.id} has no encoded data'))
-        
-        self.stdout.write(self.style.SUCCESS(f'Fixed {fixed_count} sessions'))
+                    if file_found:
+                        try:
+                            # Update session if we have needs_auth field
+                            if hasattr(session, 'needs_auth'):
+                                session.needs_auth = False
+                                session.save(update_fields=['needs_auth'])
+                                fixed_count += 1
+                                self.stdout.write(self.style.SUCCESS(f'  Fixed session {session.id} based on session file'))
+                        except (AttributeError, DatabaseError):
+                            self.stdout.write(f'  Cannot update needs_auth for session {session.id} (field not in database)')
+                
+                # Check session data in database
+                try:
+                    if hasattr(session, 'session_data') and session.session_data:
+                        self.stdout.write(f'  Session {session.id} has encoded session data')
+                        fixed_count += 1
+                    else:
+                        self.stdout.write(f'  Session {session.id} has no encoded data')
+                except (AttributeError, DatabaseError):
+                    self.stdout.write(f'  Cannot check session_data for session {session.id} (field not in database)')
+            
+            self.stdout.write(self.style.SUCCESS(f'Fixed {fixed_count} sessions'))
+            
+        except Exception as e:
+            self.stdout.write(self.style.ERROR(f'Error in fix_sessions: {e}'))
+            self.stdout.write(self.style.ERROR(f'Traceback: {traceback.format_exc()}'))
 
     def fix_media_files(self):
         """Create placeholder files for missing media"""
