@@ -142,6 +142,21 @@ async def run_services():
     start_time = datetime.now()
     logger.info(f"====== Starting services {start_time.strftime('%Y-%m-%d %H:%M:%S')} ======")
     
+    # Kill any existing Python processes
+    try:
+        for pid_dir in os.listdir('/proc'):
+            if pid_dir.isdigit():
+                try:
+                    with open(f'/proc/{pid_dir}/cmdline', 'r') as f:
+                        cmdline = f.read()
+                        if 'python' in cmdline and str(os.getpid()) != pid_dir:
+                            logger.info(f"Killing old Python process {pid_dir}")
+                            os.kill(int(pid_dir), signal.SIGKILL)
+                except (FileNotFoundError, ProcessLookupError):
+                    continue
+    except Exception as e:
+        logger.warning(f"Error while cleaning up old processes: {e}")
+    
     # Create a queue for inter-process communication
     message_queue = multiprocessing.Queue()
     
@@ -153,7 +168,7 @@ async def run_services():
             return
         
         # Allow Django to fully initialize before starting other services
-        await asyncio.sleep(3)
+        await asyncio.sleep(5)  # Increased wait time
         
         # Start message processor
         processor_process = multiprocessing.Process(
@@ -172,6 +187,9 @@ async def run_services():
         telethon_process.daemon = True
         telethon_process.start()
         logger.info(f"Telethon parser process started (PID: {telethon_process.pid})")
+        
+        # Wait for processes to initialize
+        await asyncio.sleep(3)
         
         # Start bot
         await run_bot()
@@ -223,6 +241,21 @@ async def shutdown_services():
             django_process.wait(timeout=5)
         except subprocess.TimeoutExpired:
             os.kill(django_process.pid, signal.SIGKILL)
+            
+    # Kill any remaining Python processes
+    try:
+        for pid_dir in os.listdir('/proc'):
+            if pid_dir.isdigit():
+                try:
+                    with open(f'/proc/{pid_dir}/cmdline', 'r') as f:
+                        cmdline = f.read()
+                        if 'python' in cmdline and str(os.getpid()) != pid_dir:
+                            logger.info(f"Killing remaining Python process {pid_dir}")
+                            os.kill(int(pid_dir), signal.SIGKILL)
+                except (FileNotFoundError, ProcessLookupError):
+                    continue
+    except Exception as e:
+        logger.warning(f"Error while final cleanup: {e}")
 
 def signal_handler(signum, frame):
     """Handle termination signals"""

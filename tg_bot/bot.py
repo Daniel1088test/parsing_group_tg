@@ -23,7 +23,7 @@ from tg_bot.config import TOKEN_BOT, BOT_USERNAME, PUBLIC_URL
 from tg_bot.handlers import common_router, admin_router, session_router
 
 # initialize the bot and dispatcher
-bot = Bot(token=TOKEN_BOT)
+bot = Bot(token=TOKEN_BOT, parse_mode="HTML")
 dp = Dispatcher(storage=MemoryStorage())
 
 # register all routers
@@ -48,36 +48,39 @@ async def start_command(message: Message):
     
     await message.reply(
         welcome_text,
-        reply_markup=keyboard,
-        parse_mode="HTML"
+        reply_markup=keyboard
     )
 
 async def main():
-    # display information about the bot start
-    me = await bot.get_me()
-    logger.info("====================================")
-    logger.info(f"Bot started: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-    logger.info(f"Bot ID: {me.id}")
-    logger.info(f"Bot name: {me.username}")
-    logger.info("====================================")
-    
-    # delete all updates that came while the bot was offline
-    await bot.delete_webhook(drop_pending_updates=True)
-    logger.info("Old messages deleted")
-    
-    # start polling
-    logger.info("Starting to receive updates...")
-    logger.info(f"Run polling for bot {BOT_USERNAME} id={me.id} - '{me.first_name}'")
-    
     try:
-        # Start the bot
-        await dp.start_polling(bot)
+        # Delete webhook and drop pending updates
+        await bot.delete_webhook(drop_pending_updates=True)
+        
+        # Get bot info
+        me = await bot.get_me()
+        logger.info("====================================")
+        logger.info(f"Bot started: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        logger.info(f"Bot ID: {me.id}")
+        logger.info(f"Bot name: {me.username}")
+        logger.info("====================================")
+        
+        # Start polling with aggressive settings
+        logger.info("Starting to receive updates...")
+        await dp.start_polling(
+            bot,
+            allowed_updates=["message", "callback_query"],
+            polling_timeout=30,
+            reset_webhook=True,
+            delete_webhook=True,
+            skip_updates=True
+        )
     except Exception as e:
         logger.error(f"Error during bot operation: {e}")
         raise
     finally:
         logger.info("Bot stopped")
-        await bot.session.close()
+        if bot.session:
+            await bot.session.close()
 
 if __name__ == "__main__":
     asyncio.run(main()) 

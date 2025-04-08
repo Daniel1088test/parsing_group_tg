@@ -25,9 +25,10 @@ from django.views.decorators.cache import never_cache
 
 @never_cache
 @csrf_exempt
+@require_GET
 def health_check(request):
     """Simple health check endpoint that always returns OK"""
-    return HttpResponse("OK", content_type="text/plain")
+    return HttpResponse("OK", content_type="text/plain", status=200)
 
 urlpatterns = [
     path('admin/', admin.site.urls),
