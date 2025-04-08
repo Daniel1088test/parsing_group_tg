@@ -10,7 +10,7 @@ class Migration(migrations.Migration):
     """
 
     dependencies = [
-        ('admin_panel', '0002_auto_20250405_1810'),  # Replace with your latest migration
+        ('admin_panel', '0002_category_description'),  # Fixed dependency to existing migration
     ]
 
     operations = [

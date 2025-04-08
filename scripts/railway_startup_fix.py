@@ -124,6 +124,18 @@ def run_migrations():
     """Run Django migrations"""
     logger.info("Running database migrations")
     
+    # First try to fix migration dependencies
+    try:
+        from scripts.fix_migrations_dependency import fix_migration_dependencies, create_fake_migrations
+        logger.info("Fixing migration dependencies...")
+        fixed = fix_migration_dependencies()
+        if not fixed:
+            logger.info("Creating placeholder migrations...")
+            create_fake_migrations()
+    except Exception as e:
+        logger.error(f"Error fixing migration dependencies: {e}")
+    
+    # Now try to run migrations
     result = subprocess.run(
         ["python", "manage.py", "migrate", "--noinput"],
         capture_output=True,
@@ -136,7 +148,36 @@ def run_migrations():
         return True
     else:
         logger.error(f"Migration failed: {result.stderr}")
-        return False
+        
+        # Fallback: try to run migrations with --fake-initial
+        logger.info("Trying with --fake-initial...")
+        result = subprocess.run(
+            ["python", "manage.py", "migrate", "--noinput", "--fake-initial"],
+            capture_output=True,
+            text=True
+        )
+        
+        if result.returncode == 0:
+            logger.info("Migrations applied with --fake-initial")
+            return True
+        else:
+            logger.error(f"Migration with --fake-initial failed: {result.stderr}")
+            
+            # Fallback: try individual apps one by one
+            logger.info("Trying to migrate apps individually...")
+            apps = ["admin", "auth", "contenttypes", "sessions", "admin_panel"]
+            for app in apps:
+                try:
+                    subprocess.run(
+                        ["python", "manage.py", "migrate", app, "--noinput"],
+                        capture_output=True,
+                        check=False
+                    )
+                    logger.info(f"Attempted migration for {app}")
+                except Exception:
+                    pass
+            
+            return False
 
 def run_server_check():
     """Run Django check to validate the setup"""
