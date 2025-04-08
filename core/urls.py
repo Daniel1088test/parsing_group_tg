@@ -28,6 +28,7 @@ from PIL import Image, ImageDraw
 from django.views.static import serve
 from django.views.generic.base import RedirectView
 from .views import serve_media
+from django.views.generic import TemplateView
 
 logger = logging.getLogger('media_handler')
 
@@ -150,27 +151,86 @@ def serve_media(request, path):
     # If all else fails, return 404
     return HttpResponse("Media not found", status=404)
 
-# URL patterns
+def health_check_view(request):
+    """Simple view that returns 200 OK."""
+    return HttpResponse("OK")
+
+def simple_index_view(request):
+    """Simple index view that works without database."""
+    if not request.user.is_authenticated:
+        return RedirectView.as_view(url='/admin_panel/login/')(request)
+    return HttpResponse("""
+    <html>
+    <head>
+        <title>Telegram Parser Admin</title>
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.2.3/dist/css/bootstrap.min.css">
+        <style>
+            body { padding: 20px; }
+            .card { margin-bottom: 20px; }
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <h1 class="mt-4 mb-4">Telegram Parser Admin Panel</h1>
+            <div class="row">
+                <div class="col-md-6">
+                    <div class="card">
+                        <div class="card-header">
+                            <h5>Управління</h5>
+                        </div>
+                        <div class="card-body">
+                            <ul class="list-group">
+                                <li class="list-group-item"><a href="/admin_panel/channels/">Канали</a></li>
+                                <li class="list-group-item"><a href="/admin_panel/categories/">Категорії</a></li>
+                                <li class="list-group-item"><a href="/admin_panel/messages/">Повідомлення</a></li>
+                                <li class="list-group-item"><a href="/admin_panel/sessions/">Сесії Telegram</a></li>
+                                <li class="list-group-item"><a href="/admin_panel/settings/">Налаштування</a></li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-6">
+                    <div class="card">
+                        <div class="card-header">
+                            <h5>Інструменти</h5>
+                        </div>
+                        <div class="card-body">
+                            <ul class="list-group">
+                                <li class="list-group-item"><a href="/admin/">Django Admin</a></li>
+                                <li class="list-group-item"><a href="/admin_panel/logout/">Вийти</a></li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </body>
+    </html>
+    """, content_type="text/html")
+
+# Simplified URL patterns with reliable health check and redirect
 urlpatterns = [
-    # Health check endpoints (first for quick response)
-    path('health', health_check),  # Without slash
-    path('health/', health_check, name='health'),  # With slash
-    path('healthz', health_check),  # Alternative - without slash
-    path('healthz/', health_check, name='healthz'),  # Alternative - with slash
-    path('health.html', health_check),  # HTML variant
+    # Health check endpoint (critical for Railway)
+    path('health/', health_check_view, name='health'),
+    path('healthz/', health_check_view, name='healthz'),
+    path('ping/', health_check_view, name='ping'),
     
-    # Main application URLs
-    path('', index_view, name='index'),  # Homepage - index.html from admin_panel
-    path('admin/', admin.site.urls),  # Django admin
-    path('admin_panel/', include('admin_panel.urls')),  # Include admin_panel URLs
+    # Admin panel URLs
+    path('admin/', admin.site.urls),
+    path('admin_panel/', include('admin_panel.urls')),
     
-    # Custom media handler
-    path('messages/<path:path>', serve_media, name='serve_media'),
+    # API URLs
+    path('api/', include('tg_bot.urls')),
+    
+    # Redirect root to admin panel
+    path('', simple_index_view, name='index'),
 ]
 
-# Static files handling
-urlpatterns += static(settings.STATIC_URL, document_root=settings.STATIC_ROOT)
-
-# Media files handling (fallback - mainly for development)
+# Add serving of static and media files in development
 if settings.DEBUG:
+    urlpatterns += static(settings.STATIC_URL, document_root=settings.STATIC_ROOT)
+    urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
+else:
+    # In production, we still need to serve media files (even though static is handled by whitenoise)
     urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

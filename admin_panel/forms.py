@@ -1,42 +1,37 @@
 from django import forms
 from django.db import connection
-from .models import Channel, Category, Message, TelegramSession, BotSettings
+from .models import TelegramChannel, Category, Message, TelegramSession, BotSettings
 from django.contrib.auth.forms import UserCreationForm
 from django.contrib.auth.models import User
 
 class ChannelForm(forms.ModelForm):
     class Meta:
-        model = Channel
-        fields = ['name', 'url', 'category', 'is_active', 'session']
+        model = TelegramChannel
+        fields = ['title', 'url', 'description', 'username']
         widgets = {
-            'name': forms.TextInput(attrs={'class': 'form-control'}),
+            'title': forms.TextInput(attrs={'class': 'form-control'}),
             'url': forms.TextInput(attrs={'class': 'form-control'}),
-            'category': forms.Select(attrs={'class': 'form-control'}),
-            'is_active': forms.CheckboxInput(attrs={'class': 'form-check-input'}),
-            'session': forms.Select(attrs={'class': 'form-control'}),
+            'description': forms.Textarea(attrs={'class': 'form-control', 'rows': 3}),
+            'username': forms.TextInput(attrs={'class': 'form-control'}),
         }
         labels = {
-            'name': 'Channel name',
+            'title': 'Channel name',
             'url': 'Channel link',
-            'category': 'Category',
-            'is_active': 'Status',
-            'session': 'Telegram Session',
+            'description': 'Description',
+            'username': 'Username',
         }
         help_texts = {
-            'is_active': 'Check if the channel should be active',
-            'session': 'Select the Telegram session for this channel',
+            'title': 'Enter the channel name',
+            'username': 'Username without @',
         }
         error_messages = {
-            'name': {
+            'title': {
                 'required': "This field is required.",
                 'max_length': 'Channel name is too long.'
             },
             'url': {
                 'required': "This field is required.",
                 'invalid': 'Enter a valid URL.'
-            },
-            'category': {
-                'required': "This field is required.",
             },
         }
 
@@ -68,12 +63,13 @@ class SafeTelegramSessionForm(forms.ModelForm):
     class Meta:
         model = TelegramSession
         fields = [
-            'phone', 'api_id', 'api_hash', 'is_active', 
+            'phone', 'session_name', 'api_id', 'api_hash', 'is_active', 
             'session_file', 'verification_code', 'password',
             'session_data', 'auth_token', 'needs_auth'
         ]
         widgets = {
             'phone': forms.TextInput(attrs={'class': 'form-control'}),
+            'session_name': forms.TextInput(attrs={'class': 'form-control'}),
             'api_id': forms.TextInput(attrs={'class': 'form-control'}),
             'api_hash': forms.TextInput(attrs={'class': 'form-control'}),
             'is_active': forms.CheckboxInput(attrs={'class': 'form-check-input'}),
@@ -91,24 +87,21 @@ TelegramSessionForm = SafeTelegramSessionForm
 class CategoryForm(forms.ModelForm):
     class Meta:
         model = Category
-        fields = ['name', 'description', 'is_active', 'session']
+        fields = ['name', 'description', 'is_active']
         widgets = {
             'name': forms.TextInput(attrs={'class': 'form-control'}),
             'description': forms.Textarea(attrs={'class': 'form-control', 'rows': 3}),
             'is_active': forms.CheckboxInput(attrs={'class': 'form-check-input'}),
-            'session': forms.Select(attrs={'class': 'form-control'}),
         }   
         labels = {
             'name': 'Category name',
             'description': 'Description',
             'is_active': 'Active',
-            'session': 'Telegram Session',
         }
         help_texts = {
             'name': 'Enter the category name',
             'description': 'Enter the category description (optional)',
             'is_active': 'Check if the category should be active',
-            'session': 'Select the Telegram session for this category',
         }
         error_messages = {
             'name': {
@@ -120,32 +113,26 @@ class CategoryForm(forms.ModelForm):
 class MessageForm(forms.ModelForm):
     class Meta:
         model = Message
-        fields = ['text', 'media', 'media_type', 'original_url', 'channel']
+        fields = ['text', 'media', 'media_type', 'channel']
         widgets = {
             'text': forms.Textarea(attrs={'class': 'form-control', 'rows': 4}),
             'media': forms.ClearableFileInput(attrs={'class': 'form-control'}),
-            'media_type': forms.Select(attrs={'class': 'form-control'}),
-            'original_url': forms.URLInput(attrs={'class': 'form-control'}),
+            'media_type': forms.TextInput(attrs={'class': 'form-control'}),
             'channel': forms.Select(attrs={'class': 'form-control'}),
         }
         labels = {
             'text': 'Message text',
             'media': 'Media',   
             'media_type': 'Media Type',
-            'original_url': 'Original URL',
             'channel': 'Channel',
         }
         help_texts = {
             'text': 'Enter the message text',
             'media': 'Add media file',
             'media_type': 'Select the media type',
-            'original_url': 'Enter the original URL',
             'channel': 'Select the channel',
         }   
         error_messages = {
-            'text': {
-                'required': "This field is required.",
-            },
             'channel': {
                 'required': "This field is required.",
             },

@@ -1,137 +1,111 @@
 from django.db import models
+from django.contrib.auth.models import User
+import os
 
 class TelegramSessionManager(models.Manager):
     """
-    A custom manager for TelegramSession model that handles missing columns gracefully.
-    This helps prevent errors when the database schema doesn't match the model.
+    Safe manager for TelegramSession that handles missing columns
+    This ensures compatibility when updating an older database
     """
     def get_queryset(self):
         qs = super().get_queryset()
-        
-        # Check which columns actually exist in the database
-        from django.db import connection
-        existing_columns = self._get_existing_columns()
-        
-        # Handle the case where columns don't exist by handling specific query scenarios
-        # This is less ideal than fixing the database, but provides a fallback
         return qs
+
+class Channel(models.Model):
+    """Legacy Channel model for compatibility"""
+    name = models.CharField(max_length=255)
+    url = models.URLField(max_length=255)
+    category = models.ForeignKey('Category', on_delete=models.CASCADE, related_name='channels')
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    session = models.ForeignKey('TelegramSession', on_delete=models.SET_NULL, null=True, blank=True)
     
-    def _get_existing_columns(self):
-        """Get a list of existing columns for the TelegramSession table"""
-        from django.db import connection
-        
-        cursor = connection.cursor()
-        table_name = TelegramSession._meta.db_table
-        cursor.execute(f"""
-            SELECT column_name 
-            FROM information_schema.columns 
-            WHERE table_name = '{table_name}';
-        """)
-        columns = [row[0] for row in cursor.fetchall()]
-        return columns
+    class Meta:
+        verbose_name = 'Channel'
+        verbose_name_plural = 'Channels'
+        ordering = ['-created_at']
+    
+    def __str__(self):
+        return self.name
 
 class TelegramSession(models.Model):
+    """Telegram session model for storing session data"""
+    session_name = models.CharField(max_length=255, default="default")
     phone = models.CharField(max_length=20, unique=True)
-    api_id = models.CharField(max_length=10)
-    api_hash = models.CharField(max_length=32)
+    api_id = models.CharField(max_length=255, blank=True, null=True)
+    api_hash = models.CharField(max_length=255, blank=True, null=True)
+    session_string = models.TextField(blank=True, null=True)
     is_active = models.BooleanField(default=True)
-    session_file = models.CharField(max_length=255, null=True, blank=True)
-    verification_code = models.CharField(max_length=255, null=True, blank=True)
-    password = models.CharField(max_length=255, null=True, blank=True)
-    session_data = models.TextField(null=True, blank=True)
-    auth_token = models.CharField(max_length=255, null=True, blank=True)
+    is_bot = models.BooleanField(default=False)
+    verification_code = models.CharField(max_length=10, blank=True, null=True)
+    password = models.CharField(max_length=255, blank=True, null=True)
+    session_data = models.TextField(blank=True, null=True)
+    auth_token = models.CharField(max_length=255, blank=True, null=True)
     needs_auth = models.BooleanField(default=False)
+    session_file = models.CharField(max_length=255, blank=True, null=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     
-    # Add both managers
-    objects = models.Manager()  # The default manager
+    # Managers
+    objects = models.Manager()  # Default manager
     safe_objects = TelegramSessionManager()  # Safe manager that handles missing columns
     
-    def __str__(self):
-        return f"{self.phone} {'(Active)' if self.is_active else '(Inactive)'}"
+    def save(self, *args, **kwargs):
+        # Make sure we don't save sensitive data in clear text in production
+        if not self.session_name:
+            self.session_name = f"session_{self.phone}"
+        super().save(*args, **kwargs)
     
     class Meta:
-        verbose_name = 'Telegram Session'
-        verbose_name_plural = 'Telegram Sessions'
-        ordering = ['-created_at']
+        verbose_name = "Telegram Session"
+        verbose_name_plural = "Telegram Sessions"
+    
+    def __str__(self):
+        return f"{self.phone} ({self.session_name})"
 
 class Category(models.Model):
     name = models.CharField(max_length=255)
-    description = models.TextField(null=True, blank=True)
+    description = models.TextField(blank=True, null=True)
+    is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     session = models.ForeignKey(TelegramSession, on_delete=models.SET_NULL, null=True, blank=True, related_name='categories')
-    is_active = models.BooleanField(default=True)
-
-    def __str__(self):
-        return self.name
-    
-    def save(self, *args, **kwargs):
-        # Забезпечуємо наявність значення в полі description
-        if self.description is None:
-            self.description = ''
-        super().save(*args, **kwargs)
     
     class Meta:
         verbose_name = 'Category'
         verbose_name_plural = 'Categories'
         ordering = ['name']
     
-class Channel(models.Model):
-    name = models.CharField(max_length=255)
-    url = models.URLField(max_length=255)
-    category = models.ForeignKey(Category, on_delete=models.CASCADE)
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
-    is_active = models.BooleanField(default=True)
-    session = models.ForeignKey(TelegramSession, on_delete=models.SET_NULL, null=True, blank=True, related_name='channels')
-
     def __str__(self):
-        session_info = f" ({self.session.phone})" if self.session else ""
-        return f"{self.name} - {self.category.name}{session_info}"
-    
-    class Meta:
-        verbose_name = 'Channel'
-        verbose_name_plural = 'Channels'
-        ordering = ['name']
-    
+        return self.name
+
 class Message(models.Model):
-    text = models.TextField()
-    media = models.FileField(upload_to='messages/', null=True, blank=True)
-    media_type = models.CharField(max_length=255, null=True, blank=True)
-    original_url = models.URLField(max_length=500, null=True, blank=True, help_text="Original media URL from Telegram")
-    telegram_message_id = models.CharField(max_length=255)
-    telegram_channel_id = models.CharField(max_length=255)
-    telegram_link = models.URLField(max_length=255)
-    channel = models.ForeignKey(Channel, on_delete=models.CASCADE)
+    text = models.TextField(blank=True, null=True)
+    media = models.FileField(upload_to='messages/', blank=True, null=True)
+    media_type = models.CharField(max_length=255, blank=True, null=True)
+    original_url = models.URLField(max_length=500, blank=True, null=True, help_text="Original media URL from Telegram")
+    telegram_message_id = models.CharField(max_length=255, blank=True, null=True)
+    telegram_channel_id = models.CharField(max_length=255, blank=True, null=True)
+    telegram_link = models.URLField(max_length=255, blank=True, null=True)
+    channel = models.ForeignKey(Channel, on_delete=models.CASCADE, related_name='messages')
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     session_used = models.ForeignKey(TelegramSession, on_delete=models.SET_NULL, null=True, blank=True, related_name='messages')
-
-    def __str__(self):
-        return f"{self.telegram_message_id} - {self.text[:10]}"
     
-    def save(self, *args, **kwargs):
-        # If this is a new message with media, ensure correct permissions
-        if self.pk is None and self.media:
-            super().save(*args, **kwargs)
-            # Set permissions on media file after saving
-            try:
-                import os
-                media_path = self.media.path
-                if os.path.exists(media_path):
-                    os.chmod(media_path, 0o644)
-            except Exception as e:
-                # Don't let permission errors prevent saving
-                print(f"Error setting file permissions: {e}")
-        else:
-            super().save(*args, **kwargs)
+    def __str__(self):
+        return f"{self.telegram_message_id} ({self.channel.name})"
+    
+    def get_media_path(self):
+        """Return the absolute path to the media file"""
+        if self.media and hasattr(self.media, 'path'):
+            return self.media.path
+        return None
     
     class Meta:
         verbose_name = 'Message'
         verbose_name_plural = 'Messages'
-        ordering = ['created_at']
+        ordering = ['-created_at']
 
 class BotSettings(models.Model):
     """Global settings for the Telegram bot operation"""
@@ -149,11 +123,22 @@ class BotSettings(models.Model):
 
     def __str__(self):
         return "Bot Settings"
-        
-    @classmethod
-    def get_settings(cls):
-        """Get the bot settings, creating a default instance if none exists"""
-        settings, created = cls.objects.get_or_create(pk=1)
-        if created:
-            settings.save()
-        return settings
+
+class TelegramChannel(models.Model):
+    """Modern Telegram Channel model"""
+    channel_id = models.CharField(max_length=255, unique=True)
+    title = models.CharField(max_length=255)
+    url = models.URLField(blank=True, null=True)
+    description = models.TextField(blank=True, null=True)
+    members_count = models.IntegerField(default=0)
+    username = models.CharField(max_length=255, blank=True, null=True)
+    avatar = models.ImageField(upload_to='channel_avatars/', blank=True, null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        verbose_name = "Telegram Channel"
+        verbose_name_plural = "Telegram Channels"
+    
+    def __str__(self):
+        return self.title or self.channel_id

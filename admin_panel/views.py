@@ -662,13 +662,13 @@ def telegram_sessions_view(request):
 def add_session_view(request):
     """Сторінка додавання нової сесії Telegram"""
     if request.method == 'POST':
-        form = TelegramSessionForm(request.POST)
+        form = TelegramSession(request.POST)
         if form.is_valid():
             session = form.save()
             messages.success(request, f'Сесія {session.phone} успішно додана!')
             return redirect('telegram_sessions')
     else:
-        form = TelegramSessionForm()
+        form = TelegramSession()
     
     context = {
         'form': form,
@@ -683,13 +683,13 @@ def edit_session_view(request, session_id):
     session = TelegramSession.objects.get(id=session_id)
     
     if request.method == 'POST':
-        form = TelegramSessionForm(request.POST, instance=session)
+        form = TelegramSession.objects.get(request.POST, instance=session)
         if form.is_valid():
             form.save()
             messages.success(request, f'Сесія {session.phone} успішно оновлена!')
             return redirect('telegram_sessions')
     else:
-        form = TelegramSessionForm(instance=session)
+        form = TelegramSession(instance=session)
     
     context = {
         'form': form,
