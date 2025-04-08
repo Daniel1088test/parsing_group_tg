@@ -561,3 +561,21 @@ def authorize_session_view(request, session_id):
         'title': f'Authorize Session: {session.phone}'
     }
     return render(request, 'admin_panel/authorize_session_confirm.html', context)
+
+@login_required
+def run_migrations_view(request):
+    """View for running database migrations"""
+    if request.method == 'POST':
+        try:
+            # Import and run the migration script
+            from scripts.run_migrations import run_migrations
+            success = run_migrations()
+            
+            if success:
+                messages.success(request, "Database migrations have been applied successfully.")
+            else:
+                messages.error(request, "Failed to apply migrations. Please check the logs.")
+        except Exception as e:
+            messages.error(request, f"Error running migrations: {str(e)}")
+    
+    return render(request, 'admin_panel/run_migrations.html')

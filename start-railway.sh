@@ -3,6 +3,48 @@ set -e
 
 echo "===================== Starting Railway Deployment ====================="
 
+# Run our comprehensive startup fix script
+python scripts/railway_startup_fix.py
+
+# Clear Python cache files to ensure clean module imports
+echo "Cleaning Python cache files..."
+find . -name "*.pyc" -delete
+find . -name "__pycache__" -type d -exec rm -rf {} +
+
+# Verify view module integrity
+python -c "
+try:
+    import admin_panel.views
+    if hasattr(admin_panel.views, 'run_migrations_view'):
+        print('run_migrations_view function exists in views module')
+    else:
+        print('ERROR: run_migrations_view function NOT found in views module')
+        # Add the missing function as a fallback measure
+        exec('''
+def run_migrations_view(request):
+    """Emergency fallback view for running database migrations"""
+    from django.contrib import messages
+    from django.shortcuts import render
+    if request.method == 'POST':
+        try:
+            # Import and run the migration script
+            import os
+            import subprocess
+            result = subprocess.run(['python', 'manage.py', 'migrate'], 
+                                   capture_output=True, text=True)
+            if result.returncode == 0:
+                messages.success(request, 'Database migrations applied successfully.')
+            else:
+                messages.error(request, f'Migration failed: {result.stderr}')
+        except Exception as e:
+            messages.error(request, f'Error running migrations: {str(e)}')
+    return render(request, 'admin_panel/run_migrations.html')
+        ''', globals(), admin_panel.views.__dict__)
+        print('Fallback migration view function added')
+except Exception as e:
+    print(f'Error checking views module: {e}')
+"
+
 echo "Running emergency fix for media directories..."
 python fix_media_directories.py || echo "Warning: Media directory fix failed but continuing"
 

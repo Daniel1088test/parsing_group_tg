@@ -145,6 +145,11 @@ pkill -f gunicorn || echo "No gunicorn processes running."
 echo "Clearing Telethon session files..."
 find . -type f -name "*.session*" -delete 2>/dev/null || echo "No session files found"
 
+# Clear Python cache files
+echo "Cleaning Python cache files..."
+find . -name "*.pyc" -delete
+find . -name "__pycache__" -type d -exec rm -rf {} +
+
 # Start the web server
 echo "Starting web server..."
 gunicorn core.wsgi:application --bind 0.0.0.0:$PORT --workers=1 --threads=4 --worker-tmp-dir /dev/shm --log-level info --timeout 120 &
