@@ -217,7 +217,8 @@ async def get_channel_messages(client, channel_identifier):
 
 async def download_media(client, message, media_dir):
     """
-    downloading media from the message and returning the path to the file
+    Download media from the message and return the path to the file.
+    This version is optimized for Railway's ephemeral filesystem.
     """
     try:
         if message.media:
@@ -233,46 +234,50 @@ async def download_media(client, message, media_dir):
             # Ensure the directory exists with proper permissions
             os.makedirs(absolute_media_dir, exist_ok=True)
             
-            # Format timestamp correctly
-            timestamp = message.date.strftime("%Y%m%d_%H%M%S")
-            
-            # Create a unique file ID to avoid any conflicts
+            # Create a unique ID based on message ID and timestamp
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             unique_id = str(uuid.uuid4().hex[:8])
             
             # Create safe file name without special characters
-            file_name = f"{message.id}_{timestamp}_{unique_id}"
+            message_id = getattr(message, 'id', 0)
+            file_name = f"{message_id}_{timestamp}_{unique_id}"
             file_name = re.sub(r'[^\w\-_\.]', '_', file_name)  # Replace any non-safe chars
             safe_path = os.path.join(absolute_media_dir, file_name)
             
-            # Download the media with the safe path
-            file_path = await message.download_media(file=safe_path)
-            
-            if file_path:
-                # Verify the file actually exists
-                if os.path.exists(file_path):
-                    # Get just the filename part (no directories)
-                    base_name = os.path.basename(file_path)
-                    logger.info(f"Successfully downloaded media: {base_name}")
-                    
-                    # Make sure the file is readable
-                    try:
-                        with open(file_path, 'rb') as f:
-                            # Just check if we can read a few bytes
-                            f.read(10)
-                    except Exception as e:
-                        logger.error(f"Downloaded file exists but is not readable: {e}")
+            try:
+                # Download the media with the safe path
+                file_path = await message.download_media(file=safe_path)
+                
+                if file_path:
+                    # Verify the file actually exists
+                    if os.path.exists(file_path):
+                        # Get just the filename part (no directories)
+                        base_name = os.path.basename(file_path)
+                        logger.info(f"Successfully downloaded media: {base_name}")
+                        
+                        # Make sure the file is readable
+                        try:
+                            with open(file_path, 'rb') as f:
+                                # Just check if we can read a few bytes
+                                f.read(10)
+                        except Exception as e:
+                            logger.error(f"Downloaded file exists but is not readable: {e}")
+                            return None
+                        
+                        return base_name
+                    else:
+                        logger.warning(f"Download completed but file doesn't exist: {file_path}")
                         return None
-                    
-                    return base_name
                 else:
-                    logger.warning(f"Download completed but file doesn't exist: {file_path}")
+                    logger.warning(f"Unable to download media for message {message_id}")
                     return None
-            else:
-                logger.warning(f"Unable to download media for message {message.id}")
+            except Exception as e:
+                logger.error(f"Error downloading media: {e}")
+                logger.error(traceback.format_exc())
                 return None
         return None
     except Exception as e:
-        logger.error(f"Error downloading media: {e}")
+        logger.error(f"Error in download_media: {e}")
         logger.error(traceback.format_exc())
         return None
 
@@ -313,39 +318,10 @@ async def save_message_to_data(message, channel, queue, category_id=None, client
             channel_id = 0
         
         # Handle the date - always ensure it's a datetime object or properly formatted string
-        message_date = message.date
-        from datetime import datetime
+        message_date = datetime.now()  # Use current time instead of message.date
         
-        if isinstance(message_date, datetime):
-            # Format datetime as string
-            formatted_date = message_date.strftime("%Y-%m-%d %H:%M:%S")
-        elif isinstance(message_date, str):
-            # Try to parse the string to ensure it's a valid date format
-            try:
-                parsed_date = datetime.strptime(message_date, "%Y-%m-%d %H:%M:%S")
-                formatted_date = message_date  # Already correct format
-            except ValueError:
-                # If the date string is in a different format, try to parse it
-                try:
-                    # Try common formats
-                    for fmt in ["%Y-%m-%d", "%d.%m.%Y %H:%M", "%d/%m/%Y", "%Y/%m/%d %H:%M:%S"]:
-                        try:
-                            parsed_date = datetime.strptime(message_date, fmt)
-                            formatted_date = parsed_date.strftime("%Y-%m-%d %H:%M:%S")
-                            break
-                        except ValueError:
-                            continue
-                    else:
-                        # If no format matches, use current time
-                        logger.warning(f"Could not parse date: {message_date}, using current time")
-                        formatted_date = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                except Exception as e:
-                    logger.error(f"Error parsing date {message_date}: {e}")
-                    formatted_date = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        else:
-            # If message_date is something else, use current time
-            logger.warning(f"Unexpected date type: {type(message_date)}, using current time")
-            formatted_date = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        # Format datetime as string
+        formatted_date = message_date.strftime("%Y-%m-%d %H:%M:%S")
         
         # save the message
         message_info = {

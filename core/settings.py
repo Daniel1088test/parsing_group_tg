@@ -187,6 +187,12 @@ MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
 os.makedirs(MEDIA_ROOT, exist_ok=True)
 os.makedirs(os.path.join(MEDIA_ROOT, 'messages'), exist_ok=True)
 
+# Custom storage settings for Railway deployment
+DEFAULT_FILE_STORAGE = 'django.core.files.storage.FileSystemStorage'
+if not DEBUG and RAILWAY_PUBLIC_DOMAIN:
+    # Use custom storage for Railway deployment
+    DEFAULT_FILE_STORAGE = 'core.storage.RailwayMediaStorage'
+
 # Whitenoise settings
 STATICFILES_STORAGE = 'whitenoise.storage.CompressedStaticFilesStorage'
 WHITENOISE_USE_FINDERS = True
