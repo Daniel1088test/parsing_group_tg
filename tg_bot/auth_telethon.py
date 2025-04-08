@@ -114,6 +114,45 @@ async def create_session_file(phone, api_id=None, api_hash=None, session_name=No
     session_copy_path = f"data/sessions/{session_name}.session"
     
     logger.info(f"Creating new Telethon session for {phone}")
+    
+    # In non-interactive mode, just create the database record but don't try to authenticate
+    if not interactive:
+        logger.info("Non-interactive mode: Cannot complete authorization. Record will be created in database.")
+        
+        # Create or update database record using sync_to_async
+        try:
+            @sync_to_async
+            def update_session_in_db():
+                session, created = TelegramSession.objects.get_or_create(
+                    phone=phone,
+                    defaults={
+                        'api_id': api_id,
+                        'api_hash': api_hash,
+                        'is_active': True,
+                        'session_file': session_name,
+                        'needs_auth': True
+                    }
+                )
+                
+                if not created:
+                    session.api_id = api_id
+                    session.api_hash = api_hash
+                    session.is_active = True
+                    session.session_file = session_name
+                    session.needs_auth = True
+                    session.save()
+                
+                return created
+            
+            created = await update_session_in_db()
+            logger.info(f"{'Created' if created else 'Updated'} session record in database for {phone} with needs_auth=True")
+            return False
+            
+        except Exception as e:
+            logger.error(f"Error updating database: {e}")
+            logger.error(traceback.format_exc())
+            return False
+    
     client = TelegramClient(session_name, api_id, api_hash)
     
     try:

@@ -446,9 +446,26 @@ async def initialize_client(session_id=None, session_filename=None):
                         else:
                             logger.error(f"Failed to create session automatically. Manual authentication required.")
                             try:
-                                # Update session without using needs_auth
-                                session.session_file = None
-                                await sync_to_async(session.save)()
+                                # Update session in a more controlled way to avoid null created_at
+                                @sync_to_async
+                                def update_session_safely():
+                                    # Make sure session exists and get a fresh copy to avoid null fields
+                                    try:
+                                        current_session = models.TelegramSession.objects.get(id=session_id)
+                                        if hasattr(current_session, 'needs_auth'):
+                                            current_session.needs_auth = True
+                                        current_session.session_file = None
+                                        current_session.save(update_fields=['session_file', 'needs_auth'] 
+                                                           if hasattr(current_session, 'needs_auth') 
+                                                           else ['session_file'])
+                                        return True
+                                    except Exception as e:
+                                        logger.error(f"Error safely updating session: {e}")
+                                        return False
+                                        
+                                update_success = await update_session_safely()
+                                if not update_success:
+                                    logger.error(f"Failed to update session in database. Will try to continue with defaults.")
                             except Exception as e:
                                 logger.error(f"Error updating session: {e}")
                             return None, None
@@ -612,10 +629,18 @@ async def telethon_task(queue):
                 }
                 logger.info("Initialized default client as no sessions were found in database")
             else:
-                logger.error("Failed to initialize default client and no sessions in database. Parser cannot run.")
-                return
+                logger.error("Failed to initialize default client and no sessions in database.")
+                logger.info("Parser will keep running but won't be able to fetch messages until a session is available")
+                # Instead of returning, keep running and periodically check for new sessions
+                while not stop_event:
+                    await asyncio.sleep(60)  # Check every minute
+                    new_sessions = await get_telegram_sessions()
+                    if new_sessions:
+                        logger.info(f"Found {len(new_sessions)} new sessions. Restarting parser...")
+                        return await telethon_task(queue)  # Restart the task with new sessions
         else:
             # Initialize clients for all active sessions
+            initialized_count = 0
             for session in sessions:
                 client, me = await initialize_client(session_id=session['id'])
                 if client:
@@ -625,11 +650,44 @@ async def telethon_task(queue):
                         'session_id': session['id'],
                         'session': session
                     }
+                    initialized_count += 1
                     logger.info(f"Initialized client for session {session['phone']} (ID: {session['id']})")
                 else:
                     logger.error(f"Failed to initialize client for session {session['phone']} (ID: {session['id']})")
             
-            # If no clients were initialized, try with default session
+            # If no clients were initialized, try to find any valid session files
+            if not telethon_clients:
+                logger.warning("No clients were initialized from database sessions. Looking for any valid session files...")
+                
+                # Look for any session files in common directories
+                session_dirs = [".", "data/sessions", "sessions", "/app/data/sessions"]
+                for directory in session_dirs:
+                    if not os.path.exists(directory):
+                        continue
+                        
+                    for file in os.listdir(directory):
+                        if file.endswith('.session'):
+                            # Check if this session is valid
+                            session_path = os.path.join(directory, file[:-8])  # Remove .session
+                            is_valid, user_info = await verify_session(session_path, API_ID, API_HASH)
+                            if is_valid:
+                                # Use it as a fallback
+                                fallback_client = TelegramClient(session_path, API_ID, API_HASH)
+                                await fallback_client.connect()
+                                if await fallback_client.is_user_authorized():
+                                    me = await fallback_client.get_me()
+                                    telethon_clients['fallback'] = {
+                                        'client': fallback_client,
+                                        'user': me,
+                                        'session_id': None
+                                    }
+                                    logger.info(f"Initialized fallback client from {session_path}")
+                                    break
+                    
+                    if telethon_clients:
+                        break
+            
+            # If still no clients, try with a default session
             if not telethon_clients:
                 default_client, default_me = await initialize_client()
                 if default_client:
@@ -640,8 +698,14 @@ async def telethon_task(queue):
                     }
                     logger.info("Initialized default client as fallback")
                 else:
-                    logger.error("Failed to initialize any client. Parser cannot run.")
-                    return
+                    logger.error("Failed to initialize any client. Parser will keep running but won't be able to fetch messages.")
+                    # Instead of returning, keep running and periodically check for new sessions
+                    while not stop_event:
+                        await asyncio.sleep(60)  # Check every minute
+                        new_sessions = await get_telegram_sessions()
+                        if new_sessions:
+                            logger.info(f"Found {len(new_sessions)} new sessions. Restarting parser...")
+                            return await telethon_task(queue)  # Restart the task with new sessions
         
         logger.info("====== Telethon Parser started ======")
         logger.info(f"Initialized {len(telethon_clients)} client(s)")
