@@ -16,6 +16,8 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css">
     <!-- AOS for animations -->
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/aos@2.3.4/dist/aos.css">
+    <!-- Add base URL for media files -->
+    <base href="/">
     
     <style>
         :root {
@@ -258,6 +260,63 @@
         @keyframes spin {
             to { transform: rotate(360deg); }
         }
+        
+        /* Telegram-like media styling */
+        .media-container {
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+            max-width: 100%;
+            margin-bottom: 15px;
+        }
+        
+        .media-container img {
+            max-width: 100%;
+            border-radius: 12px;
+            display: block;
+            margin: 0 auto;
+        }
+        
+        .media-container video {
+            max-width: 100%;
+            border-radius: 12px;
+            display: block;
+            margin: 0 auto;
+            background-color: #000;
+        }
+        
+        .media-container iframe {
+            border-radius: 12px;
+            overflow: hidden;
+            display: block;
+            margin: 0 auto;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+        }
+        
+        /* Make cards look more like Telegram messages */
+        .message-card {
+            border-radius: 12px;
+            border-left: none;
+            border: none;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+            transition: transform 0.2s;
+        }
+        
+        .message-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.15);
+        }
+        
+        .message-card .card-body {
+            padding: 20px;
+        }
+        
+        .message-text {
+            font-size: 15px;
+            line-height: 1.5;
+            margin-bottom: 15px;
+            color: #333;
+        }
     </style>
 </head>
 <body>
@@ -362,26 +421,60 @@
                                     </p>
                                     <div class="media-container mb-3">                                                    
                                         {% if message.media_type == 'photo' or message.media_type == 'image' %}
-                                        <img src="{{ message.media }}" 
-                                             class="img-fluid rounded" alt="Image">
+                                            {% if message.original_url %}
+                                                <!-- Use Telegram's embed for photos when available -->
+                                                <iframe src="{{ message.original_url }}" frameborder="0" scrolling="no" 
+                                                       style="width: 100%; height: 400px; border-radius: 12px; overflow: hidden;"
+                                                       allowfullscreen="true"></iframe>
+                                            {% else %}
+                                                <img src="{{ MEDIA_URL }}{{ message.media }}" 
+                                                     class="img-fluid rounded shadow-sm" alt="Image">
+                                            {% endif %}
                                         {% elif message.media_type == 'video' %}
-                                        <div class="ratio ratio-16x9">
-                                            <video class="rounded" controls preload="metadata">
-                                                <source src="{{ message.media }}" type="video/mp4">
-                                                Your browser does not support video.
-                                            </video>
-                                        </div>
+                                            {% if message.original_url %}
+                                                <!-- Embed Telegram video -->
+                                                <iframe src="{{ message.original_url }}" frameborder="0" scrolling="no" 
+                                                       style="width: 100%; height: 400px; border-radius: 12px; overflow: hidden;"
+                                                       allowfullscreen="true"></iframe>
+                                            {% else %}
+                                                <div class="ratio ratio-16x9">
+                                                    <video class="rounded shadow-sm" controls preload="metadata">
+                                                        <source src="{{ MEDIA_URL }}{{ message.media }}" type="video/mp4">
+                                                        Your browser does not support video.
+                                                    </video>
+                                                </div>
+                                            {% endif %}
+                                            <div class="mt-2 text-center">
+                                                <a href="{{ message.telegram_link }}" class="btn btn-sm btn-primary" target="_blank">
+                                                    <i class="fab fa-telegram"></i> Open in Telegram
+                                                </a>
+                                            </div>
                                         {% elif message.media_type == 'gif' %}
-                                        <img src="{{ message.media }}" 
-                                             class="img-fluid rounded" alt="GIF">
+                                            {% if message.original_url %}
+                                                <iframe src="{{ message.original_url }}" frameborder="0" scrolling="no" 
+                                                       style="width: 100%; height: 400px; border-radius: 12px; overflow: hidden;"
+                                                       allowfullscreen="true"></iframe>
+                                            {% else %}
+                                                <img src="{{ MEDIA_URL }}{{ message.media }}" 
+                                                     class="img-fluid rounded shadow-sm" alt="GIF">
+                                            {% endif %}
                                         {% elif message.media_type == 'document' %}
-                                        <div class="document-container p-3 bg-light rounded">
-                                            <i class="fas fa-file-alt me-2"></i>
-                                            <a href="{{ message.media }}" 
-                                               target="_blank" download>
-                                               Download file
-                                            </a>
-                                        </div>
+                                            <div class="document-container p-3 bg-light rounded shadow-sm">
+                                                <i class="fas fa-file-alt me-2"></i>
+                                                <a href="{{ MEDIA_URL }}{{ message.media }}" 
+                                                   target="_blank" download>
+                                                   Download file
+                                                </a>
+                                            </div>
+                                        {% elif message.media_type == 'webpage' or message.media_type == 'webpage_photo' %}
+                                            {% if message.original_url %}
+                                                <iframe src="{{ message.original_url }}" frameborder="0" scrolling="no" 
+                                                       style="width: 100%; height: 400px; border-radius: 12px; overflow: hidden;"
+                                                       allowfullscreen="true"></iframe>
+                                            {% elif message.media %}
+                                                <img src="{{ MEDIA_URL }}{{ message.media }}" 
+                                                     class="img-fluid rounded shadow-sm" alt="Webpage preview">
+                                            {% endif %}
                                         {% endif %}
                                     </div>
                                     

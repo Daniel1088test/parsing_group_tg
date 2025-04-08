@@ -97,7 +97,7 @@ class MediaFilesMiddleware:
             logger.error(f"Error creating placeholders: {e}")
     
     def __call__(self, request):
-        # Run the view first without creating directories to avoid unnecessary operations
+        # Run the view without any pre-processing
         response = self.get_response(request)
         
         # Post-processing if the response is a 404 for a media file
@@ -124,9 +124,14 @@ class MediaFilesMiddleware:
                     target_path = os.path.join(settings.MEDIA_ROOT, 'messages', file_name)
                     target_dir = os.path.dirname(target_path)
                     
-                    # Only create directory if it doesn't exist
+                    # Only try to create the directory if it doesn't exist
                     if not os.path.exists(target_dir):
-                        os.makedirs(target_dir, exist_ok=True)
+                        try:
+                            os.makedirs(target_dir, exist_ok=True)
+                            logger.info(f"Created directory: {target_dir}")
+                        except Exception as e:
+                            if "File exists" not in str(e):
+                                logger.error(f"Error creating directory {target_dir}: {e}")
                     
                     # Copy the placeholder to the requested location
                     if os.path.exists(placeholder):
@@ -144,7 +149,10 @@ class MediaFilesMiddleware:
                         shutil.copy2(placeholder, target_path)
                         
                         # Set file permissions
-                        os.chmod(target_path, 0o644)
+                        try:
+                            os.chmod(target_path, 0o644)
+                        except Exception as e:
+                            logger.warning(f"Could not set permissions for {target_path}: {e}")
                         
                         logger.info(f"Created placeholder for missing file: {file_name}")
                         

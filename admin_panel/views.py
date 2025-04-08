@@ -78,7 +78,8 @@ def index_view(request):
             'sessions': sessions,
             'selected_category': category_id if category_id and category_id != 'None' and category_id != 'undefined' else '',
             'selected_session': session_filter if session_filter and session_filter != 'None' and session_filter != 'undefined' else '',
-            'current_count': count
+            'current_count': count,
+            'MEDIA_URL': settings.MEDIA_URL,
         }
         
         # Перевіряємо, чи існує шаблон
