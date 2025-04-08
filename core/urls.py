@@ -294,20 +294,53 @@ def bot_status_api(request):
             'message': f'Error checking bot status: {str(e)}'
         }, status=500)
 
-# Simplified URL patterns with reliable health check and redirect
+# Безпечний обробник для деяких URL, що не потребує імпорту PIL
+@require_GET
+def simple_serve_media(request, path):
+    """Спрощений обробник медіафайлів для міграцій"""
+    file_path = os.path.join(settings.MEDIA_ROOT, path) if hasattr(settings, 'MEDIA_ROOT') else os.path.join('media', path)
+    if os.path.exists(file_path):
+        return FileResponse(open(file_path, 'rb'))
+    return HttpResponse("Media not found", status=404)
+
+# Безпечний обробник для health check
+@csrf_exempt
+@require_GET
+def simple_health_check(request):
+    """Спрощений health check для міграцій"""
+    return HttpResponse("OK", content_type="text/plain")
+
+# Безпечний обробник для статусу бота
+@csrf_exempt
+def simple_bot_status(request):
+    """Спрощений API статусу бота для міграцій"""
+    return JsonResponse({'status': 'unknown', 'message': 'Status check not available during migrations'})
+
+# Безпечний набір URL-шаблонів для міграцій
 urlpatterns = [
     path('admin/', admin.site.urls),
     path('admin_panel/', include('admin_panel.urls')),
-    path('', RedirectView.as_view(url='/admin_panel/'), name='root'),
-    path('health/', health_check_view, name='health'),
-    path('healthz/', health_check_view),
-    path('ping/', health_check_view),
-    path('api/bot/status/', bot_status_api, name='bot_status_api'),
-    path('favicon.ico', RedirectView.as_view(url='/static/favicon.ico')),
-    
-    # Explicitly handle media files
-    path('media/<path:path>', serve_media, name='serve_media'),
+    path('', lambda r: HttpResponse("Admin Panel", status=302, headers={"Location": "/admin_panel/"})),
+    path('health/', simple_health_check),
+    path('healthz/', simple_health_check),
+    path('ping/', simple_health_check),
+    path('api/bot/status/', simple_bot_status),
+    path('media/<path:path>', simple_serve_media),
 ]
+
+# Додаємо статичні файли тільки якщо налаштування визначено
+if hasattr(settings, 'STATIC_URL') and hasattr(settings, 'STATIC_ROOT'):
+    urlpatterns += static(settings.STATIC_URL, document_root=settings.STATIC_ROOT)
+
+# Розширений обробник після завершення міграцій
+try:
+    # Завантажуємо розширені обробники
+    from .full_urls import get_full_urlpatterns
+    # Розширюємо базові URL-шаблони
+    urlpatterns = get_full_urlpatterns()
+except (ImportError, ModuleNotFoundError):
+    # Якщо розширені URL недоступні, залишаємо базові
+    print("Using simplified URL patterns for migration")
 
 # Static files handling
 urlpatterns += static(settings.STATIC_URL, document_root=settings.STATIC_ROOT)

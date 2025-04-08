@@ -146,27 +146,60 @@ def check_installed_packages():
     """Перевіряє встановлені пакети для діагностики"""
     try:
         logger.info("Перевірка встановлених пакетів...")
-        import importlib.metadata
-        import pkg_resources
+        
+        # Перевіряємо наявність pkg_resources
+        try:
+            import pkg_resources
+            pkg_resources_available = True
+        except ImportError:
+            pkg_resources_available = False
+            logger.warning("pkg_resources не встановлено, спроба встановити setuptools...")
+            try:
+                subprocess.run([sys.executable, "-m", "pip", "install", "setuptools>=65.5.1"], check=True)
+                logger.info("setuptools успішно встановлено")
+                try:
+                    import pkg_resources
+                    pkg_resources_available = True
+                except ImportError:
+                    logger.error("pkg_resources все ще недоступний після встановлення setuptools")
+            except Exception as e:
+                logger.error(f"Не вдалося встановити setuptools: {e}")
         
         # Критичні пакети для роботи
         critical_packages = [
             'Django', 'aiogram', 'Telethon', 'psycopg2', 'Pillow'
         ]
         
+        # Функція для перевірки встановлених пакетів без pkg_resources
+        def is_package_installed(package_name):
+            try:
+                __import__(package_name.lower())
+                return True
+            except ImportError:
+                return False
+        
         # Перевіряємо критичні пакети
         for package in critical_packages:
+            # Спочатку спробуємо через importlib
             try:
-                version = pkg_resources.get_distribution(package).version
-                logger.info(f"✓ {package}: {version}")
-            except pkg_resources.DistributionNotFound:
+                if pkg_resources_available:
+                    # Використовуємо pkg_resources
+                    version = pkg_resources.get_distribution(package).version
+                    logger.info(f"✓ {package}: {version}")
+                else:
+                    # Використовуємо імпорт
+                    package_imported = is_package_installed(package)
+                    if package_imported:
+                        logger.info(f"✓ {package}: встановлено (версія невідома)")
+                    else:
+                        raise ImportError(f"Пакет {package} не імпортується")
+            except (pkg_resources.DistributionNotFound, ImportError):
                 logger.error(f"✗ Пакет {package} не встановлено!")
                 
                 # Екстрена інсталяція для критичних пакетів
-                if package == 'Pillow':
+                if package.lower() in ['pillow', 'django']:
                     logger.warning(f"Спроба встановити {package}...")
                     try:
-                        import subprocess
                         subprocess.run([sys.executable, "-m", "pip", "install", package], check=True)
                         logger.info(f"Пакет {package} успішно встановлено")
                     except Exception as e:
