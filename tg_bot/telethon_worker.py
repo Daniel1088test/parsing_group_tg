@@ -253,17 +253,41 @@ async def download_media(client, message, media_dir):
             import shutil
             import mimetypes
             
+            # Extract message ID
+            message_id = getattr(message, 'id', 0)
+            
             # Use Django's MEDIA_ROOT to ensure we're saving in the right place
             absolute_media_dir = os.path.join(settings.MEDIA_ROOT, media_dir)
             
-            # Check if directory exists first to avoid the error
+            # Fix any circular symlinks first
+            if os.path.islink(absolute_media_dir):
+                try:
+                    # Remove problematic symlink
+                    os.unlink(absolute_media_dir)
+                    logger.info(f"Removed problematic symlink: {absolute_media_dir}")
+                except Exception as e:
+                    logger.warning(f"Could not remove symlink: {e}")
+            
+            # Safely create the directory if it doesn't exist
             if not os.path.exists(absolute_media_dir):
                 try:
+                    # Create parent directory first if needed
+                    parent_dir = os.path.dirname(absolute_media_dir)
+                    if not os.path.exists(parent_dir):
+                        os.makedirs(parent_dir, exist_ok=True)
+                        logger.info(f"Created parent directory: {parent_dir}")
+                    
+                    # Now create the media directory
                     os.makedirs(absolute_media_dir, exist_ok=True)
                     logger.info(f"Created media directory: {absolute_media_dir}")
                 except Exception as e:
-                    # Log but continue - the directory might exist but with different permissions
                     logger.warning(f"Could not create media directory: {e}")
+                    
+                    # Use a temporary directory as fallback
+                    absolute_media_dir = "/tmp/telegram_media"
+                    if not os.path.exists(absolute_media_dir):
+                        os.makedirs(absolute_media_dir, exist_ok=True)
+                    logger.info(f"Using temporary directory for media: {absolute_media_dir}")
             
             # Make sure media directory has correct permissions (try/except to avoid errors)
             try:
@@ -274,9 +298,6 @@ async def download_media(client, message, media_dir):
             # Create a unique ID based on message ID and timestamp
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             unique_id = str(uuid.uuid4().hex[:8])
-            
-            # Create safe file name without special characters
-            message_id = getattr(message, 'id', 0)
             
             # Detect media type to add proper extension
             media_type = "unknown"
@@ -306,11 +327,40 @@ async def download_media(client, message, media_dir):
             # Add extension to filename
             file_name = f"{message_id}_{timestamp}_{unique_id}{extension}"
             file_name = re.sub(r'[^\w\-_\.]', '_', file_name)  # Replace any non-safe chars
+            
+            # Create a safe path directly in the real directory
+            try:
+                # Test if directory is accessible and writable
+                test_file = os.path.join(absolute_media_dir, ".test_write")
+                with open(test_file, 'w') as f:
+                    f.write("test")
+                os.remove(test_file)
+                logger.info(f"Media directory is writable: {absolute_media_dir}")
+            except Exception as e:
+                logger.warning(f"Media directory is not writable, using /tmp: {e}")
+                absolute_media_dir = "/tmp/telegram_media"
+                if not os.path.exists(absolute_media_dir):
+                    os.makedirs(absolute_media_dir, exist_ok=True)
+                
             safe_path = os.path.join(absolute_media_dir, file_name)
             
             try:
-                # Download the media with the safe path
-                file_path = await message.download_media(file=safe_path)
+                # First, try to download directly to a file
+                file_path = None
+                
+                # Instead of using download_media, get the media bytes and write the file manually
+                try:
+                    # Direct download attempt with lower-level API
+                    media_bytes = await client.download_media(message, bytes)
+                    if media_bytes:
+                        with open(safe_path, 'wb') as f:
+                            f.write(media_bytes)
+                        file_path = safe_path
+                        logger.info(f"Downloaded media bytes: {len(media_bytes)} bytes")
+                except Exception as e:
+                    logger.warning(f"Error downloading media bytes: {e}")
+                    # Try the regular method as fallback
+                    file_path = await message.download_media(file=safe_path)
                 
                 if file_path:
                     # Verify the file actually exists
@@ -325,30 +375,7 @@ async def download_media(client, message, media_dir):
                         except Exception as e:
                             logger.warning(f"Could not set permissions on file {file_path}: {e}")
                         
-                        # Make sure the file is readable
-                        try:
-                            with open(file_path, 'rb') as f:
-                                # Just check if we can read a few bytes
-                                f.read(10)
-                                
-                            # Create a copy of the file with the correct extension based on file content
-                            # Only if we don't already have an extension
-                            if not extension and os.path.splitext(file_path)[1] == '':
-                                import mimetypes
-                                content_type, encoding = mimetypes.guess_type(file_path)
-                                
-                                if content_type:
-                                    guessed_ext = mimetypes.guess_extension(content_type) or ''
-                                    if guessed_ext:
-                                        new_path = f"{file_path}{guessed_ext}"
-                                        shutil.copy2(file_path, new_path)
-                                        logger.info(f"Created copy with correct extension: {os.path.basename(new_path)}")
-                                        # Use the new file with extension
-                                        return os.path.basename(new_path)
-                        except Exception as e:
-                            logger.warning(f"Downloaded file exists but is not readable: {e}")
-                            # Continue with the original file path
-                        
+                        # Return just the filename for storage in the database
                         return base_name
                     else:
                         logger.warning(f"Download completed but file doesn't exist: {file_path}")

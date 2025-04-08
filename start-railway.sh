@@ -3,6 +3,9 @@ set -e
 
 echo "===================== Starting Railway Deployment ====================="
 
+echo "Running emergency fix for media directories..."
+python fix_media_directories.py || echo "Warning: Media directory fix failed but continuing"
+
 # Create required directories with proper permissions
 echo "Creating required directories..."
 mkdir -p media/messages

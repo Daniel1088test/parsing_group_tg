@@ -217,25 +217,50 @@ def create_symlinks():
     """Create necessary symlinks for consistent media access"""
     logger.info("Creating symlinks for consistent media access...")
     
-    # Link /app/media/messages to the actual media directory
-    app_media_dir = "/app/media/messages"
-    target_dir = os.path.join(settings.MEDIA_ROOT, 'messages')
+    # First, check for and remove any existing problematic symlinks
+    problematic_paths = [
+        "/app/media/messages",
+        os.path.join(settings.MEDIA_ROOT, "messages")
+    ]
     
-    try:
-        # Create parent directory if needed
-        os.makedirs(os.path.dirname(app_media_dir), exist_ok=True)
-        
-        # Remove existing link or directory
-        if os.path.islink(app_media_dir):
-            os.unlink(app_media_dir)
-        elif os.path.exists(app_media_dir):
-            shutil.rmtree(app_media_dir)
-            
-        # Create the symlink
-        os.symlink(target_dir, app_media_dir)
-        logger.info(f"Created symlink: {app_media_dir} -> {target_dir}")
-    except Exception as e:
-        logger.error(f"Error creating symlink: {e}")
+    for path in problematic_paths:
+        try:
+            # Check if it's a symlink, remove it
+            if os.path.islink(path):
+                logger.info(f"Removing existing symlink: {path}")
+                os.unlink(path)
+            # If it's a directory but empty, remove it
+            elif os.path.isdir(path) and not os.listdir(path):
+                logger.info(f"Removing empty directory: {path}")
+                os.rmdir(path)
+        except Exception as e:
+            logger.warning(f"Could not remove path {path}: {e}")
+    
+    # Ensure we have a real directory for media files
+    real_media_dir = os.path.join(settings.MEDIA_ROOT, "messages")
+    if not os.path.exists(real_media_dir) or os.path.islink(real_media_dir):
+        try:
+            # If it's a symlink, remove it first
+            if os.path.islink(real_media_dir):
+                os.unlink(real_media_dir)
+                
+            # Create a real directory
+            os.makedirs(real_media_dir, exist_ok=True)
+            os.chmod(real_media_dir, 0o755)
+            logger.info(f"Created real media directory: {real_media_dir}")
+        except Exception as e:
+            logger.error(f"Error creating real media directory: {e}")
+    
+    # Create symlink only if the target directory exists and source path doesn't
+    if os.path.isdir("/app") and not os.path.exists("/app/media"):
+        try:
+            # Create the parent directory if needed
+            os.makedirs("/app/media", exist_ok=True)
+            logger.info("Created /app/media directory")
+        except Exception as e:
+            logger.error(f"Error creating /app/media: {e}")
+    
+    logger.info("Media directories and symlinks fixed.")
 
 def main():
     """Main function to run all media fixing operations"""
