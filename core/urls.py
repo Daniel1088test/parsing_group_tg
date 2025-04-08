@@ -36,41 +36,10 @@ def railway_health(request):
     """Simplified health check for Railway"""
     return HttpResponse("OK")
 
-# Simple home page that doesn't depend on database
-def simple_home(request):
-    """Simple static homepage that always works"""
-    html = """
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <title>Telegram Channel Parser</title>
-        <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <style>
-            body { font-family: Arial, sans-serif; line-height: 1.6; padding: 20px; max-width: 800px; margin: 0 auto; }
-            a { display: inline-block; margin: 10px 0; padding: 10px 15px; background: #0088cc; color: white; text-decoration: none; border-radius: 4px; }
-            h1 { color: #0088cc; }
-        </style>
-    </head>
-    <body>
-        <h1>Telegram Channel Parser</h1>
-        <p>The application is running. Use one of the following options:</p>
-        <div>
-            <a href="/admin/">Go to Admin Panel</a>
-        </div>
-        <div>
-            <a href="https://t.me/Channels_hunt_bot" target="_blank">Open Telegram Bot</a>
-        </div>
-        <div>
-            <a href="/api/">API Endpoints</a>
-        </div>
-        <div>
-            <a href="/health/">Health Check</a>
-        </div>
-    </body>
-    </html>
-    """
-    return HttpResponse(html)
+# Redirect root to admin interface
+def root_redirect(request):
+    """Redirect root to admin interface"""
+    return redirect('admin/')
 
 # API status endpoint that doesn't depend on database
 @csrf_exempt
@@ -86,7 +55,7 @@ urlpatterns = [
     path('admin/', admin.site.urls),
     path('health/', health_check, name='health_check'),  # Health check endpoint
     path('healthz/', railway_health, name='railway_health'),  # Alternative health check
-    path('', simple_home, name='home'),  # Root shows simple static home
+    path('', root_redirect, name='root'),  # Root redirects to admin
     path('api/', include('tg_bot.urls')),  # API endpoints
     path('api/status/', api_status, name='api_status'),  # API status endpoint
 ]
