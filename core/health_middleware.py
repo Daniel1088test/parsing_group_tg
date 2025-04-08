@@ -201,4 +201,4 @@ class MediaFilesMiddleware:
     
     def __call__(self, request):
         # Just pass through to the next middleware/view
-        return self.get_response(request) 
+        return self.get_response(request)

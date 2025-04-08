@@ -123,6 +123,28 @@ class BotSettings(models.Model):
 
     def __str__(self):
         return "Bot Settings"
+        
+    @classmethod
+    def get_settings(cls):
+        """Get the bot settings, creating a default instance if none exists"""
+        try:
+            settings, created = cls.objects.get_or_create(pk=1)
+            return settings
+        except Exception as e:
+            # Якщо виникає помилка з базою даних, повертаємо налаштування за замовчуванням
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"Error getting bot settings: {e}")
+            
+            # Створюємо тимчасовий об'єкт без збереження в БД
+            default_settings = cls()
+            default_settings.bot_token = "7923260865:AAGWm7t0Zz2PqFPI5PldEVwrOC4HZ_5oP0c"
+            default_settings.default_api_id = 2496
+            default_settings.default_api_hash = "c839f28bad345082329ec086fca021fa"
+            default_settings.polling_interval = 30
+            default_settings.max_messages_per_channel = 10
+            
+            return default_settings
 
 class TelegramChannel(models.Model):
     """Modern Telegram Channel model"""

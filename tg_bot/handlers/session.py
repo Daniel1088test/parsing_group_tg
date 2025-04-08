@@ -1,6 +1,6 @@
 from aiogram import Router, F, types
 from aiogram.filters import Command
-from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove
+from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove, Message
 from telethon.sessions.string import StringSession
 from telethon import TelegramClient
 from admin_panel.models import TelegramSession
@@ -8,6 +8,7 @@ from tg_bot.config import API_ID, API_HASH
 from tg_bot.auth_telethon import input_code, input_password
 import logging
 import base64
+from asgiref.sync import sync_to_async
 
 session_router = Router()
 logger = logging.getLogger('telegram_bot')
@@ -330,4 +331,25 @@ async def handle_auth_code(message: types.Message):
         if hasattr(message.from_user, 'auth_session_id'):
             delattr(message.from_user, 'auth_session_id')
         if hasattr(message.from_user, 'auth_phone'):
-            delattr(message.from_user, 'auth_phone') 
+            delattr(message.from_user, 'auth_phone')
+
+@session_router.message(Command("session"))
+async def cmd_session(message: Message):
+    """Обробник команди /session"""
+    try:
+        # Отримуємо активні сесії
+        sessions = await sync_to_async(list)(TelegramSession.objects.filter(is_active=True))
+        
+        if not sessions:
+            await message.answer("У вас немає активних сесій. Створіть нову сесію через адмін-панель.")
+            return
+            
+        # Формуємо повідомлення зі списком сесій
+        sessions_text = "📱 Активні сесії Telegram:\n\n"
+        for session in sessions:
+            sessions_text += f"ID: {session.id} | Телефон: {session.phone}\n"
+            
+        await message.answer(sessions_text)
+    except Exception as e:
+        logging.error(f"Error in cmd_session: {e}")
+        await message.answer("Виникла помилка при отриманні списку сесій.") 

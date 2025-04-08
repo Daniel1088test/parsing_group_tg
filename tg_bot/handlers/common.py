@@ -8,68 +8,55 @@ from asgiref.sync import sync_to_async
 import qrcode
 from io import BytesIO
 import logging
+from aiogram.utils.keyboard import InlineKeyboardBuilder
+from aiogram.fsm.storage.memory import MemoryStorage
+from aiogram.fsm.context import FSMContext
 
-router = Router()
+# Створюємо роутер
+common_router = Router()
 
-@router.message(Command("start"))
-async def cmd_start(message: Message):
-    # Get bot settings
-    settings = await sync_to_async(BotSettings.get_settings)()
-    
-    # Get the appropriate keyboard based on settings
-    dynamic_keyboard = await get_main_menu_keyboard()
-    
-    # Check if the message contains a start parameter
-    args = message.text.split()
-    if len(args) > 1:
-        start_param = args[1]
+@common_router.message(Command("start"))
+async def cmd_start(message: Message, state: FSMContext):
+    """Обробник команди /start"""
+    try:
+        # Використовуємо безпечний спосіб отримання налаштувань
+        settings = await sync_to_async(BotSettings.get_settings)()
+        # Показуємо основне меню
+        keyboard = InlineKeyboardBuilder()
         
-        # Check if it's an authorization token
-        if start_param.startswith('auth_'):
-            # Extract session_id from auth_{session_id}_{timestamp}
-            try:
-                parts = start_param.split('_')
-                if len(parts) >= 3:
-                    session_id = int(parts[1])
-                    
-                    # Look up the session in the database
-                    session = await sync_to_async(lambda: TelegramSession.objects.filter(id=session_id).first())()
-                    
-                    if session and session.auth_token == start_param:
-                        # Start Telethon authorization
-                        await message.answer(
-                            f"Starting authorization for session ID {session_id} ({session.phone}).\n"
-                            f"Please follow the instructions to authenticate."
-                        )
-                        
-                        # Import Telethon auth function
-                        from tg_bot.auth_telethon import create_session_file
-                        
-                        # Start the authorization process
-                        await message.answer(
-                            settings.auth_guide_text or 
-                            "For authorization in Telethon, I need your phone number.\n"
-                            "Please enter your phone number in the format +380XXXXXXXXX:\n"
-                            "⚠️ IMPORTANT: You must use a regular user account, NOT a bot!"
-                        )
-                        
-                        # Start the interactive session
-                        await message.answer("Please enter your phone number:")
-                        
-                        # Store auth info in user data
-                        await sync_to_async(lambda: setattr(message.from_user, 'auth_session_id', session_id))()
-                        return
-            except Exception as e:
-                logging.error(f"Error processing auth token: {e}")
-    
-    # If no auth parameter or auth failed, show normal start message
-    await message.answer(
-        settings.welcome_message or "Welcome! I am a bot for channel parsing.\n"
-        "Select an option from the menu below:",
-        reply_markup=dynamic_keyboard
-    )
+        # Отримуємо всі категорії для меню
+        categories = await sync_to_async(list)(Category.objects.filter(is_active=True))
+        
+        # Додаємо кнопки в меню
+        for category in categories:
+            keyboard.add(InlineKeyboardButton(
+                text=category.name,
+                callback_data=f"category_{category.id}"
+            ))
+        
+        # Додаємо додаткові кнопки
+        keyboard.row(
+            InlineKeyboardButton(text="📊 Аналітика", callback_data="analytics"),
+            InlineKeyboardButton(text="ℹ️ Допомога", callback_data="help")
+        )
+        
+        # Відправляємо повідомлення
+        welcome_message = (
+            f"👋 Вітаємо у Telegram Channel Parser!\n\n"
+            f"Цей бот дозволяє збирати повідомлення з Telegram каналів та зберігати їх.\n"
+            f"Виберіть категорію для перегляду доступних каналів."
+        )
+        
+        await message.answer(welcome_message, reply_markup=keyboard.as_markup())
+    except Exception as e:
+        # Безпечна обробка помилок
+        logging.error(f"Error in cmd_start: {e}")
+        await message.answer(
+            "👋 Вітаємо! На жаль, виникла помилка при завантаженні меню. "
+            "Спробуйте пізніше або зверніться до адміністратора."
+        )
 
-@router.message(F.text == "📎 List of channels")
+@common_router.message(F.text == "📎 List of channels")
 async def list_channels(message: Message):
     """Shows the list of channels"""
     
@@ -112,7 +99,7 @@ async def list_channels(message: Message):
         reply_markup=main_menu_keyboard
     )
 
-@router.message(F.text == "📍 Categories menu")
+@common_router.message(F.text == "📍 Categories menu")
 async def list_categories(message: Message):
     """Shows the list of categories"""
     
@@ -163,7 +150,7 @@ async def list_categories(message: Message):
         reply_markup=main_menu_keyboard
     )
 
-@router.message(F.text == "🌐 Go to the site")
+@common_router.message(F.text == "🌐 Go to the site")
 async def goto_website(message: Message):
     """Sends the link to the site"""
     # Use railway domain if available
@@ -180,7 +167,7 @@ async def goto_website(message: Message):
         reply_markup=keyboard
     )
 
-@router.callback_query(F.data == "get_qr_code")
+@common_router.callback_query(F.data == "get_qr_code")
 async def send_qr_code(callback_query):
     """Sends the QR code for the site"""
     website_url = "https://parsinggrouptg-production.up.railway.app"
@@ -216,7 +203,7 @@ async def send_qr_code(callback_query):
         await callback_query.message.answer(f"Error creating the QR code: {str(e)}")
         await callback_query.answer("Failed to create the QR code")
 
-@router.message(F.text == "🔑 Add new session")
+@common_router.message(F.text == "🔑 Add new session")
 async def go_to_session_menu(message: Message):
     """Redirects to the session menu"""
     from tg_bot.keyboards.session_menu import session_menu_keyboard
@@ -226,7 +213,7 @@ async def go_to_session_menu(message: Message):
         reply_markup=session_menu_keyboard
     )
 
-@router.message(Command("help"))
+@common_router.message(Command("help"))
 async def cmd_help(message: Message):
     """Show help information about authentication and usage"""
     help_text = (
@@ -253,7 +240,7 @@ async def cmd_help(message: Message):
     )
     await message.answer(help_text, parse_mode="HTML")
 
-@router.message(F.text.startswith("python -m"))
+@common_router.message(F.text.startswith("python -m"))
 async def handle_any_python_command(message: Message):
     """Handle any python command, especially those related to tg_bot.auth_telethon"""
     await message.answer(
@@ -279,7 +266,7 @@ async def handle_any_python_command(message: Message):
             reply_markup=keyboard
         )
 
-@router.callback_query(F.data == "start_auth")
+@common_router.callback_query(F.data == "start_auth")
 async def start_auth_from_callback(callback_query):
     """Handle authorize button click"""
     from tg_bot.handlers.session import start_auth
@@ -288,7 +275,7 @@ async def start_auth_from_callback(callback_query):
     await callback_query.answer()
 
 # Catch any possible variations of terminal commands related to authentication
-@router.message(lambda msg: any(x in msg.text.lower() for x in [
+@common_router.message(lambda msg: any(x in msg.text.lower() for x in [
     "python -m tg_bot.auth_telethon", 
     "python3 -m tg_bot.auth_telethon", 
     "py -m tg_bot.auth_telethon",

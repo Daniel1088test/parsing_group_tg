@@ -161,11 +161,9 @@ USE_TZ = True
 # Static files (CSS, JavaScript, Images)
 STATIC_URL = '/static/'
 STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
-STATICFILES_DIRS = []
-
-# Only add static directory if it actually exists
-if os.path.exists(os.path.join(BASE_DIR, 'static')):
-    STATICFILES_DIRS.append(os.path.join(BASE_DIR, 'static'))
+STATICFILES_DIRS = [
+    os.path.join(BASE_DIR, 'static'),
+]
 
 # Media files
 MEDIA_URL = '/media/'
