@@ -72,7 +72,10 @@ def _get_channels():
 
 def _get_telegram_sessions():
     try:
-        sessions = list(models.TelegramSession.objects.filter(is_active=True).order_by('id'))
+        # Використовуємо values() для явного вказання потрібних полів, без поля needs_auth
+        sessions = list(models.TelegramSession.objects.filter(is_active=True)
+                        .values('id', 'phone', 'api_id', 'api_hash', 'is_active', 'session_file')
+                        .order_by('id'))
         logger.debug(f"Retrieved {len(sessions)} active Telegram sessions from database")
         return sessions
     except Exception as e:
@@ -351,9 +354,12 @@ async def initialize_client(session_id=None, session_filename=None):
                             logger.info(f"Successfully created new session: {new_session_name}")
                         else:
                             logger.error(f"Failed to create session automatically. Manual authentication required.")
-                            # Add a flag to the session to indicate manual auth is needed
-                            session.needs_auth = True
-                            await sync_to_async(session.save)()
+                            try:
+                                # Update session without using needs_auth
+                                session.session_file = None
+                                await sync_to_async(session.save)()
+                            except Exception as e:
+                                logger.error(f"Error updating session: {e}")
                             return None, None
         
     # Fall back to default session files if no specific session was found
@@ -461,7 +467,6 @@ async def initialize_client(session_id=None, session_filename=None):
                         session = models.TelegramSession.objects.get(id=session_id)
                         if not session.session_file or session.session_file != session_filename:
                             session.session_file = session_filename
-                            session.needs_auth = False  # Clear the auth flag
                             session.save()
                             logger.info(f"Updated session file path in database: {session_filename}")
                     except Exception as e:
@@ -521,17 +526,17 @@ async def telethon_task(queue):
         else:
             # Initialize clients for all active sessions
             for session in sessions:
-                client, me = await initialize_client(session_id=session.id)
+                client, me = await initialize_client(session_id=session['id'])
                 if client:
-                    telethon_clients[str(session.id)] = {
+                    telethon_clients[str(session['id'])] = {
                         'client': client,
                         'user': me,
-                        'session_id': session.id,
+                        'session_id': session['id'],
                         'session': session
                     }
-                    logger.info(f"Initialized client for session {session.phone} (ID: {session.id})")
+                    logger.info(f"Initialized client for session {session['phone']} (ID: {session['id']})")
                 else:
-                    logger.error(f"Failed to initialize client for session {session.phone} (ID: {session.id})")
+                    logger.error(f"Failed to initialize client for session {session['phone']} (ID: {session['id']})")
             
             # If no clients were initialized, try with default session
             if not telethon_clients:
