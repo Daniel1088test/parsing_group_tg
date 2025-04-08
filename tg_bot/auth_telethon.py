@@ -13,6 +13,7 @@ import shutil
 from asyncio import sleep
 from django.conf import settings
 from datetime import datetime
+import time
 
 # Set up logging
 logging.basicConfig(
@@ -404,7 +405,9 @@ async def _update_session_in_db(phone, api_id, api_hash, session_file, needs_aut
                         'api_hash': api_hash,
                         'session_file': session_file,
                         'is_active': True,
-                        'needs_auth': needs_auth
+                        'needs_auth': needs_auth,
+                        # Add an auth token if this is a new session that needs authentication
+                        'auth_token': f"auth_{int(time.time())}" if needs_auth and not session_file else None
                     }
                 )
                 
@@ -425,10 +428,36 @@ async def _update_session_in_db(phone, api_id, api_hash, session_file, needs_aut
                     if hasattr(session, 'needs_auth'):
                         session.needs_auth = needs_auth
                         update_fields.append('needs_auth')
+                    
+                    # Update auth_token if needed
+                    if needs_auth and not session.auth_token:
+                        session.auth_token = f"auth_{session.id}_{int(time.time())}"
+                        update_fields.append('auth_token')
                         
                     session.save(update_fields=update_fields)
                     
                 logger.info(f"{'Created' if created else 'Updated'} session record in database for {phone} with needs_auth={needs_auth} (ID: {session.id})")
+                
+                # If this session needs auth, provide instructions
+                if needs_auth:
+                    bot_username = "Channels_hunt_bot"  # Default bot username
+                    try:
+                        # Try to get from settings if possible
+                        from django.conf import settings
+                        if hasattr(settings, 'TELEGRAM_BOT_USERNAME'):
+                            bot_username = settings.TELEGRAM_BOT_USERNAME
+                    except:
+                        pass
+                        
+                    auth_token = session.auth_token or f"auth_{session.id}_{int(time.time())}"
+                    logger.info(f"\n======== AUTHENTICATION REQUIRED ========\n"
+                               f"Session {session.id} ({phone}) needs authentication.\n"
+                               f"Please use one of these methods:\n"
+                               f"1. Send /authorize command to @{bot_username} on Telegram\n"
+                               f"2. Click 'Authorize' button on the Sessions page in web interface\n"
+                               f"3. Use this deep link: https://t.me/{bot_username}?start={auth_token}\n"
+                               f"=========================================\n")
+                
                 return session.id
                 
             except Exception as e:

@@ -400,75 +400,32 @@ async def initialize_client(session_id=None, session_filename=None):
             if not session_filename:
                 logger.warning(f"No session file found for session ID {session_id} ({session.phone})")
                 
-                # Create a new session file if we have the phone number
-                if session.phone:
-                    # First verify if we already have valid sessions with different names
-                    for directory in session_dirs:
-                        if not os.path.exists(directory):
-                            continue
+                # Instead of trying to create a session file, mark it as needing auth through the bot
+                @sync_to_async
+                def mark_needs_auth():
+                    try:
+                        current_session = models.TelegramSession.objects.get(id=session_id)
+                        if hasattr(current_session, 'needs_auth'):
+                            current_session.needs_auth = True
+                        current_session.session_file = None
+                        
+                        # Generate an auth token if not present
+                        if not current_session.auth_token:
+                            import time
+                            current_session.auth_token = f"auth_{session_id}_{int(time.time())}"
                             
-                        for file in os.listdir(directory):
-                            if file.endswith('.session'):
-                                # Check if this session is valid
-                                session_path = os.path.join(directory, file[:-8])  # Remove .session
-                                is_valid, user_info = await verify_session(session_path, API_ID, API_HASH)
-                                if is_valid:
-                                    session_filename = session_path
-                                    logger.info(f"Found valid session: {session_path}")
-                                    
-                                    # Update the session in the database
-                                    session.session_file = session_filename
-                                    await sync_to_async(session.save)()
-                                    break
-                                    
-                        if session_filename:
-                            break
-                    
-                    # If still no valid session, create one
-                    if not session_filename:
-                        logger.info(f"Creating new session for {session.phone}")
-                        new_session_name = f"telethon_session_{session.phone.replace('+', '')}"
-                        
-                        # Create non-interactively since we're in a web process
-                        # Note: This will likely fail as it requires user interaction for the code
-                        # But we need to handle this case and inform the user
-                        success = await create_session_file(
-                            session.phone, 
-                            API_ID, 
-                            API_HASH, 
-                            new_session_name,
-                            interactive=False
-                        )
-                        
-                        if success:
-                            session_filename = new_session_name
-                            logger.info(f"Successfully created new session: {new_session_name}")
-                        else:
-                            logger.error(f"Failed to create session automatically. Manual authentication required.")
-                            try:
-                                # Update session in a more controlled way to avoid null created_at
-                                @sync_to_async
-                                def update_session_safely():
-                                    # Make sure session exists and get a fresh copy to avoid null fields
-                                    try:
-                                        current_session = models.TelegramSession.objects.get(id=session_id)
-                                        if hasattr(current_session, 'needs_auth'):
-                                            current_session.needs_auth = True
-                                        current_session.session_file = None
-                                        current_session.save(update_fields=['session_file', 'needs_auth'] 
-                                                           if hasattr(current_session, 'needs_auth') 
-                                                           else ['session_file'])
-                                        return True
-                                    except Exception as e:
-                                        logger.error(f"Error safely updating session: {e}")
-                                        return False
-                                        
-                                update_success = await update_session_safely()
-                                if not update_success:
-                                    logger.error(f"Failed to update session in database. Will try to continue with defaults.")
-                            except Exception as e:
-                                logger.error(f"Error updating session: {e}")
-                            return None, None
+                        current_session.save(update_fields=['session_file', 'needs_auth', 'auth_token']
+                                            if hasattr(current_session, 'needs_auth')
+                                            else ['session_file', 'auth_token'])
+                        logger.info(f"Session {session_id} marked for authentication via bot")
+                        return True
+                    except Exception as e:
+                        logger.error(f"Error marking session for auth: {e}")
+                        return False
+                
+                await mark_needs_auth()
+                logger.info(f"Session {session_id} needs to be authenticated via the bot interface. Please use the Telegram bot.")
+                return None, None
         
     # Fall back to default session files if no specific session was found
     if not session_filename:

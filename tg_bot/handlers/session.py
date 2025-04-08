@@ -112,6 +112,21 @@ async def handle_auth_code(message: types.Message):
             setattr(message.from_user, '2fa_required', True)
         elif result:
             # Authentication successful
+            # Get current session and update it
+            session_id = getattr(message.from_user, 'auth_session_id', None)
+            if session_id:
+                # Update session in database
+                try:
+                    session = await TelegramSession.objects.filter(id=session_id).afirst()
+                    if session:
+                        session.needs_auth = False
+                        # Use session_file if it was set during auth
+                        if not session.session_file:
+                            session.session_file = f"telethon_session_{phone.replace('+', '')}"
+                        await session.asave()
+                except Exception as e:
+                    logger.error(f"Error updating session after auth: {e}")
+            
             await message.answer(
                 "✅ Authentication successful! Your session has been authorized.\n\n"
                 "The parser can now access channels using your account."

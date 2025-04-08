@@ -253,9 +253,9 @@ async def cmd_help(message: Message):
     )
     await message.answer(help_text, parse_mode="HTML")
 
-@router.message(F.text.lower() == "python -m tg_bot.auth_telethon")
-async def handle_terminal_command(message: Message):
-    """Handle when user tries to paste the terminal command"""
+@router.message(F.text.startswith("python -m"))
+async def handle_any_python_command(message: Message):
+    """Handle any python command, especially those related to tg_bot.auth_telethon"""
     await message.answer(
         "🚫 <b>No need for terminal commands!</b>\n\n"
         "You can authorize your session directly through this bot:\n"
@@ -265,4 +265,44 @@ async def handle_terminal_command(message: Message):
         "4. If you have 2FA, enter your password\n\n"
         "This bot fully supports two-factor authentication without any terminal commands.",
         parse_mode="HTML"
-    ) 
+    )
+    
+    # If this appears to be an auth command, suggest immediate authorization
+    if "auth_telethon" in message.text or "auth" in message.text:
+        # Create an inline keyboard with authorize button
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="Start Authorization Process", callback_data="start_auth")]
+        ])
+        
+        await message.answer(
+            "Would you like to start the authorization process now?",
+            reply_markup=keyboard
+        )
+
+@router.callback_query(F.data == "start_auth")
+async def start_auth_from_callback(callback_query):
+    """Handle authorize button click"""
+    from tg_bot.handlers.session import start_auth
+    # Call the start_auth function directly
+    await start_auth(callback_query.message)
+    await callback_query.answer()
+
+# Catch any possible variations of terminal commands related to authentication
+@router.message(lambda msg: any(x in msg.text.lower() for x in [
+    "python -m tg_bot.auth_telethon", 
+    "python3 -m tg_bot.auth_telethon", 
+    "py -m tg_bot.auth_telethon",
+    "python manage.py authsession"
+]))
+async def handle_auth_telethon_command(message: Message):
+    """Handle tg_bot.auth_telethon specifically"""
+    await message.answer(
+        "⚠️ <b>Terminal commands have been replaced!</b>\n\n"
+        "Good news! You no longer need to use terminal commands for authentication.\n\n"
+        "<b>I'll start the authorization process for you right now.</b>",
+        parse_mode="HTML"
+    )
+    
+    # Start the authorization process directly
+    from tg_bot.handlers.session import start_auth
+    await start_auth(message) 
