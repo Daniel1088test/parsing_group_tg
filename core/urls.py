@@ -24,6 +24,8 @@ from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_GET
 import os
 import logging
+from PIL import Image, ImageDraw
+from django.views.static import serve
 
 logger = logging.getLogger('media_handler')
 
@@ -38,7 +40,7 @@ def health_check(request):
 @require_GET
 def serve_media(request, path):
     """
-    Custom media file handler that tries to recreate missing files
+    Custom media file handler that creates missing files on demand
     """
     file_path = os.path.join(settings.MEDIA_ROOT, path)
     
@@ -46,22 +48,57 @@ def serve_media(request, path):
     if os.path.exists(file_path):
         return FileResponse(open(file_path, 'rb'))
     
-    # File doesn't exist - we would normally try to redownload it from Telegram here
-    # but that would require more complex async code
+    # File doesn't exist - create placeholder
     logger.warning(f"Media file not found: {file_path}")
     
-    # Return a default placeholder or 404
-    if path.endswith(('.jpg', '.jpeg', '.png', '.gif')):
-        # Return a placeholder image
-        placeholder_path = os.path.join(settings.STATIC_ROOT, 'img', 'placeholder-image.png')
-        if os.path.exists(placeholder_path):
-            return FileResponse(open(placeholder_path, 'rb'))
+    # Create placeholder directories as needed
+    placeholder_dir = os.path.join(settings.STATIC_ROOT, 'img')
+    os.makedirs(placeholder_dir, exist_ok=True)
+    os.makedirs(os.path.dirname(file_path), exist_ok=True)
     
-    elif path.endswith(('.mp4', '.avi', '.mov', '.webm')):
-        # Return a placeholder video
-        placeholder_path = os.path.join(settings.STATIC_ROOT, 'img', 'placeholder-video.png')
-        if os.path.exists(placeholder_path):
-            return FileResponse(open(placeholder_path, 'rb'))
+    # Determine placeholder type based on file extension
+    # Default placeholder paths
+    image_placeholder = os.path.join(placeholder_dir, 'placeholder-image.png')
+    video_placeholder = os.path.join(placeholder_dir, 'placeholder-video.png')
+    
+    # Create placeholders if they don't exist
+    try:
+        if not os.path.exists(image_placeholder):
+            # Create image placeholder
+            img = Image.new('RGB', (300, 200), color=(240, 240, 240))
+            draw = ImageDraw.Draw(img)
+            draw.rectangle([(0, 0), (299, 199)], outline=(200, 200, 200), width=2)
+            draw.text((150, 100), "IMAGE", fill=(100, 100, 100))
+            img.save(image_placeholder)
+            logger.info(f"Created placeholder image: {image_placeholder}")
+            
+        if not os.path.exists(video_placeholder):
+            # Create video placeholder
+            img = Image.new('RGB', (300, 200), color=(240, 240, 240))
+            draw = ImageDraw.Draw(img)
+            draw.rectangle([(0, 0), (299, 199)], outline=(200, 200, 200), width=2)
+            draw.text((150, 100), "VIDEO", fill=(100, 100, 100))
+            img.save(video_placeholder)
+            logger.info(f"Created placeholder video: {video_placeholder}")
+    except Exception as e:
+        logger.error(f"Error creating placeholders: {e}")
+    
+    # Choose the appropriate placeholder based on file extension
+    if path.lower().endswith(('.jpg', '.jpeg', '.png', '.gif')):
+        placeholder = image_placeholder
+    elif path.lower().endswith(('.mp4', '.avi', '.mov', '.webm')):
+        placeholder = video_placeholder
+    else:
+        placeholder = image_placeholder
+    
+    try:
+        # Copy the placeholder to the requested location
+        import shutil
+        shutil.copy2(placeholder, file_path)
+        logger.info(f"Created placeholder for missing file: {path}")
+        return FileResponse(open(file_path, 'rb'))
+    except Exception as e:
+        logger.error(f"Error copying placeholder: {e}")
     
     # If all else fails, return 404
     return HttpResponse("Media not found", status=404)

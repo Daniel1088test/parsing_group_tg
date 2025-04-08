@@ -6,6 +6,7 @@ from django.core.management.base import BaseCommand
 from admin_panel.models import TelegramSession, Message
 from django.conf import settings
 from pathlib import Path
+import traceback
 
 logger = logging.getLogger(__name__)
 
@@ -97,10 +98,12 @@ class Command(BaseCommand):
         # Create media directory if it doesn't exist
         media_dir = os.path.join(settings.MEDIA_ROOT, 'messages')
         os.makedirs(media_dir, exist_ok=True)
+        self.stdout.write(f'Ensured media directory exists: {media_dir}')
         
         # Create placeholders directory if it doesn't exist
         placeholder_dir = os.path.join(settings.STATIC_ROOT, 'img')
         os.makedirs(placeholder_dir, exist_ok=True)
+        self.stdout.write(f'Ensured placeholder directory exists: {placeholder_dir}')
         
         # Create placeholder images if they don't exist
         image_placeholder = os.path.join(placeholder_dir, 'placeholder-image.png')
@@ -114,44 +117,59 @@ class Command(BaseCommand):
             # Create a simple placeholder image for videos
             self.create_placeholder_image(video_placeholder, "VIDEO")
         
-        # Get all messages with media
-        messages = Message.objects.exclude(media__isnull=True).exclude(media='')
-        self.stdout.write(f'Found {len(messages)} messages with media')
-        
-        fixed_count = 0
-        
-        for message in messages:
-            if not message.media:
-                continue
-                
-            # Get the media file path
-            media_path = os.path.join(settings.MEDIA_ROOT, message.media)
+        try:
+            # Get all messages with media
+            messages = Message.objects.exclude(media__isnull=True).exclude(media='')
+            self.stdout.write(f'Found {len(messages)} messages with media')
             
-            # Check if the file exists
-            if not os.path.exists(media_path):
-                self.stdout.write(f'  Media file not found: {media_path}')
-                
-                # Create appropriate placeholder based on media type
-                if message.media_type in ['photo', 'image', 'gif']:
-                    placeholder = image_placeholder
-                elif message.media_type in ['video', 'document']:
-                    placeholder = video_placeholder
-                else:
-                    placeholder = image_placeholder
-                
-                # Create the directory if needed
-                os.makedirs(os.path.dirname(media_path), exist_ok=True)
-                
+            fixed_count = 0
+            
+            for message in messages:
                 try:
-                    # Copy the placeholder file to the media location
-                    import shutil
-                    shutil.copy2(placeholder, media_path)
-                    self.stdout.write(f'  Created placeholder for {message.media}')
-                    fixed_count += 1
+                    if not message.media:
+                        continue
+                        
+                    # Get the media file path - handle FieldFile objects properly
+                    media_path_str = str(message.media)
+                    self.stdout.write(f'Processing media: {media_path_str} (type: {type(message.media)})')
+                    
+                    media_path = os.path.join(settings.MEDIA_ROOT, media_path_str)
+                    
+                    # Check if the file exists
+                    if not os.path.exists(media_path):
+                        self.stdout.write(f'  Media file not found: {media_path}')
+                        
+                        # Create appropriate placeholder based on media type
+                        if message.media_type in ['photo', 'image', 'gif']:
+                            placeholder = image_placeholder
+                        elif message.media_type in ['video', 'document']:
+                            placeholder = video_placeholder
+                        else:
+                            placeholder = image_placeholder
+                        
+                        # Create the directory if needed
+                        dir_path = os.path.dirname(media_path)
+                        os.makedirs(dir_path, exist_ok=True)
+                        self.stdout.write(f'  Ensured directory exists: {dir_path}')
+                        
+                        try:
+                            # Copy the placeholder file to the media location
+                            import shutil
+                            shutil.copy2(placeholder, media_path)
+                            self.stdout.write(f'  Created placeholder for {media_path_str}')
+                            fixed_count += 1
+                        except Exception as e:
+                            self.stdout.write(self.style.ERROR(f'  Error creating placeholder: {e}'))
+                            self.stdout.write(self.style.ERROR(f'  Traceback: {traceback.format_exc()}'))
                 except Exception as e:
-                    self.stdout.write(self.style.ERROR(f'  Error creating placeholder: {e}'))
-        
-        self.stdout.write(self.style.SUCCESS(f'Fixed {fixed_count} media files'))
+                    self.stdout.write(self.style.ERROR(f'Error processing message {message.id}: {e}'))
+                    self.stdout.write(self.style.ERROR(f'Traceback: {traceback.format_exc()}'))
+            
+            self.stdout.write(self.style.SUCCESS(f'Fixed {fixed_count} media files'))
+            
+        except Exception as e:
+            self.stdout.write(self.style.ERROR(f'Error in fix_media_files: {e}'))
+            self.stdout.write(self.style.ERROR(f'Traceback: {traceback.format_exc()}'))
 
     def create_placeholder_image(self, filename, text="PLACEHOLDER"):
         """Create a simple placeholder image with PIL"""
