@@ -327,13 +327,22 @@ def sessions_list_view(request):
     """View for managing Telegram sessions"""
     sessions = TelegramSession.objects.all().order_by('id')
     
-    # Count sessions that need authentication
-    needs_auth_count = TelegramSession.objects.filter(needs_auth=True).count()
+    # Check if needs_auth field exists in the database
+    needs_auth_count = 0
+    try:
+        # Try to count sessions that need authentication
+        needs_auth_count = TelegramSession.objects.filter(needs_auth=True).count()
+    except Exception:
+        # If field doesn't exist, don't use it
+        pass
     
-    # Check how many channels use each session
+    # Safely check channels and messages without exceptions
     for session in sessions:
         session.channels_count = Channel.objects.filter(session=session).count()
         session.messages_count = Message.objects.filter(session_used=session).count()
+        # If needs_auth field doesn't exist, default to False
+        if not hasattr(session, 'needs_auth'):
+            session.needs_auth = False
     
     context = {
         'sessions': sessions,
@@ -357,13 +366,21 @@ def session_create_view(request):
         
         # Create the session
         try:
-            session = TelegramSession(
-                phone=phone,
-                api_id=api_id or settings.TELEGRAM_API_ID,
-                api_hash=api_hash or settings.TELEGRAM_API_HASH,
-                is_active=True,
-                needs_auth=True
-            )
+            # Check if needs_auth field exists in model
+            has_needs_auth_field = hasattr(TelegramSession, 'needs_auth')
+            
+            session_data = {
+                'phone': phone,
+                'api_id': api_id or settings.TELEGRAM_API_ID,
+                'api_hash': api_hash or settings.TELEGRAM_API_HASH,
+                'is_active': True,
+            }
+            
+            # Only add needs_auth if the field exists
+            if has_needs_auth_field:
+                session_data['needs_auth'] = True
+                
+            session = TelegramSession(**session_data)
             session.save()
             
             messages.success(request, f'Session created for {phone}. Please authenticate it using the command:')
@@ -380,10 +397,13 @@ def session_update_view(request, session_id):
     session = get_object_or_404(TelegramSession, pk=session_id)
     
     if request.method == 'POST':
+        # Update basic properties
         session.phone = request.POST.get('phone', session.phone)
         session.api_id = request.POST.get('api_id', session.api_id)
         session.api_hash = request.POST.get('api_hash', session.api_hash)
         session.is_active = request.POST.get('is_active') == 'on'
+        
+        # Save the session
         session.save()
         
         messages.success(request, f'Session {session.phone} updated')

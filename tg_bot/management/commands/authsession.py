@@ -56,13 +56,22 @@ class Command(BaseCommand):
     @sync_to_async
     def create_session_record(self, phone, api_id, api_hash):
         """Create a new session record"""
-        session = TelegramSession(
-            phone=phone,
-            api_id=api_id,
-            api_hash=api_hash,
-            is_active=True,
-            needs_auth=True
-        )
+        # Check if needs_auth field exists
+        has_needs_auth = hasattr(TelegramSession, 'needs_auth')
+        
+        # Create session data
+        session_data = {
+            'phone': phone,
+            'api_id': api_id,
+            'api_hash': api_hash,
+            'is_active': True,
+        }
+        
+        # Add needs_auth only if the field exists
+        if has_needs_auth:
+            session_data['needs_auth'] = True
+            
+        session = TelegramSession(**session_data)
         session.save()
         return session
     
@@ -71,8 +80,11 @@ class Command(BaseCommand):
         """Update a session record"""
         if session_file is not None:
             session.session_file = session_file
-        if needs_auth is not None:
+        
+        # Only update needs_auth if field exists
+        if needs_auth is not None and hasattr(session, 'needs_auth'):
             session.needs_auth = needs_auth
+            
         session.save()
         return session
     
@@ -111,7 +123,14 @@ class Command(BaseCommand):
                     return True
         
         self.stdout.write(self.style.ERROR(f"✗ No valid session file found for {session.phone}"))
-        await self.update_session(session, needs_auth=True)
+        
+        # Only update needs_auth if the field exists
+        if hasattr(session, 'needs_auth'):
+            await self.update_session(session, needs_auth=True)
+        else:
+            # Otherwise just ensure session_file is None
+            await self.update_session(session, session_file=None)
+            
         return False
     
     async def authenticate_session(self, session_id=None, phone=None):
@@ -165,7 +184,14 @@ class Command(BaseCommand):
             return True
         else:
             self.stdout.write(self.style.ERROR(f"✗ Failed to authenticate session for {phone}"))
-            await self.update_session(session, needs_auth=True)
+            
+            # Only update needs_auth if the field exists
+            if hasattr(session, 'needs_auth'):
+                await self.update_session(session, needs_auth=True)
+            else:
+                # Make sure session_file is None to indicate it's not authenticated
+                await self.update_session(session, session_file=None)
+                
             return False
     
     @sync_to_async

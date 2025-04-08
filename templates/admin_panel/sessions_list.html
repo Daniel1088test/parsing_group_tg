@@ -70,7 +70,7 @@
             </thead>
             <tbody>
                 {% for session in sessions %}
-                <tr {% if session.needs_auth %}class="table-warning"{% endif %}>
+                <tr>
                     <td>{{ session.id }}</td>
                     <td>{{ session.phone }}</td>
                     <td>
@@ -81,10 +81,10 @@
                         {% endif %}
                     </td>
                     <td>
-                        {% if session.needs_auth %}
-                        <span class="badge bg-danger">Needs Auth</span>
-                        {% else %}
+                        {% if session.session_file %}
                         <span class="badge bg-success">Authenticated</span>
+                        {% else %}
+                        <span class="badge bg-danger">Needs Auth</span>
                         {% endif %}
                     </td>
                     <td>{{ session.session_file|default:"Not set" }}</td>
@@ -135,7 +135,7 @@
                         <input type="checkbox" class="form-check-input" id="is_active{{ session.id }}" name="is_active" {% if session.is_active %}checked{% endif %}>
                         <label class="form-check-label" for="is_active{{ session.id }}">Active</label>
                     </div>
-                    {% if session.needs_auth %}
+                    {% if not session.session_file %}
                     <div class="alert alert-warning">
                         This session needs authentication. Run:
                         <code>python manage.py authsession --auth {{ session.id }}</code>
