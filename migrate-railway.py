@@ -151,7 +151,7 @@ def check_installed_packages():
         
         # Критичні пакети для роботи
         critical_packages = [
-            'Django', 'aiogram', 'Telethon', 'psycopg2'
+            'Django', 'aiogram', 'Telethon', 'psycopg2', 'Pillow'
         ]
         
         # Перевіряємо критичні пакети
@@ -161,6 +161,16 @@ def check_installed_packages():
                 logger.info(f"✓ {package}: {version}")
             except pkg_resources.DistributionNotFound:
                 logger.error(f"✗ Пакет {package} не встановлено!")
+                
+                # Екстрена інсталяція для критичних пакетів
+                if package == 'Pillow':
+                    logger.warning(f"Спроба встановити {package}...")
+                    try:
+                        import subprocess
+                        subprocess.run([sys.executable, "-m", "pip", "install", package], check=True)
+                        logger.info(f"Пакет {package} успішно встановлено")
+                    except Exception as e:
+                        logger.error(f"Не вдалося встановити {package}: {e}")
         
         return True
     except Exception as e:

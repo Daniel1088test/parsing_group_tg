@@ -7,13 +7,20 @@ ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 ENV PORT=8080
 
-# Install system dependencies required for psycopg and other packages
+# Install system dependencies required for psycopg, Pillow, and other packages
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     libpq-dev \
     curl \
+    procps \
     postgresql-client \
     postgresql-client-common \
+    # Залежності для Pillow
+    libjpeg-dev \
+    libpng-dev \
+    zlib1g-dev \
+    # Додаткові системні утиліти
+    git \
     && rm -rf /var/lib/apt/lists/*
 
 # Create directory for database backups
@@ -25,7 +32,10 @@ COPY fix_requirements.py requirements.txt requirements-base.txt ./
 # 1. Встановлюємо базові залежності для стабільної роботи
 RUN pip install --no-cache-dir -r requirements-base.txt
 
-# 2. Виправляємо requirements.txt і встановлюємо всі залежності
+# 2. Встановлюємо Pillow окремо, щоб переконатися, що він правильно встановлений
+RUN pip install --no-cache-dir Pillow==10.1.0
+
+# 3. Виправляємо requirements.txt і встановлюємо всі залежності
 RUN python fix_requirements.py && \
     pip install --no-cache-dir -r requirements.txt || \
     echo "Warning: Could not install all requirements, continuing with base dependencies"

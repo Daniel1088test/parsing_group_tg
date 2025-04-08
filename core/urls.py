@@ -24,13 +24,27 @@ from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_GET
 import os
 import logging
-from PIL import Image, ImageDraw
+# Безпечний імпорт PIL з обробкою помилок
+try:
+    from PIL import Image, ImageDraw
+    PIL_AVAILABLE = True
+except ImportError:
+    PIL_AVAILABLE = False
+    print("Warning: PIL/Pillow not available - placeholder images will not be created")
 from django.views.static import serve
 from django.views.generic.base import RedirectView
-from .views import serve_media
+try:
+    from .views import serve_media
+except ImportError:
+    serve_media = None
 from django.views.generic import TemplateView
 import subprocess
-import psutil
+try:
+    import psutil
+    PSUTIL_AVAILABLE = True
+except ImportError:
+    PSUTIL_AVAILABLE = False
+    print("Warning: psutil not available - process monitoring limited")
 import time
 
 logger = logging.getLogger('media_handler')
@@ -112,27 +126,42 @@ def serve_media(request, path):
     image_placeholder = os.path.join(placeholder_dir, 'placeholder-image.png')
     video_placeholder = os.path.join(placeholder_dir, 'placeholder-video.png')
     
-    # Create placeholders if they don't exist
-    try:
-        if not os.path.exists(image_placeholder):
-            # Create image placeholder
-            img = Image.new('RGB', (300, 200), color=(240, 240, 240))
-            draw = ImageDraw.Draw(img)
-            draw.rectangle([(0, 0), (299, 199)], outline=(200, 200, 200), width=2)
-            draw.text((150, 100), "IMAGE", fill=(100, 100, 100))
-            img.save(image_placeholder)
-            logger.info(f"Created placeholder image: {image_placeholder}")
+    # Create placeholders if they don't exist and PIL is available
+    if PIL_AVAILABLE:
+        try:
+            if not os.path.exists(image_placeholder):
+                # Create image placeholder
+                img = Image.new('RGB', (300, 200), color=(240, 240, 240))
+                draw = ImageDraw.Draw(img)
+                draw.rectangle([(0, 0), (299, 199)], outline=(200, 200, 200), width=2)
+                draw.text((150, 100), "IMAGE", fill=(100, 100, 100))
+                img.save(image_placeholder)
+                logger.info(f"Created placeholder image: {image_placeholder}")
+                
+            if not os.path.exists(video_placeholder):
+                # Create video placeholder
+                img = Image.new('RGB', (300, 200), color=(240, 240, 240))
+                draw = ImageDraw.Draw(img)
+                draw.rectangle([(0, 0), (299, 199)], outline=(200, 200, 200), width=2)
+                draw.text((150, 100), "VIDEO", fill=(100, 100, 100))
+                img.save(video_placeholder)
+                logger.info(f"Created placeholder video: {video_placeholder}")
+        except Exception as e:
+            logger.error(f"Error creating placeholders: {e}")
+    else:
+        # Create empty placeholder files if PIL is not available
+        try:
+            if not os.path.exists(image_placeholder):
+                with open(image_placeholder, 'wb') as f:
+                    f.write(b'')  # Empty file
+                logger.info(f"Created empty placeholder image: {image_placeholder}")
             
-        if not os.path.exists(video_placeholder):
-            # Create video placeholder
-            img = Image.new('RGB', (300, 200), color=(240, 240, 240))
-            draw = ImageDraw.Draw(img)
-            draw.rectangle([(0, 0), (299, 199)], outline=(200, 200, 200), width=2)
-            draw.text((150, 100), "VIDEO", fill=(100, 100, 100))
-            img.save(video_placeholder)
-            logger.info(f"Created placeholder video: {video_placeholder}")
-    except Exception as e:
-        logger.error(f"Error creating placeholders: {e}")
+            if not os.path.exists(video_placeholder):
+                with open(video_placeholder, 'wb') as f:
+                    f.write(b'')  # Empty file
+                logger.info(f"Created empty placeholder video: {video_placeholder}")
+        except Exception as e:
+            logger.error(f"Error creating empty placeholders: {e}")
     
     # Choose the appropriate placeholder based on file extension
     if path.lower().endswith(('.jpg', '.jpeg', '.png', '.gif')):
@@ -143,13 +172,20 @@ def serve_media(request, path):
         placeholder = image_placeholder
     
     try:
-        # Copy the placeholder to the requested location
-        import shutil
-        shutil.copy2(placeholder, file_path)
-        logger.info(f"Created placeholder for missing file: {path}")
-        return FileResponse(open(file_path, 'rb'))
+        # Copy the placeholder to the requested location if it exists
+        if os.path.exists(placeholder) and os.path.getsize(placeholder) > 0:
+            import shutil
+            shutil.copy2(placeholder, file_path)
+            logger.info(f"Created placeholder for missing file: {path}")
+            return FileResponse(open(file_path, 'rb'))
+        else:
+            # Create an empty file as fallback
+            with open(file_path, 'wb') as f:
+                f.write(b'')
+            logger.info(f"Created empty file for missing file: {path}")
+            return HttpResponse("Empty media file created", content_type="text/plain")
     except Exception as e:
-        logger.error(f"Error copying placeholder: {e}")
+        logger.error(f"Error handling missing file: {e}")
     
     # If all else fails, return 404
     return HttpResponse("Media not found", status=404)
@@ -170,83 +206,88 @@ def bot_status_api(request):
     """API для перевірки статусу бота"""
     try:
         # Перевіряємо, чи бот запущений через перевірку процесів
-        import psutil
-        import os
-        
-        # Шукаємо процеси python, які виконують run_bot.py
-        bot_processes = []
-        for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
-            try:
-                if proc.info['name'].lower() in ['python', 'python.exe', 'python3', 'python3.exe']:
-                    cmdline = ' '.join(proc.info['cmdline'] or []).lower()
-                    if 'run_bot.py' in cmdline:
-                        bot_processes.append(proc.info)
-            except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
-                pass
-        
-        # Повертаємо статус
-        if bot_processes:
-            return JsonResponse({
-                'status': 'running',
-                'message': 'Bot is running',
-                'processes': len(bot_processes),
-                'process_info': bot_processes[0] if bot_processes else None
-            })
-        else:
-            return JsonResponse({
-                'status': 'stopped',
-                'message': 'Bot is not running'
-            })
-    except ImportError:
-        # Якщо немає psutil, спробуємо інший метод
-        try:
-            # Альтернативний метод через таблицю процесів у Django
-            import subprocess
+        if PSUTIL_AVAILABLE:
+            # Шукаємо процеси python, які виконують run_bot.py
+            bot_processes = []
+            for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
+                try:
+                    if proc.info['name'].lower() in ['python', 'python.exe', 'python3', 'python3.exe']:
+                        cmdline = ' '.join(proc.info['cmdline'] or []).lower()
+                        if 'run_bot.py' in cmdline:
+                            bot_processes.append(proc.info)
+                except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+                    pass
             
-            if os.name == 'posix':  # Linux/Unix
-                result = subprocess.run(['ps', '-ef'], capture_output=True, text=True)
-                bot_running = 'run_bot.py' in result.stdout
-            else:  # Windows
-                result = subprocess.run(['tasklist', '/FI', 'IMAGENAME eq python.exe'], capture_output=True, text=True)
-                bot_running = 'run_bot.py' in result.stdout
-                
-            if bot_running:
+            # Повертаємо статус
+            if bot_processes:
                 return JsonResponse({
                     'status': 'running',
-                    'message': 'Bot is running'
+                    'message': 'Bot is running',
+                    'processes': len(bot_processes),
+                    'process_info': bot_processes[0] if bot_processes else None
                 })
             else:
                 return JsonResponse({
                     'status': 'stopped',
                     'message': 'Bot is not running'
                 })
-        except Exception as e:
-            # Якщо все інше не працює, перевіримо файли статусу чи директорії
+        else:
+            # Якщо немає psutil, використовуємо альтернативний метод
             try:
-                # Спробуємо перевірити, чи існує директорія з логами бота
-                log_dir = os.path.join('logs', 'bot')
-                if os.path.exists(log_dir) and os.path.isdir(log_dir):
-                    # Перевіряємо, чи є нові логи
-                    logs = [f for f in os.listdir(log_dir) if f.endswith('.log')]
-                    if logs:
-                        newest_log = max(logs, key=lambda x: os.path.getmtime(os.path.join(log_dir, x)))
-                        log_time = os.path.getmtime(os.path.join(log_dir, newest_log))
-                        if (time.time() - log_time) < 60*5:  # останні 5 хвилин
-                            return JsonResponse({
-                                'status': 'likely_running',
-                                'message': 'Bot appears to be running based on recent logs'
-                            })
+                # Альтернативний метод через таблицю процесів у Django
+                import subprocess
+                bot_running = False
                 
-                # Якщо немає ознак роботи, повернемо невідомий статус
-                return JsonResponse({
-                    'status': 'unknown',
-                    'message': f'Cannot determine bot status: {str(e)}'
-                })
-            except Exception as e2:
-                return JsonResponse({
-                    'status': 'error',
-                    'message': f'Error checking bot status: {str(e2)}'
-                }, status=500)
+                try:
+                    if os.name == 'posix':  # Linux/Unix
+                        result = subprocess.run(['ps', '-ef'], capture_output=True, text=True)
+                        bot_running = 'run_bot.py' in result.stdout
+                    else:  # Windows
+                        result = subprocess.run(['tasklist', '/FI', 'IMAGENAME eq python.exe'], capture_output=True, text=True)
+                        bot_running = 'run_bot.py' in result.stdout
+                except Exception:
+                    # Якщо ps не доступний, перевіряємо наявність PID файлів
+                    bot_pid_file = 'bot.pid'
+                    if os.path.exists(bot_pid_file):
+                        bot_running = True
+                
+                if bot_running:
+                    return JsonResponse({
+                        'status': 'running',
+                        'message': 'Bot is running'
+                    })
+                else:
+                    return JsonResponse({
+                        'status': 'stopped',
+                        'message': 'Bot is not running'
+                    })
+            except Exception as e:
+                # Якщо все інше не працює, перевіримо файли статусу чи директорії
+                try:
+                    # Спробуємо перевірити, чи існує директорія з логами бота
+                    log_dir = os.path.join('logs', 'bot')
+                    if os.path.exists(log_dir) and os.path.isdir(log_dir):
+                        # Перевіряємо, чи є нові логи
+                        logs = [f for f in os.listdir(log_dir) if f.endswith('.log')]
+                        if logs:
+                            newest_log = max(logs, key=lambda x: os.path.getmtime(os.path.join(log_dir, x)))
+                            log_time = os.path.getmtime(os.path.join(log_dir, newest_log))
+                            if (time.time() - log_time) < 60*5:  # останні 5 хвилин
+                                return JsonResponse({
+                                    'status': 'likely_running',
+                                    'message': 'Bot appears to be running based on recent logs'
+                                })
+                    
+                    # Якщо немає ознак роботи, повернемо невідомий статус
+                    return JsonResponse({
+                        'status': 'unknown',
+                        'message': f'Cannot determine bot status: {str(e)}'
+                    })
+                except Exception as e2:
+                    return JsonResponse({
+                        'status': 'error',
+                        'message': f'Error checking bot status: {str(e2)}'
+                    }, status=500)
     except Exception as e:
         return JsonResponse({
             'status': 'error',
