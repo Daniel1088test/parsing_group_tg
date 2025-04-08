@@ -27,4 +27,5 @@ urlpatterns = [
     path('auth-help/', views.auth_help_view, name='auth_help'),
     path('bot-settings/', views.bot_settings_view, name='bot_settings'),
     path('user-guide/', views.user_guide_view, name='user_guide'),
+    path('run-migrations/', views.run_migrations_view, name='run_migrations'),
 ]

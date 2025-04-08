@@ -394,26 +394,46 @@ def authorize_session_view(request, session_id):
     
     session = get_object_or_404(TelegramSession, id=session_id)
     
+    # Check if the database has been updated with the new fields
+    has_verification_field = hasattr(session, 'verification_code')
+    has_password_field = hasattr(session, 'password')
+    
     # Handling session authorization
     if request.method == 'POST':
-        if 'code' in request.POST:
+        if 'code' in request.POST and has_verification_field:
             # Handle verification code input
             code = request.POST.get('code')
-            session.verification_code = code
-            session.save()
-            messages.success(request, 'Verification code saved. The system will attempt to authenticate.')
+            try:
+                session.verification_code = code
+                session.save(update_fields=['verification_code'])
+                messages.success(request, 'Verification code saved. The system will attempt to authenticate.')
+            except Exception as e:
+                messages.error(request, f'Error saving verification code: {str(e)}')
             return redirect('sessions_list')
-        elif 'password' in request.POST:
+        elif 'password' in request.POST and has_password_field:
             # Handle 2FA password input
             password = request.POST.get('password')
-            session.password = password
-            session.save()
-            messages.success(request, 'Two-factor password saved. The system will attempt to authenticate.')
+            try:
+                session.password = password
+                session.save(update_fields=['password'])
+                messages.success(request, 'Two-factor password saved. The system will attempt to authenticate.')
+            except Exception as e:
+                messages.error(request, f'Error saving password: {str(e)}')
             return redirect('sessions_list')
+        else:
+            # Fallback if fields are missing
+            messages.warning(request, 'Database schema update required. Please run migrations first.')
+            return redirect('sessions_list')
+    
+    # Check if we need to show a database update warning
+    show_warning = not (has_verification_field and has_password_field)
     
     context = {
         'session': session,
         'active_tab': 'sessions',
+        'show_db_warning': show_warning,
+        'has_verification_field': has_verification_field,
+        'has_password_field': has_password_field,
     }
     
     return render(request, 'admin_panel/authorize_session.html', context)
@@ -466,3 +486,30 @@ def user_guide_view(request):
     }
     
     return render(request, 'admin_panel/user_guide.html', context)
+
+@login_required
+def run_migrations_view(request):
+    """View for running database migrations from the web UI"""
+    if not request.user.is_authenticated or not request.user.is_superuser:
+        messages.error(request, 'Only superusers can run migrations')
+        return redirect('admin_panel')
+    
+    if request.method == 'POST':
+        try:
+            # Import the migrations script and run it
+            from scripts.run_migrations import run_migrations
+            
+            success = run_migrations()
+            
+            if success:
+                messages.success(request, 'Migrations applied successfully')
+            else:
+                messages.error(request, 'Error applying migrations')
+        except Exception as e:
+            messages.error(request, f'Error: {str(e)}')
+    
+    context = {
+        'active_tab': 'settings',
+    }
+    
+    return render(request, 'admin_panel/run_migrations.html', context)

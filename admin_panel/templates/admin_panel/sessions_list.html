@@ -4,6 +4,14 @@
 
 {% block content %}
 <div class="container mt-4">
+    {% if 'no such column' in request.session.get_error|default:'' %}
+    <div class="alert alert-danger">
+        <i class="fas fa-exclamation-triangle"></i> <strong>Database Error:</strong> The database schema needs to be updated.
+        <hr>
+        <p>Please run migrations to fix this issue:</p>
+        <a href="{% url 'run_migrations' %}" class="btn btn-primary">Run Migrations</a>
+    </div>
+    {% endif %}
     <div class="row mb-4">
         <div class="col">
             <h1 class="h3 mb-2 text-gray-800">Telegram Sessions</h1>
