@@ -163,4 +163,97 @@ async def check_session(message: types.Message):
         await message.answer(
             "No session found. Please use /authorize to create one.",
             reply_markup=ReplyKeyboardRemove()
-        ) 
+        )
+
+@session_router.message(lambda msg: msg.text and msg.text.startswith('+') and len(msg.text) > 10 and hasattr(msg.from_user, 'auth_session_id'))
+async def handle_auth_phone(message: types.Message):
+    """Handle phone number input when authorizing from website"""
+    user_id = message.from_user.id
+    phone = message.text
+    session_id = message.from_user.auth_session_id
+    
+    try:
+        # Get the session
+        session = await TelegramSession.objects.filter(id=session_id).afirst()
+        if not session:
+            await message.answer("Session not found. Please try again.")
+            delattr(message.from_user, 'auth_session_id')
+            return
+            
+        from tg_bot.auth_telethon import create_session_file
+        
+        # Start the auth process
+        await message.answer(f"Starting authentication for {phone}. Please wait...")
+        
+        # Use the session's phone number
+        session.phone = phone
+        await session.asave()
+        
+        # Create a session file (this will prompt for code)
+        session_file = f"telethon_session_{phone.replace('+', '')}"
+        success = await create_session_file(
+            phone, 
+            session.api_id or API_ID, 
+            session.api_hash or API_HASH,
+            session_file
+        )
+        
+        if success:
+            # Mark session as authenticated
+            session.session_file = session_file
+            session.needs_auth = False
+            await session.asave()
+            
+            await message.answer(
+                "✅ Authentication successful!\n"
+                "Your session is now authorized and ready to use.\n"
+                "You can now close this chat and return to the website."
+            )
+        else:
+            await message.answer(
+                "❌ Authentication failed.\n"
+                "Please try again or contact an administrator."
+            )
+    except Exception as e:
+        logger.error(f"Error in handle_auth_phone: {e}")
+        await message.answer("An error occurred during authentication. Please try again.")
+    finally:
+        # Clean up
+        if hasattr(message.from_user, 'auth_session_id'):
+            delattr(message.from_user, 'auth_session_id')
+
+@session_router.message(lambda msg: msg.text and len(msg.text) >= 5 and msg.text.isdigit() and hasattr(msg.from_user, 'code_required'))
+async def handle_auth_code(message: types.Message):
+    """Handle verification code input when authorizing from website"""
+    code = message.text
+    
+    try:
+        # Get stored session info
+        session_id = message.from_user.auth_session_id
+        phone = message.from_user.auth_phone
+        
+        # Signal to the Telethon auth process that we have a code
+        from tg_bot.auth_telethon import input_code
+        result = await input_code(phone, code)
+        
+        if result:
+            await message.answer(
+                "✅ Code accepted! Authentication completed.\n"
+                "Your session is now authorized and ready to use.\n"
+                "You can now close this chat and return to the website."
+            )
+        else:
+            await message.answer(
+                "❌ Invalid code. Please try again."
+            )
+    except Exception as e:
+        logger.error(f"Error in handle_auth_code: {e}")
+        await message.answer("An error occurred during code verification. Please try again.")
+    finally:
+        # Clean up
+        if hasattr(message.from_user, 'code_required'):
+            delattr(message.from_user, 'code_required')
+        if hasattr(message.from_user, 'auth_session_id'):
+            delattr(message.from_user, 'auth_session_id')
+        if hasattr(message.from_user, 'auth_phone'):
+            delattr(message.from_user, 'auth_phone') 

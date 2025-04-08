@@ -6,9 +6,13 @@ from telethon import TelegramClient, errors
 from tg_bot.config import API_ID, API_HASH
 import sys
 import traceback
-from telethon.errors import SessionPasswordNeededError
+from telethon.errors import SessionPasswordNeededError, FloodWaitError, PhoneCodeInvalidError
 import django
 from asgiref.sync import sync_to_async
+import shutil
+from asyncio import sleep
+from django.conf import settings
+from datetime import datetime
 
 # Set up logging
 logging.basicConfig(
@@ -23,6 +27,10 @@ os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'core.settings')
 django.setup()
 
 from admin_panel.models import TelegramSession
+
+# Global variables to store code input state
+_waiting_for_code = {}
+_input_codes = {}
 
 async def verify_session(session_path, api_id=None, api_hash=None):
     """
@@ -85,6 +93,46 @@ async def verify_session(session_path, api_id=None, api_hash=None):
             pass
         return False, None
 
+async def input_code(phone, code):
+    """
+    Function to input verification code from bot
+    
+    Args:
+        phone: Phone number
+        code: Verification code
+        
+    Returns:
+        bool: Success or failure
+    """
+    if phone not in _waiting_for_code:
+        logger.error(f"No authentication in progress for {phone}")
+        return False
+        
+    _input_codes[phone] = code
+    logger.info(f"Input code received for {phone}: {code}")
+    
+    # Wait for the code to be processed
+    try:
+        start_time = datetime.now()
+        max_wait = 60  # seconds
+        
+        while phone in _waiting_for_code:
+            await asyncio.sleep(1)
+            elapsed = (datetime.now() - start_time).total_seconds()
+            if elapsed > max_wait:
+                logger.warning(f"Timeout waiting for code to be processed for {phone}")
+                if phone in _waiting_for_code:
+                    del _waiting_for_code[phone]
+                if phone in _input_codes:
+                    del _input_codes[phone]
+                return False
+                
+        # If we got here, the code was processed
+        return True
+    except Exception as e:
+        logger.error(f"Error in input_code: {e}")
+        return False
+
 async def create_session_file(phone, api_id=None, api_hash=None, session_name=None, interactive=True):
     """
     Create a new Telethon session file with authorization
@@ -107,176 +155,90 @@ async def create_session_file(phone, api_id=None, api_hash=None, session_name=No
         session_name = f'telethon_session_{phone.replace("+", "")}'
         
     # Create directories if they don't exist
-    os.makedirs('data/sessions', exist_ok=True)
-    
-    # Session file paths
-    main_session_path = f"{session_name}.session"
-    session_copy_path = f"data/sessions/{session_name}.session"
+    os.makedirs(os.path.join(settings.BASE_DIR, 'data', 'sessions'), exist_ok=True)
     
     logger.info(f"Creating new Telethon session for {phone}")
     
-    # In non-interactive mode, just create the database record but don't try to authenticate
-    if not interactive:
-        logger.info("Non-interactive mode: Cannot complete authorization. Record will be created in database.")
-        
-        # Create or update database record using sync_to_async
-        try:
-            @sync_to_async
-            def update_session_in_db():
-                try:
-                    # First check if the session already exists
-                    try:
-                        session = TelegramSession.objects.get(phone=phone)
-                        created = False
-                    except TelegramSession.DoesNotExist:
-                        # Create a new session
-                        session = TelegramSession(
-                            phone=phone,
-                            api_id=api_id,
-                            api_hash=api_hash,
-                            is_active=True,
-                            session_file=session_name,
-                            needs_auth=True
-                        )
-                        created = True
-                    
-                    # Update existing or save new
-                    if not created:
-                        session.api_id = api_id
-                        session.api_hash = api_hash
-                        session.is_active = True
-                        session.session_file = session_name
-                        session.needs_auth = True
-                    
-                    session.save()
-                    return created, session.id
-                except Exception as e:
-                    logger.error(f"Error in update_session_in_db: {e}")
-                    return False, None
-            
-            created, session_id = await update_session_in_db()
-            logger.info(f"{'Created' if created else 'Updated'} session record in database for {phone} with needs_auth=True (ID: {session_id})")
-            return False
-            
-        except Exception as e:
-            logger.error(f"Error updating database: {e}")
-            logger.error(traceback.format_exc())
-            return False
-    
+    # Initialize client
     client = TelegramClient(session_name, api_id, api_hash)
     
     try:
         await client.connect()
         
-        if not await client.is_user_authorized():
-            logger.info(f"Session not authorized. Starting authorization for {phone}")
+        # Check if already authenticated
+        if await client.is_user_authorized():
+            logger.info(f"Already authorized for session {session_name}")
+            await client.disconnect()
             
-            try:
-                # Send authorization code request
-                await client.send_code_request(phone)
-                
-                if interactive:
-                    # Get verification code from user
-                    auth_code = input(f'Enter the code you received for {phone}: ')
+            # Create or update database record using sync_to_async
+            await _update_session_in_db(phone, api_id, api_hash, session_name, False)
+            
+            return True
+            
+        # Start authorization
+        _waiting_for_code[phone] = True
+        
+        # Create or update database record
+        await _update_session_in_db(phone, api_id, api_hash, None, True)
+        
+        try:
+            # Send code request
+            code_sent = await client.send_code_request(phone)
+            logger.info(f"Code sent to {phone}")
+            
+            # Wait for code input
+            code = None
+            timeout = 300  # 5 minutes
+            start_time = datetime.now()
+            
+            while True:
+                # Check if code was provided via bot
+                if phone in _input_codes:
+                    code = _input_codes[phone]
+                    del _input_codes[phone]
+                    break
                     
-                    try:
-                        # Sign in with the code
-                        await client.sign_in(phone, auth_code)
-                    except SessionPasswordNeededError:
-                        # If two-factor authentication is enabled
-                        password = input("Two-factor authentication is enabled. Please enter your password: ")
-                        await client.sign_in(password=password)
-                else:
-                    logger.error("Non-interactive mode: Cannot request verification code. Please run in interactive mode.")
-                    
-                    # Create or update database record with needs_auth=True
-                    @sync_to_async
-                    def update_session_in_db_after_flood():
-                        try:
-                            # First check if the session already exists
-                            try:
-                                session = TelegramSession.objects.get(phone=phone)
-                                created = False
-                            except TelegramSession.DoesNotExist:
-                                # Create a new session
-                                session = TelegramSession(
-                                    phone=phone,
-                                    api_id=api_id,
-                                    api_hash=api_hash,
-                                    is_active=True,
-                                    session_file=session_name,
-                                    needs_auth=True
-                                )
-                                created = True
-                            
-                            # Update existing or save new
-                            if not created:
-                                session.api_id = api_id
-                                session.api_hash = api_hash
-                                session.is_active = True
-                                session.session_file = session_name
-                                session.needs_auth = True
-                            
-                            session.save()
-                            return created, session.id
-                        except Exception as e:
-                            logger.error(f"Error in update_session_in_db_after_flood: {e}")
-                            return False, None
-                    
-                    created, session_id = await update_session_in_db_after_flood()
-                    logger.info(f"{'Created' if created else 'Updated'} session record in database for {phone} with needs_auth=True (ID: {session_id})")
-                    
+                # Check timeout
+                elapsed = (datetime.now() - start_time).total_seconds()
+                if elapsed > timeout:
+                    logger.warning(f"Timeout waiting for code input for {phone}")
+                    if phone in _waiting_for_code:
+                        del _waiting_for_code[phone]
                     await client.disconnect()
                     return False
-            except errors.FloodWaitError as e:
-                # Rate limited, handle gracefully
-                wait_time = e.seconds
-                hours, remainder = divmod(wait_time, 3600)
-                minutes, seconds = divmod(remainder, 60)
-                wait_msg = f"{hours}h {minutes}m {seconds}s" if hours > 0 else f"{minutes}m {seconds}s"
+                    
+                # Sleep before checking again
+                await asyncio.sleep(1)
                 
-                logger.error(f"Rate limited: Need to wait {wait_msg} ({wait_time} seconds) for {phone}")
-                
-                # Create or update database record with needs_auth=True
-                @sync_to_async
-                def update_session_in_db_after_flood():
-                    try:
-                        # First check if the session already exists
-                        try:
-                            session = TelegramSession.objects.get(phone=phone)
-                            created = False
-                        except TelegramSession.DoesNotExist:
-                            # Create a new session
-                            session = TelegramSession(
-                                phone=phone,
-                                api_id=api_id,
-                                api_hash=api_hash,
-                                is_active=True,
-                                session_file=session_name,
-                                needs_auth=True
-                            )
-                            created = True
-                        
-                        # Update existing or save new
-                        if not created:
-                            session.api_id = api_id
-                            session.api_hash = api_hash
-                            session.is_active = True
-                            session.session_file = session_name
-                            session.needs_auth = True
-                        
-                        session.save()
-                        return created, session.id
-                    except Exception as e:
-                        logger.error(f"Error in update_session_in_db_after_flood: {e}")
-                        return False, None
-                
-                created, session_id = await update_session_in_db_after_flood()
-                logger.info(f"{'Created' if created else 'Updated'} session record in database for {phone} with needs_auth=True (ID: {session_id})")
-                
+            # Sign in with code
+            logger.info(f"Signing in with code for {phone}")
+            try:
+                await client.sign_in(phone, code)
+            except SessionPasswordNeededError:
+                # 2FA password required
+                logger.warning(f"2FA password required for {phone}")
+                # TODO: Handle 2FA via bot
                 await client.disconnect()
                 return False
-        
+            except PhoneCodeInvalidError:
+                logger.error(f"Invalid code for {phone}")
+                await client.disconnect()
+                return False
+                
+        except errors.FloodWaitError as e:
+            # Handle rate limiting
+            hours, remainder = divmod(e.seconds, 3600)
+            minutes, seconds = divmod(remainder, 60)
+            time_str = f"{hours}h {minutes}m {seconds}s" if hours > 0 else f"{minutes}m {seconds}s"
+            
+            logger.warning(f"FloodWaitError: Need to wait {time_str}")
+            
+            # Create a database record anyway so the admin knows
+            await _update_session_in_db(phone, api_id, api_hash, None, True)
+            
+            await client.disconnect()
+            return False
+            
         # Get user information
         me = await client.get_me()
         if not me:
@@ -291,73 +253,97 @@ async def create_session_file(phone, api_id=None, api_hash=None, session_name=No
         await client.get_dialogs()
         logger.info("Dialogs loaded")
         
-        # Create or update database record using sync_to_async
-        try:
-            @sync_to_async
-            def update_session_in_db():
-                try:
-                    # First check if the session already exists
-                    try:
-                        session = TelegramSession.objects.get(phone=phone)
-                        created = False
-                    except TelegramSession.DoesNotExist:
-                        # Create a new session
-                        session = TelegramSession(
-                            phone=phone,
-                            api_id=api_id,
-                            api_hash=api_hash,
-                            is_active=True,
-                            session_file=session_name,
-                            needs_auth=False  # Session is now authorized
-                        )
-                        created = True
-                    
-                    # Update existing or save new
-                    if not created:
-                        session.api_id = api_id
-                        session.api_hash = api_hash
-                        session.is_active = True
-                        session.session_file = session_name
-                        session.needs_auth = False  # Session is now authorized
-                    
-                    session.save()
-                    return created, session.id
-                except Exception as e:
-                    logger.error(f"Error in update_session_in_db: {e}")
-                    return False, None
-            
-            created, session_id = await update_session_in_db()
-            logger.info(f"{'Created' if created else 'Updated'} session record in database for {phone} with needs_auth=False (ID: {session_id})")
-            
-        except Exception as e:
-            logger.error(f"Error updating database: {e}")
-            logger.error(traceback.format_exc())
+        # Update database record with authenticated status
+        await _update_session_in_db(phone, api_id, api_hash, session_name, False)
         
-        # Close the connection
-        await client.disconnect()
+        # Copy session file to data/sessions
+        dest_path = os.path.join(settings.BASE_DIR, 'data', 'sessions', f"{session_name}.session")
+        src_path = f"{session_name}.session"
         
-        # Copy session file to data/sessions directory
-        if os.path.exists(main_session_path) and os.path.isfile(main_session_path):
-            import shutil
-            try:
-                shutil.copy2(main_session_path, session_copy_path)
-                logger.info(f"Session file copied to {session_copy_path}")
-            except Exception as e:
-                logger.error(f"Error copying session file: {e}")
+        if os.path.exists(src_path):
+            shutil.copy2(src_path, dest_path)
+            logger.info(f"Session file copied to {dest_path}")
         
         logger.info(f"Session creation completed successfully for {phone}")
         return True
+        
     except Exception as e:
         logger.error(f"Error creating session for {phone}: {e}")
         logger.error(traceback.format_exc())
         return False
     finally:
-        # Ensure client is disconnected
+        # Clean up
+        if phone in _waiting_for_code:
+            del _waiting_for_code[phone]
         try:
-            if client and client.is_connected():
-                await client.disconnect()
+            await client.disconnect()
         except:
             pass
+
+async def _update_session_in_db(phone, api_id, api_hash, session_file, needs_auth):
+    """
+    Update or create session record in database
+    
+    Args:
+        phone: Phone number
+        api_id: API ID
+        api_hash: API Hash
+        session_file: Path to session file
+        needs_auth: Whether the session needs authentication
+    """
+    try:
+        from admin_panel.models import TelegramSession
+        
+        # Use atomic operation to avoid issues with created_at field
+        @sync_to_async
+        def update_db():
+            try:
+                # Find existing session or create new one
+                session, created = TelegramSession.objects.get_or_create(
+                    phone=phone,
+                    defaults={
+                        'api_id': api_id,
+                        'api_hash': api_hash,
+                        'session_file': session_file,
+                        'is_active': True,
+                        'needs_auth': needs_auth
+                    }
+                )
+                
+                if not created:
+                    # Update existing record safely
+                    session.api_id = api_id
+                    session.api_hash = api_hash
+                    session.is_active = True
+                    
+                    # Use update_fields to avoid nullifying created_at
+                    update_fields = ['api_id', 'api_hash', 'is_active', 'updated_at']
+                    
+                    # Only update session_file if it has changed
+                    if session_file is not None and session.session_file != session_file:
+                        session.session_file = session_file
+                        update_fields.append('session_file')
+                        
+                    if hasattr(session, 'needs_auth'):
+                        session.needs_auth = needs_auth
+                        update_fields.append('needs_auth')
+                        
+                    session.save(update_fields=update_fields)
+                    
+                logger.info(f"{'Created' if created else 'Updated'} session record in database for {phone} with needs_auth={needs_auth} (ID: {session.id})")
+                return session.id
+                
+            except Exception as e:
+                logger.error(f"Error updating database: {e}")
+                logger.error(traceback.format_exc())
+                return None
+                
+        return await update_db()
+            
+    except Exception as e:
+        logger.error(f"Error in _update_session_in_db: {e}")
+        logger.error(traceback.format_exc())
+        return None
 
 async def verify_all_sessions_in_db():
     """Verify all sessions in the database and update their status"""

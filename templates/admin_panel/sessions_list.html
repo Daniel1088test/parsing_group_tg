@@ -20,10 +20,8 @@
     <div class="card mb-4 bg-light">
         <div class="card-body">
             <h5 class="card-title">How to Authenticate Sessions</h5>
-            <p>To authenticate a session, run the following command on your server:</p>
-            <pre class="bg-dark text-light p-3 rounded">python manage.py authsession --auth SESSION_ID</pre>
-            <p>Replace SESSION_ID with the ID of the session you want to authenticate.</p>
-            <p>For more options, run: <code>python manage.py authsession --help</code></p>
+            <p>You can authenticate a session by clicking the "Authorize" button next to the session that needs authentication.</p>
+            <p>The system will guide you through the authentication process using the Telegram bot.</p>
         </div>
     </div>
     {% endif %}
@@ -93,6 +91,9 @@
                     <td>
                         <div class="btn-group" role="group">
                             <button type="button" class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#editModal{{ session.id }}">Edit</button>
+                            {% if not session.session_file or session.needs_auth %}
+                            <a href="{% url 'authorize_session' session.id %}" class="btn btn-sm btn-outline-success">Authorize</a>
+                            {% endif %}
                             <button type="button" class="btn btn-sm btn-outline-danger" data-bs-toggle="modal" data-bs-target="#deleteModal{{ session.id }}">Delete</button>
                         </div>
                     </td>
@@ -137,8 +138,10 @@
                     </div>
                     {% if not session.session_file %}
                     <div class="alert alert-warning">
-                        This session needs authentication. Run:
-                        <code>python manage.py authsession --auth {{ session.id }}</code>
+                        This session needs authentication. 
+                        <a href="{% url 'authorize_session' session.id %}" class="btn btn-sm btn-success mt-2">
+                            <i class="fas fa-key"></i> Authorize This Session
+                        </a>
                     </div>
                     {% endif %}
                 </div>

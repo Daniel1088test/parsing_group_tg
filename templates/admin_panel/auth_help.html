@@ -1,113 +1,63 @@
 {% extends 'base.html' %}
 
-{% block title %}Telegram Authentication Help{% endblock %}
+{% block title %}Telegram Authentication Guide{% endblock %}
 
 {% block content %}
 <div class="container mt-4">
-    <div class="card shadow mb-4">
-        <div class="card-header bg-primary text-white">
-            <h5 class="mb-0">Telegram Session Authentication Guide</h5>
-        </div>
-        <div class="card-body">
-            <div class="alert alert-info">
-                <strong>Note:</strong> You need to authenticate your Telegram sessions before the parser can access channels.
-                This requires you to run a command on the server to generate proper session files.
-            </div>
-            
-            <h4 class="mb-3">Authentication Steps</h4>
-            <ol class="list-group list-group-numbered mb-4">
-                <li class="list-group-item">
-                    <h5>Create a Session Record</h5>
-                    <p>Go to the <a href="{% url 'sessions_list' %}">Sessions</a> page and add a new session with your phone number.</p>
-                </li>
-                <li class="list-group-item">
-                    <h5>SSH into Your Server</h5>
-                    <p>Connect to your server using SSH. If you're using Railway or a similar service, use their shell access.</p>
-                </li>
-                <li class="list-group-item">
-                    <h5>Navigate to Project Directory</h5>
-                    <pre class="bg-dark text-light p-2 rounded">cd /app</pre>
-                </li>
-                <li class="list-group-item">
-                    <h5>Run the Authentication Command</h5>
-                    <p>Execute the command below, replacing SESSION_ID with your session ID:</p>
-                    <pre class="bg-dark text-light p-2 rounded">python manage.py authsession --auth SESSION_ID</pre>
-                </li>
-                <li class="list-group-item">
-                    <h5>Enter the Verification Code</h5>
-                    <p>The command will ask for a verification code. Check your Telegram app for the code and enter it.</p>
-                    <div class="text-center">
-                        <img src="https://core.telegram.org/file/464001681/10de8/Y2ghAlqgUjQ.126450/f40eb87a0e02ed8e49" 
-                             alt="Telegram verification code example" 
-                             class="img-fluid rounded mb-2" 
-                             style="max-width: 300px;">
-                    </div>
-                </li>
-                <li class="list-group-item">
-                    <h5>Verify Authentication</h5>
-                    <p>After successful authentication, the command will show a success message. You can verify by running:</p>
-                    <pre class="bg-dark text-light p-2 rounded">python manage.py authsession --verify SESSION_ID</pre>
-                </li>
-            </ol>
-            
-            <h4 class="mb-3">Alternative Methods</h4>
-            <div class="card mb-4">
-                <div class="card-header">Local Development Authentication</div>
+    <div class="row">
+        <div class="col-md-10 offset-md-1">
+            <div class="card">
+                <div class="card-header bg-primary text-white">
+                    <h5 class="card-title mb-0">Telegram Authentication Guide</h5>
+                </div>
                 <div class="card-body">
-                    <p>If you're developing locally, run the command in your local terminal:</p>
-                    <pre class="bg-dark text-light p-2 rounded">python manage.py authsession --phone YOUR_PHONE_NUMBER</pre>
-                    <p>After authentication, upload the generated session file to your server. The file is named:</p>
-                    <pre class="bg-dark text-light p-2 rounded">telethon_session_YOURNUMBER.session</pre>
-                </div>
-            </div>
-            
-            <h4 class="mb-3">Troubleshooting</h4>
-            <div class="accordion" id="authTroubleshooting">
-                <div class="accordion-item">
-                    <h2 class="accordion-header" id="headingOne">
-                        <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#collapseOne">
-                            The parser still shows "No session file found"
-                        </button>
-                    </h2>
-                    <div id="collapseOne" class="accordion-collapse collapse" data-bs-parent="#authTroubleshooting">
-                        <div class="accordion-body">
-                            <p>Check the following:</p>
-                            <ul>
-                                <li>Verify that the session file exists in your server's <code>/app</code> directory</li>
-                                <li>Create a <code>data/sessions</code> directory and copy the session file there</li>
-                                <li>Run the verification command to check your session status</li>
-                            </ul>
-                        </div>
+                    <h3>How to Authenticate Telegram Sessions</h3>
+                    
+                    <div class="alert alert-info">
+                        <p>There are two ways to authenticate your Telegram sessions:</p>
+                        <ol>
+                            <li>Via the website interface (recommended)</li>
+                            <li>Through the Telegram bot directly</li>
+                        </ol>
                     </div>
-                </div>
-                <div class="accordion-item">
-                    <h2 class="accordion-header" id="headingTwo">
-                        <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#collapseTwo">
-                            I get a "FloodWait" error
-                        </button>
-                    </h2>
-                    <div id="collapseTwo" class="accordion-collapse collapse" data-bs-parent="#authTroubleshooting">
-                        <div class="accordion-body">
-                            <p>Telegram limits how often you can authenticate. If you get a FloodWait error, wait for the specified time before trying again.</p>
-                        </div>
+                    
+                    <h4 class="mt-4">Method 1: Website Authentication</h4>
+                    <p>This is the easiest way to authenticate a session:</p>
+                    <ol>
+                        <li>Go to the <a href="{% url 'sessions_list' %}">Sessions List</a> page</li>
+                        <li>For any session that shows "Needs Auth", click the "Authorize" button</li>
+                        <li>Follow the instructions on the screen to connect with the Telegram bot</li>
+                        <li>Enter your phone number and the verification code sent by Telegram</li>
+                        <li>Once authentication is complete, return to the website</li>
+                    </ol>
+                    
+                    <h4 class="mt-4">Method 2: Direct Bot Authentication</h4>
+                    <p>You can also authenticate directly through our Telegram bot:</p>
+                    <ol>
+                        <li>Add our bot <a href="https://t.me/Channels_hunt_bot" target="_blank">@Channels_hunt_bot</a> on Telegram</li>
+                        <li>Send the command <code>/authorize</code> to the bot</li>
+                        <li>Share your phone number when prompted</li>
+                        <li>Enter the verification code sent by Telegram</li>
+                        <li>The bot will confirm when authentication is successful</li>
+                    </ol>
+                    
+                    <div class="alert alert-warning mt-4">
+                        <h5>Important Notes:</h5>
+                        <ul>
+                            <li>You must use a regular Telegram user account, not a bot account</li>
+                            <li>You need access to the phone number you're authenticating</li>
+                            <li>If you have two-factor authentication enabled, you may need to provide your password</li>
+                            <li>One phone number can only be associated with one session</li>
+                        </ul>
                     </div>
-                </div>
-                <div class="accordion-item">
-                    <h2 class="accordion-header" id="headingThree">
-                        <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#collapseThree">
-                            I don't receive a verification code
-                        </button>
-                    </h2>
-                    <div id="collapseThree" class="accordion-collapse collapse" data-bs-parent="#authTroubleshooting">
-                        <div class="accordion-body">
-                            <p>Make sure you entered the correct phone number in international format (e.g., +380667264351). Also, check if you've enabled 2FA in your Telegram account.</p>
-                        </div>
+                    
+                    <div class="text-center mt-4">
+                        <a href="{% url 'sessions_list' %}" class="btn btn-primary">
+                            <i class="fas fa-arrow-left"></i> Return to Sessions List
+                        </a>
                     </div>
                 </div>
             </div>
-        </div>
-        <div class="card-footer">
-            <a href="{% url 'sessions_list' %}" class="btn btn-primary">Return to Sessions</a>
         </div>
     </div>
 </div>

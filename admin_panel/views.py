@@ -11,6 +11,8 @@ import logging
 import traceback
 import os
 from django.conf import settings
+import time
+from urllib.parse import quote_plus
 
 logger = logging.getLogger(__name__)
 
@@ -418,3 +420,38 @@ def session_delete_view(request, session_id):
 def auth_help_view(request):
     """View for the Telegram authentication help page"""
     return render(request, 'admin_panel/auth_help.html')
+
+@login_required
+def authorize_session_view(request, session_id):
+    """View for authorizing a Telegram session directly from the website"""
+    session = get_object_or_404(TelegramSession, pk=session_id)
+    
+    if request.method == 'POST':
+        try:
+            # Generate QR code authorization link
+            authorization_token = f"auth_{session_id}_{int(time.time())}"
+            
+            # Store the authorization token in the session
+            if not hasattr(session, 'auth_token') or not session.auth_token:
+                session.auth_token = authorization_token
+                session.save()
+            
+            # Send success message with link
+            messages.success(request, 'Click the button below to authorize this session via Telegram bot')
+            
+            context = {
+                'session': session,
+                'authorization_token': authorization_token,
+                'title': f'Authorize Session: {session.phone}'
+            }
+            return render(request, 'admin_panel/authorize_session.html', context)
+            
+        except Exception as e:
+            messages.error(request, f'Error starting authorization: {str(e)}')
+    
+    # If GET request, show confirmation page
+    context = {
+        'session': session,
+        'title': f'Authorize Session: {session.phone}'
+    }
+    return render(request, 'admin_panel/authorize_session_confirm.html', context)

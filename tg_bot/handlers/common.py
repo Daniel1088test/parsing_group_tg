@@ -3,15 +3,60 @@ from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, B
 from aiogram.filters import Command
 from tg_bot.keyboards.main_menu import main_menu_keyboard
 from tg_bot.config import ADMIN_ID, WEB_SERVER_HOST, WEB_SERVER_PORT
-from admin_panel.models import Channel, Category
+from admin_panel.models import Channel, Category, TelegramSession
 from asgiref.sync import sync_to_async
 import qrcode
 from io import BytesIO
+import logging
 
 router = Router()
 
 @router.message(Command("start"))
 async def cmd_start(message: Message):
+    # Check if the message contains a start parameter
+    args = message.text.split()
+    if len(args) > 1:
+        start_param = args[1]
+        
+        # Check if it's an authorization token
+        if start_param.startswith('auth_'):
+            # Extract session_id from auth_{session_id}_{timestamp}
+            try:
+                parts = start_param.split('_')
+                if len(parts) >= 3:
+                    session_id = int(parts[1])
+                    
+                    # Look up the session in the database
+                    session = await sync_to_async(lambda: TelegramSession.objects.filter(id=session_id).first())()
+                    
+                    if session and session.auth_token == start_param:
+                        # Start Telethon authorization
+                        await message.answer(
+                            f"Starting authorization for session ID {session_id} ({session.phone}).\n"
+                            f"Please follow the instructions to authenticate."
+                        )
+                        
+                        # Import Telethon auth function
+                        from tg_bot.auth_telethon import create_session_file
+                        
+                        # Start the authorization process
+                        await message.answer(
+                            "For authorization in Telethon, I need your phone number.\n"
+                            "Enter your phone number in the format +380XXXXXXXXX:\n"
+                            "⚠️ IMPORTANT: You must use a regular user account, NOT a bot!\n"
+                            "To cancel, press the button below ⬇️"
+                        )
+                        
+                        # Start the interactive session
+                        await message.answer("Please enter your phone number:")
+                        
+                        # Store auth info in user data
+                        await sync_to_async(lambda: setattr(message.from_user, 'auth_session_id', session_id))()
+                        return
+            except Exception as e:
+                logging.error(f"Error processing auth token: {e}")
+    
+    # If no auth parameter or auth failed, show normal start message
     await message.answer(
         "Welcome! I am a bot for channel parsing.\n"
         "Select an option from the menu below:",

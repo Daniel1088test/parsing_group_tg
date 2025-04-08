@@ -155,6 +155,10 @@ echo "Gunicorn started with PID: $GUNICORN_PID"
 echo "Waiting for web server to initialize..."
 sleep 10
 
+# Verify the authentication system before starting the bot
+echo "Verifying authentication system..."
+python verify_auth_system.py
+
 # Start the bot
 echo "Starting bot process..."
 python run.py &

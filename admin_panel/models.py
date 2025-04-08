@@ -9,6 +9,7 @@ class TelegramSession(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
     session_file = models.CharField(max_length=255, blank=True, null=True)
     needs_auth = models.BooleanField(default=True, help_text="Indicates if this session needs manual authentication")
+    auth_token = models.CharField(max_length=255, blank=True, null=True, help_text="Token for authorizing this session via bot")
 
     def __str__(self):
         status = "Active" if self.is_active else "Inactive"
