@@ -56,24 +56,46 @@ for path, text in placeholder_paths:
 echo "Running comprehensive media fix script..."
 python fix_railway_media.py || echo "Warning: Media fix script had errors but continuing deployment"
 
-# Run session fixes - with additional error handling
-echo "Fixing sessions and media..."
-python manage.py fix_sessions || echo "Warning: fix_sessions command had errors but continuing deployment"
-
-# Create required symlinks for consistent media access
-echo "Creating symbolic links for media access..."
-# Ensure /app/media/messages is linked to the media directory
-if [ ! -L "/app/media/messages" ]; then
-    mkdir -p /app/media
-    ln -sf "$(pwd)/media/messages" "/app/media/messages" || echo "Warning: Could not create symlink for media"
+# Use our proper Django-configured session fix script
+if [ -f "scripts/fix_sessions.py" ]; then
+    echo "Running session fixes with properly configured script..."
+    python scripts/fix_sessions.py || echo "Warning: Session fix script had errors but continuing deployment"
+else
+    # Fall back to the old method if the script doesn't exist
+    echo "Fixing sessions using legacy method..."
+    python manage.py fix_sessions || echo "Warning: fix_sessions command had errors but continuing deployment"
 fi
 
-# Dump environment variables for debugging
+# Create required symlinks for consistent media access
+if [ -f "scripts/create_symlinks.py" ]; then
+    echo "Creating symbolic links with properly configured script..."
+    python scripts/create_symlinks.py || echo "Warning: Symlink creation script had errors but continuing deployment"
+else
+    echo "Creating symbolic links using legacy method..."
+    # Create symlink in static directory to media
+    if [ ! -L "staticfiles/media" ]; then
+        ln -sf "$(pwd)/media" "staticfiles/media" || echo "Warning: Could not create symlink for media"
+    fi
+    
+    # Ensure /app/media/messages is linked to the media directory
+    if [ ! -L "/app/media/messages" ]; then
+        mkdir -p /app/media
+        ln -sf "$(pwd)/media/messages" "/app/media/messages" || echo "Warning: Could not create symlink for media"
+    fi
+fi
+
+# Make the scripts directly executable for use in Railway
+if [ -f "scripts/fix_sessions.py" ]; then
+    chmod +x scripts/fix_sessions.py
+fi
+if [ -f "scripts/create_symlinks.py" ]; then
+    chmod +x scripts/create_symlinks.py
+fi
+
+# Print environment information
 echo "Environment information:"
 echo "RAILWAY_ENVIRONMENT: $RAILWAY_ENVIRONMENT"
 echo "RAILWAY_PUBLIC_DOMAIN: $RAILWAY_PUBLIC_DOMAIN"
-echo "MEDIA_ROOT: $(python -c 'from django.conf import settings; print(settings.MEDIA_ROOT)')"
-echo "STATIC_ROOT: $(python -c 'from django.conf import settings; print(settings.STATIC_ROOT)')"
 
 # Start the parser in background
 echo "Starting Telegram parser in background..."

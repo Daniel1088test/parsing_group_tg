@@ -184,9 +184,25 @@ if os.path.exists(os.path.join(BASE_DIR, 'static')):
 MEDIA_URL = '/media/'
 MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
 
-# Ensure media directories exist
-os.makedirs(MEDIA_ROOT, exist_ok=True)
-os.makedirs(os.path.join(MEDIA_ROOT, 'messages'), exist_ok=True)
+# Ensure media directories exist with proper error handling
+try:
+    # Create media root if it doesn't exist
+    if not os.path.exists(MEDIA_ROOT):
+        os.makedirs(MEDIA_ROOT, exist_ok=True)
+        # Set permissions on the media root directory
+        os.chmod(MEDIA_ROOT, 0o755)
+    
+    # Create messages directory if it doesn't exist
+    messages_dir = os.path.join(MEDIA_ROOT, 'messages')
+    if not os.path.exists(messages_dir):
+        os.makedirs(messages_dir, exist_ok=True)
+        # Set permissions on the messages directory
+        os.chmod(messages_dir, 0o755)
+except Exception as e:
+    import sys
+    print(f"Warning: Error creating media directories: {str(e)}", file=sys.stderr)
+    # Continue execution rather than failing - the application can still function
+    # and our middleware will handle missing files gracefully
 
 # Custom storage settings for Railway deployment
 DEFAULT_FILE_STORAGE = 'django.core.files.storage.FileSystemStorage'
