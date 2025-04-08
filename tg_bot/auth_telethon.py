@@ -1,21 +1,19 @@
 import os
 import asyncio
 import logging
-import argparse
-from telethon import TelegramClient, errors
-from tg_bot.config import API_ID, API_HASH
-import sys
 import traceback
-from telethon.errors import SessionPasswordNeededError, FloodWaitError, PhoneCodeInvalidError
-import django
-from asgiref.sync import sync_to_async
 import shutil
 from asyncio import sleep
 from django.conf import settings
+from tg_bot.config import API_ID, API_HASH
+from telethon import TelegramClient
+from telethon import errors
+from telethon.errors import FloodWaitError, PhoneCodeInvalidError, SessionPasswordNeededError
+from asgiref.sync import sync_to_async
 from datetime import datetime
 import time
 
-# Set up logging
+# Setup logging
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -23,79 +21,12 @@ logging.basicConfig(
 )
 logger = logging.getLogger('telethon_auth')
 
-# Configure Django for model access
-os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'core.settings')
-django.setup()
-
-from admin_panel.models import TelegramSession
-
 # Global variables to store code input state
 _waiting_for_code = {}
 _input_codes = {}
 _waiting_for_password = {}
 _input_passwords = {}
 _clients = {}
-
-async def verify_session(session_path, api_id=None, api_hash=None):
-    """
-    Verify if a session file is properly authorized
-    
-    Args:
-        session_path: Path to the session file without .session extension
-        api_id: Telegram API ID
-        api_hash: Telegram API Hash
-        
-    Returns:
-        tuple: (bool is_authorized, dict user_info or None)
-    """
-    if not api_id:
-        api_id = API_ID
-    if not api_hash:
-        api_hash = API_HASH
-        
-    # Get just the filename without path or extension
-    session_name = os.path.basename(session_path)
-    if session_name.endswith('.session'):
-        session_name = session_name[:-8]
-        
-    logger.info(f"Verifying session: {session_path}")
-    
-    if not os.path.exists(f"{session_path}.session"):
-        logger.warning(f"Session file not found: {session_path}.session")
-        return False, None
-        
-    client = TelegramClient(session_path, api_id, api_hash)
-    
-    try:
-        await client.connect()
-        
-        if not await client.is_user_authorized():
-            logger.warning(f"Session file exists but is not authorized: {session_path}")
-            await client.disconnect()
-            return False, None
-            
-        # Get user info
-        me = await client.get_me()
-        user_info = {
-            'id': me.id,
-            'first_name': me.first_name,
-            'last_name': getattr(me, 'last_name', ''),
-            'username': getattr(me, 'username', ''),
-            'phone': getattr(me, 'phone', '')
-        }
-        
-        logger.info(f"Session verified: {session_path} is authorized as @{user_info.get('username')}")
-        await client.disconnect()
-        return True, user_info
-        
-    except Exception as e:
-        logger.error(f"Error verifying session {session_path}: {e}")
-        logger.error(traceback.format_exc())
-        try:
-            await client.disconnect()
-        except:
-            pass
-        return False, None
 
 async def input_code(phone, code):
     """
@@ -504,68 +435,6 @@ async def _update_session_in_db(phone, api_id, api_hash, session_file, needs_aut
         logger.error(traceback.format_exc())
         return None
 
-async def verify_all_sessions_in_db():
-    """Verify all sessions in the database and update their status"""
-    
-    @sync_to_async
-    def get_active_sessions():
-        return list(TelegramSession.objects.filter(is_active=True))
-    
-    @sync_to_async
-    def update_session(session, path):
-        session.session_file = path
-        session.needs_auth = False
-        session.save()
-        
-    @sync_to_async
-    def mark_session_needs_auth(session):
-        session.needs_auth = True
-        session.save()
-    
-    sessions = await get_active_sessions()
-    logger.info(f"Verifying {len(sessions)} active sessions from database")
-    
-    results = []
-    
-    for session in sessions:
-        # Define possible session paths
-        session_name = session.session_file or f"telethon_session_{session.id}"
-        possible_paths = [
-            session_name,
-            f"data/sessions/{session_name}",
-            f"telethon_session_{session.id}",
-            f"data/sessions/telethon_session_{session.id}",
-            f"telethon_session_{session.phone.replace('+', '')}"
-        ]
-        
-        # Try each path
-        authorized = False
-        user_info = None
-        
-        for path in possible_paths:
-            if os.path.exists(f"{path}.session"):
-                is_auth, info = await verify_session(path, session.api_id, session.api_hash)
-                if is_auth:
-                    authorized = True
-                    user_info = info
-                    await update_session(session, path)
-                    break
-        
-        if not authorized:
-            logger.warning(f"Session {session.id} ({session.phone}) is not properly authorized")
-            await mark_session_needs_auth(session)
-        else:
-            logger.info(f"Session {session.id} ({session.phone}) is valid")
-            
-        results.append({
-            'session_id': session.id,
-            'phone': session.phone,
-            'authorized': authorized,
-            'user_info': user_info
-        })
-    
-    return results
-
 async def restore_session_from_db(session_id_or_phone):
     """
     Restore a session file from the database encoded data
@@ -648,49 +517,5 @@ async def restore_session_from_db(session_id_or_phone):
         logger.error(f"Error in restore_session_from_db: {e}")
         logger.error(traceback.format_exc())
         return False, None
-
-async def main():
-    """Main function to run the script with command-line arguments"""
-    parser = argparse.ArgumentParser(description='Telegram Session Creator and Verifier')
-    parser.add_argument('--phone', type=str, help='Phone number with country code (e.g. +380667264351)')
-    parser.add_argument('--verify', action='store_true', help='Verify all sessions in database')
-    parser.add_argument('--verify-file', type=str, help='Verify a specific session file')
-    args = parser.parse_args()
-    
-    print("\n=== Telethon Session Manager ===\n")
-    
-    if args.verify:
-        results = await verify_all_sessions_in_db()
-        print(f"\nVerified {len(results)} sessions:")
-        for result in results:
-            status = "✅ Authorized" if result['authorized'] else "❌ Not authorized"
-            phone = result['phone']
-            print(f"- Session ID {result['session_id']} ({phone}): {status}")
-        return
-    
-    if args.verify_file:
-        is_auth, user_info = await verify_session(args.verify_file)
-        if is_auth:
-            print(f"\n✅ Session {args.verify_file} is authorized")
-            print(f"User: {user_info['first_name']} {user_info['last_name']} (@{user_info['username']})")
-        else:
-            print(f"\n❌ Session {args.verify_file} is NOT authorized")
-        return
-        
-    # Create a new session
-    phone = args.phone if args.phone else input("Enter phone number (with country code, e.g. +380123456789): ")
-    
-    success = await create_session_file(phone)
-    
-    if success:
-        print("\n✅ Session created successfully!")
-        print(f"The session file has been created and the session is registered in the database.")
-        print(f"You can now use this session for parsing messages from Telegram channels.")
-    else:
-        print("\n❌ Failed to create session.")
-        print("Please check the logs for more information.")
-
-if __name__ == "__main__":
-    asyncio.run(main())
 
 

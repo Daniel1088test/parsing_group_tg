@@ -277,4 +277,4 @@ class Command(BaseCommand):
             
         except Exception as e:
             self.stdout.write(self.style.ERROR(f'Error in fix_media_files: {e}'))
-            self.stdout.write(self.style.ERROR(f'Traceback: {traceback.format_exc()}')) 
+            self.stdout.write(self.style.ERROR(f'Traceback: {traceback.format_exc()}'))

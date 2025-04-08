@@ -279,4 +279,4 @@ def main():
     logger.info("Media fixing operations completed successfully!")
 
 if __name__ == "__main__":
-    main() 
+    main()

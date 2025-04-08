@@ -130,4 +130,4 @@ class Command(BaseCommand):
             return False
         except Exception as e:
             self.stdout.write(self.style.ERROR(f"Error verifying session {session_id}: {str(e)}"))
-            return False 
+            return False

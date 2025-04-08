@@ -142,4 +142,4 @@ async def get_sessions():
 if __name__ == "__main__":
     logger.info(f"=== Authentication System Verification ({datetime.now().strftime('%Y-%m-%d %H:%M:%S')}) ===")
     asyncio.run(verify_auth_system())
-    logger.info("=== Verification Complete ===") 
+    logger.info("=== Verification Complete ===")

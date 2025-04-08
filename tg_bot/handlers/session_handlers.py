@@ -371,6 +371,7 @@ async def process_code(message: Message, state: FSMContext):
                         src_path = "telethon_user_session.session"
                         if os.path.exists(src_path):
                             with open(src_path, 'rb') as f:
+                                import base64
                                 session_data = f.read()
                                 session.session_data = base64.b64encode(session_data).decode('utf-8')
                                 logger.info(f"Encoded session data for persistence ({len(session.session_data)} bytes)")
@@ -455,14 +456,13 @@ async def process_code(message: Message, state: FSMContext):
                     reply_markup=main_menu_keyboard
                 )
                 
-                # Clean up and clear state
-                if telethon_client:
-                    await telethon_client.disconnect()
-                    telethon_client = None
-                    telethon_phone = None
-                
+                # Clear the state even on error
                 await state.clear()
-            
+                
+                # Reset Telethon client variables
+                telethon_client = None
+                telethon_phone = None
+                
         except errors.SessionPasswordNeededError:
             # Two-factor authentication is enabled
             await message.answer(
@@ -576,7 +576,7 @@ async def process_api_hash(message: Message, state: FSMContext):
     
     await state.clear()
 
-@router.message(F.text == "📋 List of sessions")
+@router.message(F.text == "�� List of sessions")
 async def show_sessions_list(message: Message):
     """Displaying the list of all sessions"""
     # get the sessions asynchronously
@@ -745,6 +745,7 @@ async def process_2fa_password(message: Message, state: FSMContext):
                         src_path = "telethon_user_session.session"
                         if os.path.exists(src_path):
                             with open(src_path, 'rb') as f:
+                                import base64
                                 session_data = f.read()
                                 session.session_data = base64.b64encode(session_data).decode('utf-8')
                                 logger.info(f"Encoded session data for persistence ({len(session.session_data)} bytes)")
@@ -859,4 +860,4 @@ async def process_2fa_password(message: Message, state: FSMContext):
     finally:
         # We don't need to do anything more in the finally block
         # since we've added proper cleanup in each case above
-        pass 
+        pass

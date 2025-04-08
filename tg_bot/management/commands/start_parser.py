@@ -44,4 +44,4 @@ class Command(BaseCommand):
         except subprocess.SubprocessError as e:
             self.stdout.write(self.style.ERROR(f'Error starting parser: {e}'))
         except KeyboardInterrupt:
-            self.stdout.write(self.style.SUCCESS('Parser stopped by user')) 
+            self.stdout.write(self.style.SUCCESS('Parser stopped by user'))

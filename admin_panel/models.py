@@ -31,38 +31,26 @@ class Channel(models.Model):
 
 class TelegramSession(models.Model):
     """Telegram session model for storing session data"""
-    session_name = models.CharField(max_length=255, default="default")
     phone = models.CharField(max_length=20, unique=True)
-    api_id = models.CharField(max_length=255, blank=True, null=True)
-    api_hash = models.CharField(max_length=255, blank=True, null=True)
-    session_string = models.TextField(blank=True, null=True)
+    api_id = models.CharField(max_length=255)
+    api_hash = models.CharField(max_length=255)
     is_active = models.BooleanField(default=True)
-    is_bot = models.BooleanField(default=False)
-    verification_code = models.CharField(max_length=10, blank=True, null=True)
-    password = models.CharField(max_length=255, blank=True, null=True)
-    session_data = models.TextField(blank=True, null=True)
-    auth_token = models.CharField(max_length=255, blank=True, null=True)
-    needs_auth = models.BooleanField(default=False)
-    session_file = models.CharField(max_length=255, blank=True, null=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
-    
-    # Managers
-    objects = models.Manager()  # Default manager
-    safe_objects = TelegramSessionManager()  # Safe manager that handles missing columns
-    
-    def save(self, *args, **kwargs):
-        # Make sure we don't save sensitive data in clear text in production
-        if not self.session_name:
-            self.session_name = f"session_{self.phone}"
-        super().save(*args, **kwargs)
-    
-    class Meta:
-        verbose_name = "Telegram Session"
-        verbose_name_plural = "Telegram Sessions"
+    session_file = models.CharField(max_length=255, blank=True, null=True)
+    session_data = models.TextField(blank=True, null=True, help_text="Encoded session data for persistent storage")
+    needs_auth = models.BooleanField(default=True, help_text="Indicates if this session needs manual authentication")
+    auth_token = models.CharField(max_length=255, blank=True, null=True, help_text="Token for authorizing this session via bot")
     
     def __str__(self):
-        return f"{self.phone} ({self.session_name})"
+        status = "Active" if self.is_active else "Inactive"
+        auth_status = " (Needs Auth)" if self.needs_auth else ""
+        return f"{self.phone} - {status}{auth_status}"
+    
+    class Meta:
+        verbose_name = 'Telegram Session'
+        verbose_name_plural = 'Telegram Sessions'
+        ordering = ['-created_at']
 
 class Category(models.Model):
     name = models.CharField(max_length=255)
@@ -81,70 +69,78 @@ class Category(models.Model):
         return self.name
 
 class Message(models.Model):
-    text = models.TextField(blank=True, null=True)
-    media = models.FileField(upload_to='messages/', blank=True, null=True)
-    media_type = models.CharField(max_length=255, blank=True, null=True)
-    original_url = models.URLField(max_length=500, blank=True, null=True, help_text="Original media URL from Telegram")
-    telegram_message_id = models.CharField(max_length=255, blank=True, null=True)
-    telegram_channel_id = models.CharField(max_length=255, blank=True, null=True)
-    telegram_link = models.URLField(max_length=255, blank=True, null=True)
-    channel = models.ForeignKey(Channel, on_delete=models.CASCADE, related_name='messages')
+    text = models.TextField()
+    media = models.FileField(upload_to='messages/', null=True, blank=True)
+    media_type = models.CharField(max_length=255, null=True, blank=True)
+    original_url = models.URLField(max_length=500, null=True, blank=True, help_text="Original media URL from Telegram")
+    telegram_message_id = models.CharField(max_length=255)
+    telegram_channel_id = models.CharField(max_length=255)
+    telegram_link = models.URLField(max_length=255)
+    channel = models.ForeignKey(Channel, on_delete=models.CASCADE)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     session_used = models.ForeignKey(TelegramSession, on_delete=models.SET_NULL, null=True, blank=True, related_name='messages')
     
     def __str__(self):
-        return f"{self.telegram_message_id} ({self.channel.name})"
+        return f"{self.telegram_message_id} - {self.text[:10]}"
     
-    def get_media_path(self):
-        """Return the absolute path to the media file"""
-        if self.media and hasattr(self.media, 'path'):
-            return self.media.path
-        return None
+    def save(self, *args, **kwargs):
+        # If this is a new message with media, ensure correct permissions
+        if self.pk is None and self.media:
+            super().save(*args, **kwargs)
+            # Set permissions on media file after saving
+            try:
+                import os
+                media_path = self.media.path
+                if os.path.exists(media_path):
+                    os.chmod(media_path, 0o644)
+            except Exception as e:
+                # Don't let permission errors prevent saving
+                print(f"Error setting file permissions: {e}")
+        else:
+            super().save(*args, **kwargs)
     
     class Meta:
         verbose_name = 'Message'
         verbose_name_plural = 'Messages'
-        ordering = ['-created_at']
+        ordering = ['created_at']
 
 class BotSettings(models.Model):
-    """Global settings for the Telegram bot operation"""
-    bot_token = models.CharField(max_length=255, blank=True, null=True)
-    default_api_id = models.IntegerField(default=2496)
-    default_api_hash = models.CharField(max_length=255, blank=True, null=True)
-    polling_interval = models.IntegerField(default=30, help_text="How often to check for new messages (in seconds)")
-    max_messages_per_channel = models.IntegerField(default=10, help_text="Maximum number of messages to fetch per channel")
+    """Settings for the Telegram bot and authentication"""
+    bot_username = models.CharField(max_length=100, default="Channels_hunt_bot", 
+                                   help_text="Username of your Telegram bot (without @)")
+    bot_name = models.CharField(max_length=100, default="Channel Parser Bot", 
+                               help_text="Display name of your bot")
+    auth_guide_text = models.TextField(default="Please follow these steps to authorize your Telegram account",
+                                     help_text="Text shown during authorization process")
+    welcome_message = models.TextField(default="Welcome to the Channel Parser Bot. Use the menu below:",
+                                     help_text="Welcome message shown to users")
+    menu_style = models.CharField(max_length=20, choices=(
+        ('default', 'Default Layout'),
+        ('compact', 'Compact Layout'),
+        ('expanded', 'Expanded Layout')
+    ), default='default')
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
-
-    class Meta:
-        verbose_name = "Bot Settings"
-        verbose_name_plural = "Bot Settings"
-
+    
     def __str__(self):
-        return "Bot Settings"
+        return f"Bot Settings (@{self.bot_username})"
+    
+    class Meta:
+        verbose_name = 'Bot Settings'
+        verbose_name_plural = 'Bot Settings'
+        
+    def save(self, *args, **kwargs):
+        # Ensure only one instance exists
+        if BotSettings.objects.exists() and not self.pk:
+            raise ValueError("Only one Bot Settings instance can exist")
+        return super().save(*args, **kwargs)
         
     @classmethod
     def get_settings(cls):
-        """Get the bot settings, creating a default instance if none exists"""
-        try:
-            settings, created = cls.objects.get_or_create(pk=1)
-            return settings
-        except Exception as e:
-            # Якщо виникає помилка з базою даних, повертаємо налаштування за замовчуванням
-            import logging
-            logger = logging.getLogger(__name__)
-            logger.error(f"Error getting bot settings: {e}")
-            
-            # Створюємо тимчасовий об'єкт без збереження в БД
-            default_settings = cls()
-            default_settings.bot_token = "7923260865:AAGWm7t0Zz2PqFPI5PldEVwrOC4HZ_5oP0c"
-            default_settings.default_api_id = 2496
-            default_settings.default_api_hash = "c839f28bad345082329ec086fca021fa"
-            default_settings.polling_interval = 30
-            default_settings.max_messages_per_channel = 10
-            
-            return default_settings
+        """Get the single instance or create with defaults"""
+        obj, created = cls.objects.get_or_create(pk=1)
+        return obj
 
 class TelegramChannel(models.Model):
     """Modern Telegram Channel model"""

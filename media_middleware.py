@@ -103,4 +103,4 @@ class MediaRedirectMiddleware:
                 return HttpResponseNotFound("Media file not found")
         
         # For non-media requests, just pass through
-        return self.get_response(request) 
+        return self.get_response(request)

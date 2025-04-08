@@ -68,6 +68,7 @@ MIDDLEWARE = [
     
     # Standard Django middleware
     'django.middleware.security.SecurityMiddleware',
+    'whitenoise.middleware.WhiteNoiseMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -76,7 +77,7 @@ MIDDLEWARE = [
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
     
     # Custom media handling middleware
-    'core.health_middleware.MediaFilesMiddleware',
+    'core.middleware.MediaFilesMiddleware',
 ]
 
 # Ensure database connections are released in long-running apps
@@ -169,6 +170,32 @@ STATICFILES_DIRS = [
 MEDIA_URL = '/media/'
 MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
 
+# Ensure media directories exist with proper error handling
+try:
+    # Create media root if it doesn't exist
+    if not os.path.exists(MEDIA_ROOT):
+        os.makedirs(MEDIA_ROOT, exist_ok=True)
+        # Set permissions on the media root directory
+        os.chmod(MEDIA_ROOT, 0o755)
+    
+    # Create messages directory if it doesn't exist
+    messages_dir = os.path.join(MEDIA_ROOT, 'messages')
+    if not os.path.exists(messages_dir):
+        os.makedirs(messages_dir, exist_ok=True)
+        # Set permissions on the messages directory
+        os.chmod(messages_dir, 0o755)
+except Exception as e:
+    import sys
+    print(f"Warning: Error creating media directories: {str(e)}", file=sys.stderr)
+    # Continue execution rather than failing - the application can still function
+    # and our middleware will handle missing files gracefully
+
+# Custom storage settings for Railway deployment
+DEFAULT_FILE_STORAGE = 'django.core.files.storage.FileSystemStorage'
+if not DEBUG and RAILWAY_PUBLIC_DOMAIN:
+    # Use custom storage for Railway deployment
+    DEFAULT_FILE_STORAGE = 'core.storage.RailwayMediaStorage'
+
 # Default primary key field type
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
@@ -236,7 +263,3 @@ os.makedirs(os.path.join(BASE_DIR, 'logs'), exist_ok=True)
 PUBLIC_URL = os.environ.get('PUBLIC_URL', os.environ.get('RAILWAY_PUBLIC_URL', ''))
 if PUBLIC_URL:
     print(f"Bot will use PUBLIC_URL: {PUBLIC_URL}")
-
-# Check if essential directories exist
-for directory in [STATIC_ROOT, MEDIA_ROOT, os.path.join(MEDIA_ROOT, 'messages')]:
-    os.makedirs(directory, exist_ok=True)

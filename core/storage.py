@@ -52,4 +52,4 @@ def init_railway_storage():
     """Initialize the Railway storage system"""
     storage = RailwayMediaStorage()
     logger.info("Railway media storage initialized")
-    return storage 
+    return storage

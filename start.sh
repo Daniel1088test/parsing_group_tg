@@ -176,4 +176,4 @@ echo "Bot started with PID: $BOT_PID"
 
 # Monitor processes
 echo "All processes started. Monitoring..."
-wait $GUNICORN_PID 
+wait $GUNICORN_PID

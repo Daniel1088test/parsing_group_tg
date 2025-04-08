@@ -8,6 +8,7 @@ import traceback
 from datetime import datetime
 import django
 from typing import Dict, Optional, Tuple
+import uuid
 
 from telethon import TelegramClient, errors, client
 from telethon.tl.functions.channels import JoinChannelRequest
@@ -70,29 +71,11 @@ def _save_message_to_db(message_data):
                         media_path = f"messages/{found_file}"
                         logger.info(f"Found alternative media file: {found_file}")
                     else:
-                        # If we have an original URL, keep the media_type but clear the media path
-                        if message_data.get('original_url'):
-                            logger.info(f"No media file found, but have original URL: {message_data.get('original_url')}")
-                            media_path = ""
-                        else:
-                            # Don't save non-existent media paths if no original URL
-                            media_path = ""
-                            logger.warning(f"No media file found and no original URL available")
+                        # Don't save non-existent media paths
+                        media_path = ""
                 else:
-                    # Create the directory if it doesn't exist - this helps with future saves
-                    try:
-                        os.makedirs(dir_name, exist_ok=True)
-                        logger.info(f"Created directory for media: {dir_name}")
-                    except Exception as e:
-                        logger.warning(f"Could not create media directory: {e}")
-                    
-                    # If we have an original URL, keep the media_type but clear the media path
-                    if message_data.get('original_url'):
-                        logger.info(f"Media directory doesn't exist, but have original URL: {message_data.get('original_url')}")
-                        media_path = ""
-                    else:
-                        # Don't save non-existent media paths if no original URL
-                        media_path = ""
+                    # Don't save non-existent media paths
+                    media_path = ""
         
         # Get original URL from message_data if available
         original_url = message_data.get('original_url')
@@ -240,24 +223,94 @@ async def get_channel_messages(client, channel_identifier, max_messages=10):
 
 async def download_media(client, message, media_dir):
     """
-    downloading media from the message and returning the path to the file
+    Download media from the message and return the path to the file.
+    This version is optimized for Railway's ephemeral filesystem.
     """
     try:
         if message.media:
-            os.makedirs(media_dir, exist_ok=True)
-            timestamp = message.date.strftime("%Y%m%d_%H%M%S")
-            file_path = await message.download_media(
-                file=os.path.join(media_dir, f"{message.id}_{timestamp}")
-            )
-            if file_path:
-                logger.debug(f"Downloaded media: {os.path.basename(file_path)}")
-                return os.path.basename(file_path)
-            else:
-                logger.warning(f"Unable to download media for message {message.id}")
+            # Get the absolute path for media directory
+            from django.conf import settings
+            import os
+            import re
+            import uuid
+            import shutil
+            
+            # Use Django's MEDIA_ROOT to ensure we're saving in the right place
+            absolute_media_dir = os.path.join(settings.MEDIA_ROOT, media_dir)
+            
+            # Ensure the directory exists with proper permissions
+            os.makedirs(absolute_media_dir, exist_ok=True)
+            
+            # Make sure media directory has correct permissions
+            try:
+                os.chmod(absolute_media_dir, 0o755)
+            except Exception as e:
+                logger.warning(f"Could not set permissions on media directory: {e}")
+            
+            # Create a unique ID based on message ID and timestamp
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            unique_id = str(uuid.uuid4().hex[:8])
+            
+            # Create safe file name without special characters
+            message_id = getattr(message, 'id', 0)
+            file_name = f"{message_id}_{timestamp}_{unique_id}"
+            file_name = re.sub(r'[^\w\-_\.]', '_', file_name)  # Replace any non-safe chars
+            safe_path = os.path.join(absolute_media_dir, file_name)
+            
+            try:
+                # Download the media with the safe path
+                file_path = await message.download_media(file=safe_path)
+                
+                if file_path:
+                    # Verify the file actually exists
+                    if os.path.exists(file_path):
+                        # Get just the filename part (no directories)
+                        base_name = os.path.basename(file_path)
+                        logger.info(f"Successfully downloaded media: {base_name}")
+                        
+                        # Make sure the file has correct permissions
+                        try:
+                            os.chmod(file_path, 0o644)
+                        except Exception as e:
+                            logger.warning(f"Could not set permissions on file {file_path}: {e}")
+                        
+                        # Make sure the file is readable
+                        try:
+                            with open(file_path, 'rb') as f:
+                                # Just check if we can read a few bytes
+                                f.read(10)
+                                
+                            # Create a copy of the file with the correct extension based on file content
+                            import mimetypes
+                            content_type, encoding = mimetypes.guess_type(file_path)
+                            
+                            if content_type:
+                                extension = mimetypes.guess_extension(content_type) or ''
+                                if extension and not file_path.endswith(extension):
+                                    new_path = f"{file_path}{extension}"
+                                    shutil.copy2(file_path, new_path)
+                                    logger.info(f"Created copy with correct extension: {os.path.basename(new_path)}")
+                                    # Use the new file with extension
+                                    return os.path.basename(new_path)
+                        except Exception as e:
+                            logger.error(f"Downloaded file exists but is not readable: {e}")
+                            return None
+                        
+                        return base_name
+                    else:
+                        logger.warning(f"Download completed but file doesn't exist: {file_path}")
+                        return None
+                else:
+                    logger.warning(f"Unable to download media for message {message_id}")
+                    return None
+            except Exception as e:
+                logger.error(f"Error downloading media: {e}")
+                logger.error(traceback.format_exc())
                 return None
         return None
     except Exception as e:
-        logger.error(f"Error downloading media: {e}")
+        logger.error(f"Error in download_media: {e}")
+        logger.error(traceback.format_exc())
         return None
 
 async def save_message_to_data(message, channel, queue, category_id=None, client=None, session=None):
@@ -268,143 +321,115 @@ async def save_message_to_data(message, channel, queue, category_id=None, client
         # data about media
         media_type = None
         media_file = None
-        original_url = None
+        original_file_url = None  # Store the original Telegram URL if available
         
         # determine the type of media and download it
         if message.media and client:
-            if isinstance(message.media, MessageMediaPhoto):
-                media_type = "photo"
-                
-                # First try to create an embed URL
-                try:
-                    original_url = f"https://t.me/c/{message.peer_id.channel_id}/{message.id}?embed=1"
-                    logger.info(f"Created embed URL for photo: {original_url}")
-                except Exception as e:
-                    logger.warning(f"Could not create embed URL: {e}")
-                
-                # Check if media directory is accessible
-                if os.path.exists("media/messages") and os.access("media/messages", os.W_OK):
-                    logger.info(f"Media directory is writable: {os.path.abspath('media/messages')}")
-                    
-                    # Download the media file
-                    media_file = await download_media(client, message, "media/messages")
-                    
-                    # Add extension if missing
-                    if media_file and not os.path.splitext(media_file)[1]:
-                        # Add .jpg extension if missing
-                        new_path = f"{media_file}.jpg"
-                        try:
-                            # Rename the file
-                            os.rename(
-                                os.path.join("media/messages", media_file),
-                                os.path.join("media/messages", new_path)
-                            )
-                            logger.info(f"Added .jpg extension to media file: {new_path}")
-                            media_file = new_path
-                        except Exception as e:
-                            logger.error(f"Error adding extension to media file: {e}")
-                    
-                    logger.info(f"Successfully downloaded media: {media_file}")
-                else:
-                    logger.warning("Media directory is not accessible, skipping download")
-                
-                logger.debug(f"Media type: photo, file: {media_file}")
-                
-            elif isinstance(message.media, MessageMediaDocument):
-                if message.media.document.mime_type.startswith('video'):
-                    media_type = "video"
-                    # Create embed URL for videos
+            try:
+                if isinstance(message.media, MessageMediaPhoto):
+                    media_type = "photo"
+                    # Try to get file directly from Telegram
                     try:
-                        original_url = f"https://t.me/c/{message.peer_id.channel_id}/{message.id}?embed=1"
+                        # Get the photo with the highest resolution
+                        photo = message.photo
+                        if photo:
+                            # Use the embed format for direct Telegram viewing
+                            channel_id = getattr(message.peer_id, 'channel_id', 0)
+                            original_file_url = f"https://t.me/c/{channel_id}/{message.id}?embed=1"
+                            logger.info(f"Created embed URL for photo: {original_file_url}")
                     except Exception as e:
-                        logger.warning(f"Could not create embed URL: {e}")
-                elif message.media.document.mime_type.startswith('image'):
-                    media_type = "gif" if message.media.document.mime_type == 'image/gif' else "image"
-                else:
-                    media_type = "document"
-                
-                # Check if media directory is accessible
-                if os.path.exists("media/messages") and os.access("media/messages", os.W_OK):
-                    logger.info(f"Media directory is writable: {os.path.abspath('media/messages')}")
-                    
+                        logger.warning(f"Could not get direct photo URL: {e}")
+                        
                     # Download the media file
-                    media_file = await download_media(client, message, "media/messages")
+                    media_file = await download_media(client, message, "messages")
+                    logger.info(f"Media type: photo, file: {media_file}")
+                elif isinstance(message.media, MessageMediaDocument):
+                    document = message.media.document
+                    mime_type = document.mime_type if hasattr(document, 'mime_type') else ''
                     
-                    # Add extension if missing
-                    if media_file and not os.path.splitext(media_file)[1]:
-                        # Determine extension based on media type
-                        extension = ""
-                        if media_type == "video":
-                            extension = ".mp4"
-                        elif media_type in ["gif", "image"]:
-                            extension = ".gif" if media_type == "gif" else ".jpg"
+                    if mime_type.startswith('video'):
+                        media_type = "video"
+                        # Create proper embed URL format for videos
+                        try:
+                            channel_id = getattr(message.peer_id, 'channel_id', 0)
+                            original_file_url = f"https://t.me/c/{channel_id}/{message.id}?embed=1"
+                            logger.info(f"Created embed URL for video: {original_file_url}")
+                        except Exception as e:
+                            logger.warning(f"Could not create video embed URL: {e}")
+                    elif mime_type.startswith('image'):
+                        media_type = "gif" if mime_type == 'image/gif' else "image"
+                        # Create embed URL for GIFs and images too
+                        try:
+                            channel_id = getattr(message.peer_id, 'channel_id', 0)
+                            original_file_url = f"https://t.me/c/{channel_id}/{message.id}?embed=1"
+                            logger.info(f"Created embed URL for {media_type}: {original_file_url}")
+                        except Exception as e:
+                            logger.warning(f"Could not create {media_type} embed URL: {e}")
+                    else:
+                        media_type = "document"
+                        # For documents, use standard Telegram link
+                        try:
+                            channel_id = getattr(message.peer_id, 'channel_id', 0)
+                            original_file_url = f"https://t.me/c/{channel_id}/{message.id}"
+                            logger.info(f"Created link for document: {original_file_url}")
+                        except Exception as e:
+                            logger.warning(f"Could not create document link: {e}")
                         
-                        if extension:
-                            new_path = f"{media_file}{extension}"
-                            try:
-                                # Rename the file
-                                os.rename(
-                                    os.path.join("media/messages", media_file),
-                                    os.path.join("media/messages", new_path)
-                                )
-                                logger.info(f"Added {extension} extension to media file: {new_path}")
-                                media_file = new_path
-                            except Exception as e:
-                                logger.error(f"Error adding extension to media file: {e}")
+                    # Download the document
+                    media_file = await download_media(client, message, "messages")
+                    logger.info(f"Media type: {media_type}, file: {media_file}, mime: {mime_type}")
+                elif isinstance(message.media, MessageMediaWebPage):
+                    media_type = "webpage"
+                    # Try to extract media from the webpage
+                    try:
+                        webpage = message.media.webpage
+                        if hasattr(webpage, 'photo'):
+                            media_type = "webpage_photo"
+                            # Try to get the URL directly
+                            if hasattr(webpage, 'url'):
+                                original_file_url = webpage.url
+                            else:
+                                # Fallback to embed URL
+                                channel_id = getattr(message.peer_id, 'channel_id', 0)
+                                original_file_url = f"https://t.me/c/{channel_id}/{message.id}?embed=1"
+                            # Also download the photo
+                            media_file = await download_media(client, message, "messages")
+                        elif hasattr(webpage, 'url'):
+                            original_file_url = webpage.url
+                    except Exception as e:
+                        logger.warning(f"Error processing webpage media: {e}")
                     
-                    if media_file:
-                        logger.info(f"Successfully downloaded media: {media_file}")
-                        logger.debug(f"Downloaded media bytes: {os.path.getsize(os.path.join('media/messages', media_file))} bytes")
-                else:
-                    logger.warning("Media directory is not accessible, skipping download")
-                
-                logger.debug(f"Media type: {media_type}, file: {media_file}")
-                
-            elif isinstance(message.media, MessageMediaWebPage):
-                media_type = "webpage"
-                
-                # Check if the webpage has a photo
-                if hasattr(message.media.webpage, 'photo') and message.media.webpage.photo:
-                    media_type = "webpage_photo"
-                    
-                    # Try to download the preview image
-                    if os.path.exists("media/messages") and os.access("media/messages", os.W_OK):
-                        logger.info(f"Media directory is writable: {os.path.abspath('media/messages')}")
-                        media_file = await download_media(client, message, "media/messages")
-                        
-                        # Add extension if missing
-                        if media_file and not os.path.splitext(media_file)[1]:
-                            new_path = f"{media_file}.jpg"
-                            try:
-                                os.rename(
-                                    os.path.join("media/messages", media_file),
-                                    os.path.join("media/messages", new_path)
-                                )
-                                logger.info(f"Added .jpg extension to webpage preview: {new_path}")
-                                media_file = new_path
-                            except Exception as e:
-                                logger.error(f"Error adding extension to webpage preview: {e}")
-                    
-                # If there's a URL, save it as the original URL
-                if hasattr(message.media.webpage, 'url') and message.media.webpage.url:
-                    original_url = message.media.webpage.url
-                    logger.info(f"Media type: {media_type}, webpage URL: {original_url}")
+                    logger.info(f"Media type: {media_type}, webpage URL: {original_file_url}")
+            except Exception as e:
+                logger.error(f"Error processing media: {e}")
+                logger.error(traceback.format_exc())
         
         # get the channel name
         channel_name = getattr(channel, 'title', None) or getattr(channel, 'name', 'Unknown channel')
+        channel_id = getattr(message.peer_id, 'channel_id', None)
+        
+        if not channel_id:
+            logger.warning(f"No channel_id in message {message.id} from {channel_name}")
+            channel_id = 0
+        
+        # Handle the date - always ensure it's a datetime object or properly formatted string
+        message_date = datetime.now()  # Use current time instead of message.date
+        
+        # Format datetime as string
+        formatted_date = message_date.strftime("%Y-%m-%d %H:%M:%S")
         
         # save the message
         message_info = {
-            'text': message.text,
-            'media': "messages/" + media_file if media_file else "",
+            'text': message.text or "",
+            'media': media_file or "",
             'media_type': media_type if media_type else None,
+            'original_url': original_file_url,
             'message_id': message.id,
-            'channel_id': message.peer_id.channel_id,
+            'channel_id': channel_id,
             'channel_name': channel_name,
-            'link': f"https://t.me/c/{message.peer_id.channel_id}/{message.id}",
-            'date': message.date.strftime("%Y-%m-%d %H:%M:%S"),
-            'session_used': session,
-            'original_url': original_url
+            'link': f"https://t.me/c/{channel_id}/{message.id}" if channel_id else "#",
+            'date': formatted_date,
+            'session_used': session
         }
         
         # save to DB
@@ -423,8 +448,7 @@ async def save_message_to_data(message, channel, queue, category_id=None, client
         
         session_info = f" (via {session.phone})" if session else ""
         media_status = f", with media: {media_file}" if media_file else ""
-        original_url_info = f", original URL: {original_url}" if original_url else ""
-        logger.info(f"Saved message {message.id} from channel '{channel_name}'{session_info}{media_status}{original_url_info}")
+        logger.info(f"Saved message {message.id} from channel '{channel_name}'{session_info}{media_status}")
         
         return saved_message
 
@@ -536,7 +560,7 @@ async def initialize_client(session_id=None, session_filename=None):
                 await mark_needs_auth()
                 logger.info(f"Session {session_id} needs to be authenticated via the bot interface. Please use the Telegram bot.")
                 return None, None
-        
+    
     # Fall back to default session files if no specific session was found
     if not session_filename:
         for default_file in ['telethon_user_session', 'telethon_session', 'anon']:

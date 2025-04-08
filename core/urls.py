@@ -211,26 +211,18 @@ def simple_index_view(request):
 
 # Simplified URL patterns with reliable health check and redirect
 urlpatterns = [
-    # Health check endpoint (critical for Railway)
-    path('health/', health_check_view, name='health'),
-    path('healthz/', health_check_view, name='healthz'),
-    path('ping/', health_check_view, name='ping'),
-    
-    # Admin panel URLs
     path('admin/', admin.site.urls),
-    path('admin_panel/', include('admin_panel.urls')),
+    path('', include('admin_panel.urls')),
+    path('health/', lambda request: HttpResponse("OK")),
+    path('favicon.ico', RedirectView.as_view(url='/static/favicon.ico')),
     
-    # API URLs
-    path('api/', include('tg_bot.urls')),
-    
-    # Redirect root to admin panel
-    path('', simple_index_view, name='index'),
+    # Explicitly handle media files
+    path('messages/<path:path>', serve_media, name='serve_media'),
 ]
 
-# Add serving of static and media files in development
+# Static files handling
+urlpatterns += static(settings.STATIC_URL, document_root=settings.STATIC_ROOT)
+
+# Media files handling (fallback)
 if settings.DEBUG:
-    urlpatterns += static(settings.STATIC_URL, document_root=settings.STATIC_ROOT)
-    urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
-else:
-    # In production, we still need to serve media files (even though static is handled by whitenoise)
     urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

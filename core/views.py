@@ -100,4 +100,4 @@ def serve_media(request, path):
         logger.error(f"Error creating placeholder for {path}: {e}")
     
     # If all else fails, return 404
-    return HttpResponse(f"Media file not found: {path}", status=404) 
+    return HttpResponse(f"Media file not found: {path}", status=404)

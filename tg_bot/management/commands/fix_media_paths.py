@@ -82,4 +82,4 @@ class Command(BaseCommand):
                 self.stdout.write(self.style.ERROR(f'Error processing message {message.id}: {str(e)}'))
                 errors_count += 1
         
-        self.stdout.write(self.style.SUCCESS(f'Media path fix completed! Fixed {fixed_count} messages, {errors_count} errors.')) 
+        self.stdout.write(self.style.SUCCESS(f'Media path fix completed! Fixed {fixed_count} messages, {errors_count} errors.'))

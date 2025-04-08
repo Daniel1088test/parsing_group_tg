@@ -112,4 +112,4 @@ except (ImportError, ModuleNotFoundError) as e:
     logger.info("Symlink/directory creation completed in fallback mode")
 
 # Always exit cleanly
-logger.info("Script execution complete") 
+logger.info("Script execution complete")

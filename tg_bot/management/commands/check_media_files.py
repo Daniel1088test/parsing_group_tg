@@ -143,4 +143,4 @@ class Command(BaseCommand):
             f"Valid files: {valid_count}\n"
             f"Missing files: {missing_count}\n"
             f"Fixed files: {fixed_count if fix_enabled else 'N/A (use --fix option to fix)'}"
-        )) 
+        ))

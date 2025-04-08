@@ -1,8 +1,4 @@
 #!/usr/bin/env python3
-"""
-Script for fixing Telegram sessions and media files on Railway deployment.
-This script properly configures Django settings before execution.
-"""
 import os
 import sys
 import logging
@@ -92,4 +88,4 @@ except (ImportError, ModuleNotFoundError) as e:
     logger.info("Session fix operations completed in fallback mode")
 
 # Always exit cleanly
-logger.info("Script execution complete") 
+logger.info("Script execution complete")
