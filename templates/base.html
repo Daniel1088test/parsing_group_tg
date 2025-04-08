@@ -65,6 +65,26 @@
             position: sticky;
             top: 0;
             z-index: 99;
+            padding: 0 20px;
+        }
+        .topbar .nav-item {
+            padding: 8px 12px;
+            font-weight: 500;
+        }
+        .topbar .nav-item:hover {
+            background-color: #f8f9fc;
+            border-radius: 5px;
+        }
+        .admin-panel-btn {
+            background-color: #e74a3b;
+            color: white;
+            font-weight: 500;
+            padding: 8px 16px;
+            transition: all 0.3s;
+        }
+        .admin-panel-btn:hover {
+            background-color: #c13327;
+            color: white;
         }
         .card {
             border: none;
@@ -180,41 +200,31 @@
                     <button class="btn d-md-none" type="button" data-bs-toggle="collapse" data-bs-target=".sidebar">
                         <i class="fas fa-bars"></i>
                     </button>
-                    <div class="d-flex align-items-center">
-                        <div class="me-3">
-                            <a href="{% url 'index' %}" class="btn btn-sm btn-outline-primary">
-                                <i class="fas fa-home me-1"></i> Home
-                            </a>
-                        </div>
-                        <div>
-                            <a href="{% url 'logout' %}" class="btn btn-sm btn-outline-danger">
-                                <i class="fas fa-sign-out-alt me-1"></i> Logout
-                            </a>
-                        </div>
+                    
+                    <!-- SITE TITLE -->
+                    <div class="site-brand">
+                        <span class="fw-bold fs-4 text-primary">Telegram Parser</span>
                     </div>
-                </div>
-                <div class="navbar-nav">
-                    <a class="nav-item nav-link" href="{% url 'admin_panel' %}">
-                        <i class="fas fa-home"></i> Dashboard
-                    </a>
-                    <a class="nav-item nav-link" href="{% url 'channels_list' %}">
-                        <i class="fas fa-broadcast-tower"></i> Channels
-                    </a>
-                    <a class="nav-item nav-link" href="{% url 'categories_list' %}">
-                        <i class="fas fa-tags"></i> Categories
-                    </a>
-                    <a class="nav-item nav-link" href="{% url 'messages_list' %}">
-                        <i class="fas fa-comments"></i> Messages
-                    </a>
-                    <a class="nav-item nav-link" href="{% url 'sessions_list' %}">
-                        <i class="fas fa-key"></i> Sessions
-                    </a>
-                    <a class="nav-item nav-link" href="{% url 'bot_settings' %}">
-                        <i class="fas fa-robot"></i> Bot Settings
-                    </a>
-                    <a class="nav-item nav-link" href="{% url 'user_guide' %}">
-                        <i class="fas fa-book"></i> User Guide
-                    </a>
+                    
+                    <!-- NAVIGATION -->
+                    <div class="d-none d-md-flex">
+                        <a class="nav-item nav-link me-3" href="{% url 'categories_list' %}">
+                            <i class="fas fa-tags"></i> Categories
+                        </a>
+                        <a class="nav-item nav-link me-3" href="{% url 'sessions_list' %}">
+                            <i class="fas fa-key"></i> Sessions
+                        </a>
+                        <a class="nav-item nav-link me-3" href="{% url 'messages_list' %}">
+                            <i class="fas fa-comments"></i> Messages
+                        </a>
+                    </div>
+                    
+                    <!-- BUTTONS -->
+                    <div class="d-flex align-items-center">
+                        <a href="{% url 'admin_panel' %}" class="btn admin-panel-btn">
+                            <i class="fas fa-tachometer-alt me-1"></i> Admin panel
+                        </a>
+                    </div>
                 </div>
                 {% block content %}{% endblock %}
             </div>
