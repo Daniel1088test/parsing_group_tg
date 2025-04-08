@@ -87,10 +87,22 @@ def _get_session_by_id(session_id):
     if not session_id:
         return None
     try:
-        return models.TelegramSession.objects.get(id=session_id)
-    except models.TelegramSession.DoesNotExist:
-        logger.warning(f"Telegram session with ID {session_id} not found")
-        return None
+        # Use values() to explicitly select only the fields we need
+        # This avoids accessing fields that might not exist in the database
+        session_data = models.TelegramSession.objects.filter(id=session_id).values(
+            'id', 'phone', 'api_id', 'api_hash', 'is_active', 'session_file'
+        ).first()
+        
+        if not session_data:
+            logger.warning(f"Telegram session with ID {session_id} not found")
+            return None
+            
+        # Create a session object manually from the values
+        session = models.TelegramSession()
+        for key, value in session_data.items():
+            setattr(session, key, value)
+            
+        return session
     except Exception as e:
         logger.error(f"Error getting Telegram session with ID {session_id}: {e}")
         logger.error(traceback.format_exc())

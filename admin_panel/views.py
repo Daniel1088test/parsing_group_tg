@@ -327,26 +327,17 @@ def sessions_list_view(request):
     """View for managing Telegram sessions"""
     sessions = TelegramSession.objects.all().order_by('id')
     
-    # Check if needs_auth field exists in the database
-    needs_auth_count = 0
-    try:
-        # Try to count sessions that need authentication
-        needs_auth_count = TelegramSession.objects.filter(needs_auth=True).count()
-    except Exception:
-        # If field doesn't exist, don't use it
-        pass
-    
     # Safely check channels and messages without exceptions
     for session in sessions:
         session.channels_count = Channel.objects.filter(session=session).count()
         session.messages_count = Message.objects.filter(session_used=session).count()
-        # If needs_auth field doesn't exist, default to False
+        # Add needs_auth attribute if it doesn't exist in the model
         if not hasattr(session, 'needs_auth'):
             session.needs_auth = False
     
     context = {
         'sessions': sessions,
-        'needs_auth_count': needs_auth_count,
+        'needs_auth_count': 0,  # Default to 0 since needs_auth field is temporarily removed
         'title': 'Telegram Sessions'
     }
     
@@ -366,9 +357,6 @@ def session_create_view(request):
         
         # Create the session
         try:
-            # Check if needs_auth field exists in model
-            has_needs_auth_field = hasattr(TelegramSession, 'needs_auth')
-            
             session_data = {
                 'phone': phone,
                 'api_id': api_id or settings.TELEGRAM_API_ID,
@@ -376,10 +364,7 @@ def session_create_view(request):
                 'is_active': True,
             }
             
-            # Only add needs_auth if the field exists
-            if has_needs_auth_field:
-                session_data['needs_auth'] = True
-                
+            # needs_auth field is temporarily removed 
             session = TelegramSession(**session_data)
             session.save()
             
