@@ -43,8 +43,12 @@ def create_directory_structure():
     # Create each directory with proper permissions
     for directory in directories:
         try:
-            os.makedirs(directory, exist_ok=True)
-            logger.info(f"Created/ensured directory: {directory}")
+            # Check if directory exists before creating
+            if not os.path.exists(directory):
+                os.makedirs(directory, exist_ok=True)
+                logger.info(f"Created directory: {directory}")
+            else:
+                logger.info(f"Directory already exists: {directory}")
             
             # Set directory permissions
             try:
@@ -53,7 +57,11 @@ def create_directory_structure():
             except Exception as e:
                 logger.warning(f"Could not set permissions for directory {directory}: {e}")
         except Exception as e:
-            logger.error(f"Error creating directory {directory}: {e}")
+            # Only log as error if it's not the "File exists" error
+            if "File exists" not in str(e):
+                logger.error(f"Error creating directory {directory}: {e}")
+            else:
+                logger.info(f"Directory already exists (from error): {directory}")
 
 def create_placeholder_images():
     """Create placeholder images for missing media files"""

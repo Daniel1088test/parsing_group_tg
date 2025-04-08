@@ -114,57 +114,102 @@
                         <div class="card-body text-center">
                             {% if message.media_type == 'photo' or message.media_type == 'image' %}
                                 <!-- For Images -->
-                                <img src="{{ message.media.url }}" alt="Message Image" class="img-fluid rounded shadow" style="max-height: 500px;">
+                                <div class="telegram-media-container">
+                                    {% if message.original_url %}
+                                        <!-- Use Telegram's embed for photos when available -->
+                                        <iframe src="{{ message.original_url }}" frameborder="0" scrolling="no" 
+                                                style="width: 100%; max-width: 600px; height: 500px; border-radius: 12px; overflow: hidden;"
+                                                allowfullscreen="true"></iframe>
+                                    {% else %}
+                                        <img src="{{ message.media.url }}" alt="Message Image" class="img-fluid rounded shadow" style="max-height: 500px; border-radius: 12px;">
+                                    {% endif %}
+                                </div>
                             {% elif message.media_type == 'video' %}
-                                <!-- For Videos -->
-                                <div class="ratio ratio-16x9">
-                                    <video controls class="embed-responsive-item">
-                                        <source src="{{ message.media.url }}" type="video/mp4">
-                                        Your browser does not support the video tag.
-                                    </video>
+                                <!-- For Videos - prioritize Telegram's native embed -->
+                                <div class="telegram-media-container">
+                                    {% if message.original_url %}
+                                        <!-- Embed Telegram video -->
+                                        <iframe src="{{ message.original_url }}" frameborder="0" scrolling="no" 
+                                                style="width: 100%; max-width: 600px; height: 500px; border-radius: 12px; overflow: hidden;"
+                                                allowfullscreen="true"></iframe>
+                                    {% else %}
+                                        <!-- Fallback to local video if available -->
+                                        <video controls class="embed-responsive-item rounded shadow" style="max-width: 100%; border-radius: 12px;">
+                                            <source src="{{ message.media.url }}" type="video/mp4">
+                                            Your browser does not support the video tag.
+                                        </video>
+                                    {% endif %}
+                                    
+                                    <!-- Always include direct Telegram link button -->
+                                    <div class="mt-3">
+                                        <a href="{{ message.telegram_link }}" target="_blank" class="btn btn-primary">
+                                            <i class="fab fa-telegram"></i> Open in Telegram
+                                        </a>
+                                    </div>
                                 </div>
-                                <!-- Fallback to original URL if available -->
-                                {% if message.original_url %}
-                                <div class="mt-3">
-                                    <a href="{{ message.original_url }}" target="_blank" class="btn btn-primary">
-                                        <i class="fas fa-play-circle"></i> Open Video in Telegram
-                                    </a>
-                                </div>
-                                {% endif %}
                             {% elif message.media_type == 'gif' %}
                                 <!-- For GIFs -->
-                                <img src="{{ message.media.url }}" alt="GIF" class="img-fluid rounded shadow">
+                                <div class="telegram-media-container">
+                                    {% if message.original_url %}
+                                        <iframe src="{{ message.original_url }}" frameborder="0" scrolling="no" 
+                                                style="width: 100%; max-width: 400px; height: 400px; border-radius: 12px; overflow: hidden;"
+                                                allowfullscreen="true"></iframe>
+                                    {% else %}
+                                        <img src="{{ message.media.url }}" alt="GIF" class="img-fluid rounded shadow" style="max-width: 400px; border-radius: 12px;">
+                                    {% endif %}
+                                </div>
                             {% elif message.media_type == 'document' %}
                                 <!-- For Documents -->
-                                <div class="p-4">
+                                <div class="telegram-media-container p-4">
                                     <i class="fas fa-file-alt fa-4x text-primary mb-3"></i>
                                     <p>Document file attached to this message.</p>
-                                    <a href="{{ message.media.url }}" class="btn btn-primary" download>
+                                    {% if message.original_url %}
+                                        <a href="{{ message.original_url }}" class="btn btn-primary mb-2" target="_blank">
+                                            <i class="fab fa-telegram"></i> Open in Telegram
+                                        </a>
+                                    {% endif %}
+                                    <a href="{{ message.media.url }}" class="btn btn-outline-primary" download>
                                         <i class="fas fa-download"></i> Download Document
                                     </a>
                                 </div>
                             {% elif message.media_type == 'webpage' or message.media_type == 'webpage_photo' %}
                                 <!-- For Webpages -->
-                                <div class="card">
-                                    <div class="card-body">
-                                        {% if message.media %}
-                                            <img src="{{ message.media.url }}" alt="Webpage preview" class="img-fluid rounded shadow mb-3">
-                                        {% endif %}
-                                        {% if message.original_url %}
+                                <div class="telegram-media-container">
+                                    {% if message.original_url %}
+                                        <!-- Use iframe for webpages -->
+                                        <iframe src="{{ message.original_url }}" frameborder="0" scrolling="no" 
+                                                style="width: 100%; max-width: 600px; height: 500px; border-radius: 12px; overflow: hidden;"
+                                                allowfullscreen="true"></iframe>
+                                        
+                                        <div class="mt-3">
                                             <a href="{{ message.original_url }}" target="_blank" class="btn btn-primary">
                                                 <i class="fas fa-external-link-alt"></i> Open Webpage
                                             </a>
-                                        {% endif %}
-                                    </div>
+                                        </div>
+                                    {% elif message.media %}
+                                        <img src="{{ message.media.url }}" alt="Webpage preview" class="img-fluid rounded shadow mb-3" style="max-width: 600px; border-radius: 12px;">
+                                        <div class="mt-3">
+                                            <a href="{{ message.telegram_link }}" target="_blank" class="btn btn-primary">
+                                                <i class="fab fa-telegram"></i> Open in Telegram
+                                            </a>
+                                        </div>
+                                    {% endif %}
                                 </div>
                             {% else %}
                                 <!-- For Unknown media types -->
-                                <div class="alert alert-warning">
+                                <div class="alert alert-warning" style="max-width: 600px; margin: 0 auto;">
                                     <i class="fas fa-question-circle"></i> Unknown media type: {{ message.media_type }}
                                 </div>
-                                <a href="{{ message.media.url }}" class="btn btn-outline-primary" download>
-                                    <i class="fas fa-download"></i> Download Media
-                                </a>
+                                <div class="mt-3">
+                                    <a href="{{ message.telegram_link }}" target="_blank" class="btn btn-primary mr-2">
+                                        <i class="fab fa-telegram"></i> Open in Telegram
+                                    </a>
+                                    {% if message.media %}
+                                    <a href="{{ message.media.url }}" class="btn btn-outline-primary" download>
+                                        <i class="fas fa-download"></i> Download Media
+                                    </a>
+                                    {% endif %}
+                                </div>
                             {% endif %}
                         </div>
                     </div>
@@ -175,7 +220,7 @@
                         <a href="{% url 'messages_list' %}" class="btn btn-secondary">
                             <i class="fas fa-arrow-left"></i> Back
                         </a>
-                        <a href="{% url 'message_delete_view' message.id %}" class="btn btn-danger" 
+                        <a href="{% url 'message_delete' message.id %}" class="btn btn-danger" 
                            onclick="return confirm('Are you sure you want to delete this message?');">
                             <i class="fas fa-trash"></i> Delete
                         </a>

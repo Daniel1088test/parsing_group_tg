@@ -332,8 +332,10 @@ async def save_message_to_data(message, channel, queue, category_id=None, client
                         # Get the photo with the highest resolution
                         photo = message.photo
                         if photo:
-                            # Try to get the URL directly
-                            original_file_url = f"https://t.me/c/{getattr(message.peer_id, 'channel_id', 0)}/{message.id}?embed=1"
+                            # Use the embed format for direct Telegram viewing
+                            channel_id = getattr(message.peer_id, 'channel_id', 0)
+                            original_file_url = f"https://t.me/c/{channel_id}/{message.id}?embed=1"
+                            logger.info(f"Created embed URL for photo: {original_file_url}")
                     except Exception as e:
                         logger.warning(f"Could not get direct photo URL: {e}")
                         
@@ -346,15 +348,31 @@ async def save_message_to_data(message, channel, queue, category_id=None, client
                     
                     if mime_type.startswith('video'):
                         media_type = "video"
-                        # Try to get the original URL
+                        # Create proper embed URL format for videos
                         try:
-                            original_file_url = f"https://t.me/c/{getattr(message.peer_id, 'channel_id', 0)}/{message.id}?embed=1"
+                            channel_id = getattr(message.peer_id, 'channel_id', 0)
+                            original_file_url = f"https://t.me/c/{channel_id}/{message.id}?embed=1"
+                            logger.info(f"Created embed URL for video: {original_file_url}")
                         except Exception as e:
-                            logger.warning(f"Could not get direct video URL: {e}")
+                            logger.warning(f"Could not create video embed URL: {e}")
                     elif mime_type.startswith('image'):
                         media_type = "gif" if mime_type == 'image/gif' else "image"
+                        # Create embed URL for GIFs and images too
+                        try:
+                            channel_id = getattr(message.peer_id, 'channel_id', 0)
+                            original_file_url = f"https://t.me/c/{channel_id}/{message.id}?embed=1"
+                            logger.info(f"Created embed URL for {media_type}: {original_file_url}")
+                        except Exception as e:
+                            logger.warning(f"Could not create {media_type} embed URL: {e}")
                     else:
                         media_type = "document"
+                        # For documents, use standard Telegram link
+                        try:
+                            channel_id = getattr(message.peer_id, 'channel_id', 0)
+                            original_file_url = f"https://t.me/c/{channel_id}/{message.id}"
+                            logger.info(f"Created link for document: {original_file_url}")
+                        except Exception as e:
+                            logger.warning(f"Could not create document link: {e}")
                         
                     # Download the document
                     media_file = await download_media(client, message, "messages")
@@ -367,9 +385,16 @@ async def save_message_to_data(message, channel, queue, category_id=None, client
                         if hasattr(webpage, 'photo'):
                             media_type = "webpage_photo"
                             # Try to get the URL directly
-                            original_file_url = webpage.url if hasattr(webpage, 'url') else None
+                            if hasattr(webpage, 'url'):
+                                original_file_url = webpage.url
+                            else:
+                                # Fallback to embed URL
+                                channel_id = getattr(message.peer_id, 'channel_id', 0)
+                                original_file_url = f"https://t.me/c/{channel_id}/{message.id}?embed=1"
                             # Also download the photo
                             media_file = await download_media(client, message, "messages")
+                        elif hasattr(webpage, 'url'):
+                            original_file_url = webpage.url
                     except Exception as e:
                         logger.warning(f"Error processing webpage media: {e}")
                     

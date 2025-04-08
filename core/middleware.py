@@ -31,14 +31,23 @@ class MediaFilesMiddleware:
         
         for directory in dirs_to_create:
             try:
-                os.makedirs(directory, exist_ok=True)
+                # Check if directory exists before trying to create it
+                if not os.path.exists(directory):
+                    os.makedirs(directory, exist_ok=True)
+                    logger.info(f"Created directory: {directory}")
+                
                 # Set directory permissions to 0755
                 try:
                     os.chmod(directory, 0o755)
                 except Exception as e:
                     logger.warning(f"Could not set permissions on directory {directory}: {e}")
             except Exception as e:
-                logger.error(f"Error creating directory {directory}: {e}")
+                # Only log as error if it's not a "File exists" error
+                if "File exists" not in str(e):
+                    logger.error(f"Error creating directory {directory}: {e}")
+                else:
+                    # Log as info instead of error for "File exists"
+                    logger.debug(f"Directory already exists: {directory}")
         
     def create_placeholders(self):
         """Create placeholder images if they don't exist"""
@@ -88,10 +97,7 @@ class MediaFilesMiddleware:
             logger.error(f"Error creating placeholders: {e}")
     
     def __call__(self, request):
-        # Pre-processing: create directories if needed
-        self._create_directories()
-        
-        # Run the view
+        # Run the view first without creating directories to avoid unnecessary operations
         response = self.get_response(request)
         
         # Post-processing if the response is a 404 for a media file
@@ -116,7 +122,11 @@ class MediaFilesMiddleware:
                     
                     # Create the media directory if needed
                     target_path = os.path.join(settings.MEDIA_ROOT, 'messages', file_name)
-                    os.makedirs(os.path.dirname(target_path), exist_ok=True)
+                    target_dir = os.path.dirname(target_path)
+                    
+                    # Only create directory if it doesn't exist
+                    if not os.path.exists(target_dir):
+                        os.makedirs(target_dir, exist_ok=True)
                     
                     # Copy the placeholder to the requested location
                     if os.path.exists(placeholder):
