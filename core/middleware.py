@@ -68,6 +68,8 @@ class MediaFilesMiddleware:
             # Copy placeholders to media directory for direct access
             media_image = os.path.join(self.static_root, 'media', 'placeholder-image.png')
             media_video = os.path.join(self.static_root, 'media', 'placeholder-video.png')
+            messages_image = os.path.join(self.media_root, 'messages', 'placeholder-image.png')
+            messages_video = os.path.join(self.media_root, 'messages', 'placeholder-video.png')
             
             # Create image placeholder
             if not os.path.exists(image_placeholder):
@@ -107,15 +109,20 @@ class MediaFilesMiddleware:
                         f.write(b'\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x06\x00\x00\x00\x1f\x15\xc4\x89\x00\x00\x00\nIDATx\x9cc\x00\x01\x00\x00\x05\x00\x01\r\n-\xb4\x00\x00\x00\x00IEND\xaeB`\x82')
                     logger.warning(f"Created basic placeholder: {video_placeholder} (PIL not available)")
                     
-            # Copy placeholder to media directory for direct access
-            for src, dest in [(image_placeholder, media_image), (video_placeholder, media_video)]:
+            # Copy placeholder to various directories for direct access
+            for src, dest in [
+                (image_placeholder, media_image),
+                (video_placeholder, media_video),
+                (image_placeholder, messages_image),
+                (video_placeholder, messages_video)
+            ]:
                 if os.path.exists(src) and not os.path.exists(dest):
-                    shutil.copy2(src, dest)
-                    logger.info(f"Copied placeholder to media directory: {dest}")
                     try:
+                        shutil.copy2(src, dest)
+                        logger.info(f"Copied placeholder to directory: {dest}")
                         os.chmod(dest, 0o644)
                     except Exception as e:
-                        logger.warning(f"Could not set permissions on placeholder copy {dest}: {e}")
+                        logger.warning(f"Could not copy placeholder {src} to {dest}: {e}")
                         
         except Exception as e:
             logger.error(f"Error creating placeholders: {e}")
@@ -126,40 +133,65 @@ class MediaFilesMiddleware:
             # Extract the relative path
             rel_path = request.path[len(self.media_url):]
             
-            # Determine file type from extension
+            # Handle paths that might have no extension or incorrect extension
             file_ext = os.path.splitext(rel_path)[1].lower()
+            
+            # For files without extensions, try to detect media type from filename patterns
             is_image = file_ext in ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.svg']
             is_video = file_ext in ['.mp4', '.webm', '.ogg', '.mov']
             
-            # Full path to the requested file
-            full_path = os.path.join(self.media_root, rel_path)
-            
-            # Check if file exists
-            if os.path.exists(full_path) and os.path.isfile(full_path):
-                try:
-                    # Serve the file directly
-                    return FileResponse(open(full_path, 'rb'))
-                except Exception as e:
-                    logger.error(f"Error serving media file {full_path}: {e}")
-                    # Fall through to placeholder logic
-            
-            # Handle missing files with placeholders
-            logger.warning(f"Media file not found: {full_path}")
-            
-            # Return appropriate placeholder
-            try:
-                placeholder = os.path.join(self.static_root, 'img', 'placeholder-video.png' if is_video else 'placeholder-image.png')
-                if os.path.exists(placeholder):
-                    response = FileResponse(open(placeholder, 'rb'))
-                    # Set appropriate content type for the placeholder
-                    response['Content-Type'] = 'image/png'
-                    return response
+            # If no extension, try to infer from filename patterns
+            if not file_ext:
+                # Check for typical telegram naming patterns
+                if re.search(r'_\d{8}_\d{6}(_[a-f0-9]+)?$', rel_path):
+                    # If filename ends with timestamp (and optional hash), assume image
+                    is_image = True
+                    # Try both with and without extension
+                    rel_paths_to_check = [rel_path, f"{rel_path}.jpg", f"{rel_path}.png"]
+                elif 'video' in rel_path.lower():
+                    is_video = True
+                    rel_paths_to_check = [rel_path, f"{rel_path}.mp4"]
                 else:
-                    logger.error(f"Placeholder not found: {placeholder}")
+                    # Default to image if unsure
+                    is_image = True
+                    rel_paths_to_check = [rel_path, f"{rel_path}.jpg"]
+            else:
+                rel_paths_to_check = [rel_path]
+            
+            # Try to find the file with various paths
+            file_found = False
+            for path_to_check in rel_paths_to_check:
+                full_path = os.path.join(self.media_root, path_to_check)
+                if os.path.exists(full_path) and os.path.isfile(full_path):
+                    try:
+                        # Serve the file directly
+                        logger.info(f"Serving media file: {full_path}")
+                        return FileResponse(open(full_path, 'rb'))
+                    except Exception as e:
+                        logger.error(f"Error serving media file {full_path}: {e}")
+                    else:
+                        file_found = True
+                        break
+            
+            # If no file was found through any of the attempts
+            if not file_found:
+                # Handle missing files with placeholders
+                logger.warning(f"Media file not found: {rel_path}")
+                
+                # Return appropriate placeholder
+                try:
+                    placeholder = os.path.join(self.static_root, 'img', 'placeholder-video.png' if is_video else 'placeholder-image.png')
+                    if os.path.exists(placeholder):
+                        response = FileResponse(open(placeholder, 'rb'))
+                        # Set appropriate content type for the placeholder
+                        response['Content-Type'] = 'image/png'
+                        return response
+                    else:
+                        logger.error(f"Placeholder not found: {placeholder}")
+                        return HttpResponseNotFound("Media file not found")
+                except Exception as e:
+                    logger.error(f"Error serving placeholder: {e}")
                     return HttpResponseNotFound("Media file not found")
-            except Exception as e:
-                logger.error(f"Error serving placeholder: {e}")
-                return HttpResponseNotFound("Media file not found")
 
         # For non-media requests or if we didn't handle the media, pass to the next middleware
         response = self.get_response(request)
@@ -167,15 +199,15 @@ class MediaFilesMiddleware:
         # Post-processing for 404 responses that might be media files
         if response.status_code == 404:
             # Check if this is a media-like path that wasn't caught earlier (could be server-side routing issues)
-            media_path_match = re.match(r'^/(?:media/)?(.+\.(jpg|jpeg|png|gif|mp4|avi|mov|webm))$', request.path)
+            media_path_match = re.match(r'^/(?:media/)?(.+?)(?:\.\w+)?$', request.path)
             if media_path_match:
                 try:
                     file_name = media_path_match.group(1)
                     logger.warning(f"404 for possible media file: {file_name}")
                     
-                    # Define placeholder paths
+                    # Try to detect if this is a video or image
                     file_ext = os.path.splitext(file_name)[1].lower()
-                    is_video = file_ext in ['.mp4', '.webm', '.ogg', '.mov', '.avi']
+                    is_video = file_ext in ['.mp4', '.webm', '.ogg', '.mov', '.avi'] or 'video' in file_name.lower()
                     
                     placeholder = os.path.join(self.static_root, 'img', 'placeholder-video.png' if is_video else 'placeholder-image.png')
                     
@@ -187,6 +219,6 @@ class MediaFilesMiddleware:
                         return response
                         
                 except Exception as e:
-                    logger.error(f"Error creating placeholder for {request.path}: {e}")
+                    logger.error(f"Error serving placeholder for {request.path}: {e}")
                 
         return response 
