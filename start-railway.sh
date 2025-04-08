@@ -11,6 +11,13 @@ echo "Cleaning Python cache files..."
 find . -name "*.pyc" -delete
 find . -name "__pycache__" -type d -exec rm -rf {} +
 
+# Run a direct merge migration to fix multiple leaf nodes issue
+echo "Running direct migration fix via Django shell..."
+python manage.py shell -c "exec(open('scripts/direct_fix_migrations.py').read())"
+
+# Fix the SyntaxError in the string exec (removing the problematic code)
+sed -i 's/exec(.*run_migrations_view.*)/# Removed problematic exec code/' start-railway.sh
+
 # Verify view module integrity
 python -c "
 try:
@@ -19,27 +26,31 @@ try:
         print('run_migrations_view function exists in views module')
     else:
         print('ERROR: run_migrations_view function NOT found in views module')
-        # Add the missing function as a fallback measure
-        exec('''
+        # Add the missing function using a safer approach
+        with open('admin_panel/views.py', 'a') as f:
+            f.write('''
+
+@login_required
 def run_migrations_view(request):
-    """Emergency fallback view for running database migrations"""
-    from django.contrib import messages
-    from django.shortcuts import render
+    """View for running database migrations"""
     if request.method == 'POST':
         try:
-            # Import and run the migration script
             import os
             import subprocess
-            result = subprocess.run(['python', 'manage.py', 'migrate'], 
-                                   capture_output=True, text=True)
+            result = subprocess.run(
+                [\"python\", \"manage.py\", \"migrate\"],
+                capture_output=True,
+                text=True
+            )
             if result.returncode == 0:
-                messages.success(request, 'Database migrations applied successfully.')
+                messages.success(request, \"Database migrations have been applied successfully.\")
             else:
-                messages.error(request, f'Migration failed: {result.stderr}')
+                messages.error(request, f\"Failed to apply migrations: {result.stderr}\")
         except Exception as e:
-            messages.error(request, f'Error running migrations: {str(e)}')
+            messages.error(request, f\"Error running migrations: {str(e)}\")
+    
     return render(request, 'admin_panel/run_migrations.html')
-        ''', globals(), admin_panel.views.__dict__)
+''')
         print('Fallback migration view function added')
 except Exception as e:
     print(f'Error checking views module: {e}')
