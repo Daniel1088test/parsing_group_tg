@@ -27,6 +27,12 @@ class MediaFilesMiddleware:
         # Create placeholder images if they don't exist
         self.create_placeholders()
         
+        # Set up cache of known missing files to avoid multiple warnings
+        self.known_missing_files = set()
+        
+        # Run a comprehensive scan to create placeholders for all missing files
+        self._fix_missing_media_files()
+        
         logger.info(f"MediaFilesMiddleware initialized (MEDIA_ROOT: {self.media_root})")
         
     def _create_directories(self):
@@ -35,7 +41,8 @@ class MediaFilesMiddleware:
             os.path.join(self.static_root, 'img'),
             os.path.join(self.media_root, 'messages'),
             'data/sessions',
-            os.path.join(self.static_root, 'media')
+            os.path.join(self.static_root, 'media'),
+            os.path.join(self.static_root, 'media', 'messages')
         ]
         
         for directory in dirs_to_create:
@@ -70,6 +77,8 @@ class MediaFilesMiddleware:
             media_video = os.path.join(self.static_root, 'media', 'placeholder-video.png')
             messages_image = os.path.join(self.media_root, 'messages', 'placeholder-image.png')
             messages_video = os.path.join(self.media_root, 'messages', 'placeholder-video.png')
+            media_msg_image = os.path.join(self.static_root, 'media', 'messages', 'placeholder-image.png')
+            media_msg_video = os.path.join(self.static_root, 'media', 'messages', 'placeholder-video.png')
             
             # Create image placeholder
             if not os.path.exists(image_placeholder):
@@ -114,10 +123,14 @@ class MediaFilesMiddleware:
                 (image_placeholder, media_image),
                 (video_placeholder, media_video),
                 (image_placeholder, messages_image),
-                (video_placeholder, messages_video)
+                (video_placeholder, messages_video),
+                (image_placeholder, media_msg_image),
+                (video_placeholder, media_msg_video)
             ]:
                 if os.path.exists(src) and not os.path.exists(dest):
                     try:
+                        # Ensure directory exists
+                        os.makedirs(os.path.dirname(dest), exist_ok=True)
                         shutil.copy2(src, dest)
                         logger.info(f"Copied placeholder to directory: {dest}")
                         os.chmod(dest, 0o644)
@@ -126,6 +139,64 @@ class MediaFilesMiddleware:
                         
         except Exception as e:
             logger.error(f"Error creating placeholders: {e}")
+    
+    def _fix_missing_media_files(self):
+        """Create placeholders for all media files referenced in the DB but missing from filesystem"""
+        try:
+            # Import here to avoid circular imports
+            from django.apps import apps
+            
+            # Check if media model exists
+            try:
+                Message = apps.get_model('admin_panel', 'Message')
+                
+                # Get all messages with media
+                messages_with_media = Message.objects.exclude(media='').exclude(media__isnull=True)
+                logger.info(f"Found {len(messages_with_media)} messages with media references")
+                
+                for message in messages_with_media:
+                    try:
+                        media_path = message.media.path if hasattr(message.media, 'path') else os.path.join(self.media_root, str(message.media))
+                        
+                        # Check if file exists
+                        if not os.path.exists(media_path):
+                            # Create directory structure if needed
+                            os.makedirs(os.path.dirname(media_path), exist_ok=True)
+                            
+                            # Select placeholder based on media type
+                            is_video = message.media_type == 'video' if hasattr(message, 'media_type') else False
+                            placeholder_src = os.path.join(self.static_root, 'img', 'placeholder-video.png' if is_video else 'placeholder-image.png')
+                            
+                            try:
+                                # Copy placeholder to location
+                                shutil.copy2(placeholder_src, media_path)
+                                logger.info(f"Created placeholder for {media_path}")
+                                
+                                # Set permissions
+                                os.chmod(media_path, 0o644)
+                            except Exception as e:
+                                # Fall through to next attempt
+                                logger.warning(f"Could not create placeholder at {media_path}: {e}")
+                                
+                                # Try alternate location
+                                alt_path = os.path.join(self.static_root, 'media', str(message.media))
+                                try:
+                                    os.makedirs(os.path.dirname(alt_path), exist_ok=True)
+                                    shutil.copy2(placeholder_src, alt_path)
+                                    logger.info(f"Created alternate placeholder at {alt_path}")
+                                except Exception as inner_e:
+                                    logger.warning(f"Could not create alternate placeholder: {inner_e}")
+                            
+                            # Add to known missing files
+                            self.known_missing_files.add(media_path)
+                    except Exception as e:
+                        logger.warning(f"Error processing message media: {e}")
+                
+            except LookupError:
+                logger.warning("Could not find Message model, skipping database media check")
+                
+        except Exception as e:
+            logger.error(f"Error fixing missing media files: {e}")
     
     def __call__(self, request):
         # Check if this is a media file request before running the main view
@@ -173,12 +244,50 @@ class MediaFilesMiddleware:
                         file_found = True
                         break
             
+            # If file not found in primary location, check static/media directory
+            if not file_found:
+                static_media_path = os.path.join(self.static_root, 'media', rel_path)
+                if os.path.exists(static_media_path) and os.path.isfile(static_media_path):
+                    try:
+                        # Serve the file from static/media
+                        logger.info(f"Serving static media file: {static_media_path}")
+                        return FileResponse(open(static_media_path, 'rb'))
+                    except Exception as e:
+                        logger.error(f"Error serving static media file {static_media_path}: {e}")
+                    else:
+                        file_found = True
+            
             # If no file was found through any of the attempts
             if not file_found:
-                # Handle missing files with placeholders
-                logger.warning(f"Media file not found: {rel_path}")
+                # Only log warning if we haven't seen this file before
+                if full_path not in self.known_missing_files:
+                    logger.warning(f"Media file not found: {rel_path}")
+                    self.known_missing_files.add(full_path)
                 
-                # Return appropriate placeholder
+                # Create a placeholder at the requested location
+                try:
+                    # Select appropriate placeholder
+                    placeholder = os.path.join(self.static_root, 'img', 'placeholder-video.png' if is_video else 'placeholder-image.png')
+                    
+                    # Create directory if needed
+                    target_dir = os.path.dirname(full_path)
+                    if not os.path.exists(target_dir):
+                        os.makedirs(target_dir, exist_ok=True)
+                        logger.info(f"Created directory for placeholder: {target_dir}")
+                    
+                    # Only create placeholder if we have write access
+                    if os.access(target_dir, os.W_OK):
+                        # Copy placeholder to requested location
+                        try:
+                            shutil.copy2(placeholder, full_path)
+                            os.chmod(full_path, 0o644)
+                            logger.info(f"Created placeholder at {full_path}")
+                        except Exception as e:
+                            logger.warning(f"Could not create placeholder at {full_path}: {e}")
+                except Exception as e:
+                    logger.warning(f"Error creating placeholder directory structure: {e}")
+                
+                # Return appropriate placeholder directly
                 try:
                     placeholder = os.path.join(self.static_root, 'img', 'placeholder-video.png' if is_video else 'placeholder-image.png')
                     if os.path.exists(placeholder):
@@ -203,7 +312,11 @@ class MediaFilesMiddleware:
             if media_path_match:
                 try:
                     file_name = media_path_match.group(1)
-                    logger.warning(f"404 for possible media file: {file_name}")
+                    # Only log warning if we haven't seen this file before
+                    full_path = os.path.join(self.media_root, file_name)
+                    if full_path not in self.known_missing_files:
+                        logger.warning(f"404 for possible media file: {file_name}")
+                        self.known_missing_files.add(full_path)
                     
                     # Try to detect if this is a video or image
                     file_ext = os.path.splitext(file_name)[1].lower()
