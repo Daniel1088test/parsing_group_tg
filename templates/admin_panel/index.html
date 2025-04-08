@@ -372,13 +372,47 @@
 
         // Immediately set all Railway media to placeholders
         window.addEventListener('DOMContentLoaded', function() {
-            // Check if we're on Railway
-            if (window.location.hostname.includes('railway.app') || 
-                document.cookie.includes('railway_environment=true')) {
-                console.log('Railway environment detected, preemptively replacing media');
+            // Check if we're on Railway or having media problems
+            var isRailway = window.location.hostname.includes('railway.app') || 
+                document.cookie.includes('railway_environment=true');
                 
+            // Detect failed image loads during startup
+            var failedImages = 0;
+            var totalImages = 0;
+            
+            function handleImageLoad() {
+                totalImages++;
+            }
+            
+            function handleImageLoadError() {
+                failedImages++;
+                totalImages++;
+                
+                // If more than 50% of images fail to load, assume we're in a problematic environment
+                if (totalImages > 3 && failedImages/totalImages > 0.5) {
+                    console.log('High rate of image failures detected, activating Railway mode');
+                    document.cookie = "railway_environment=true; path=/; max-age=86400";
+                    activateRailwayMode();
+                }
+            }
+            
+            // Register listeners for all images
+            document.querySelectorAll('img').forEach(function(img) {
+                img.addEventListener('load', handleImageLoad);
+                img.addEventListener('error', handleImageLoadError);
+            });
+            
+            if (isRailway) {
+                console.log('Railway environment detected, preemptively replacing media');
+                activateRailwayMode();
+            }
+            
+            function activateRailwayMode() {
                 // Set a cookie to remember we're on Railway
                 document.cookie = "railway_environment=true; path=/; max-age=86400";
+                
+                // Add a class to the body
+                document.body.classList.add('railway-environment');
                 
                 // Force replace all media elements
                 document.querySelectorAll('.media-container img:not([src^="/staticfiles/"])').forEach(function(img) {
@@ -511,6 +545,7 @@
                                             {% elif message.media %}
                                                 <img src="{{ MEDIA_URL|default:'/media/' }}{{ message.media }}" 
                                                      onerror="handleImageError(this)"
+                                                     data-original-src="{{ MEDIA_URL|default:'/media/' }}{{ message.media }}"
                                                      class="img-fluid rounded shadow-sm" alt="Image">
                                                 <!-- Hidden backup image that loads immediately -->
                                                 <img src="/staticfiles/img/placeholder-image.png" 
@@ -533,6 +568,7 @@
                                                 <div class="ratio ratio-16x9">
                                                     <video class="rounded shadow-sm" controls preload="metadata"
                                                            poster="/staticfiles/img/placeholder-video.png"
+                                                           data-original-src="{{ MEDIA_URL|default:'/media/' }}{{ message.media }}"
                                                            onerror="handleVideoError(this)">
                                                         <source src="{{ MEDIA_URL|default:'/media/' }}{{ message.media }}" type="video/mp4">
                                                         Your browser does not support video.
@@ -564,6 +600,7 @@
                                             {% elif message.media %}
                                                 <img src="{{ MEDIA_URL|default:'/media/' }}{{ message.media }}" 
                                                      onerror="handleImageError(this)"
+                                                     data-original-src="{{ MEDIA_URL|default:'/media/' }}{{ message.media }}"
                                                      class="img-fluid rounded shadow-sm" alt="GIF">
                                             {% else %}
                                                 <!-- Fallback for no media or URL -->
@@ -592,6 +629,7 @@
                                             {% elif message.media %}
                                                 <img src="{{ MEDIA_URL|default:'/media/' }}{{ message.media }}" 
                                                      onerror="handleImageError(this)"
+                                                     data-original-src="{{ MEDIA_URL|default:'/media/' }}{{ message.media }}"
                                                      class="img-fluid rounded shadow-sm" alt="Webpage preview">
                                             {% else %}
                                                 <div class="alert alert-info text-center">
@@ -696,6 +734,7 @@
                 // Reload page with category parameter - only add categoryId if it's not empty
                 if (categoryId === '' || categoryId === undefined) {
                     window.location.href = `?`;
+                    
                 } else {
                     window.location.href = `?category=${categoryId}`;
                 }
@@ -753,10 +792,12 @@
                 
                 // Check for Railway environment and apply special fixes
                 if (window.location.hostname.includes('railway.app') || 
-                    document.cookie.includes('railway_environment=true')) {
+                    document.cookie.includes('railway_environment=true') || 
+                    $('body').hasClass('railway-environment')) {
                     console.log('Railway environment detected, applying special fixes');
                     // Document this is a Railway environment
                     document.cookie = "railway_environment=true; path=/; max-age=86400";
+                    $('body').addClass('railway-environment');
                     
                     // Replace all media URLs to use placeholders immediately
                     $('img[src^="/media/"]').each(function() {
@@ -778,6 +819,26 @@
                         handleVideoError(videoElement);
                     });
                 }
+                
+                // Check if we're having trouble loading images and activate railway mode
+                let successfulLoads = 0;
+                let failedLoads = 0;
+                
+                // Monitor new image loads
+                $('img').on('load', function() {
+                    successfulLoads++;
+                });
+                
+                $('img').on('error', function() {
+                    failedLoads++;
+                    // If we have multiple failures, activate railway mode
+                    if (failedLoads > 3 && failedLoads > successfulLoads) {
+                        console.log('Multiple image failures detected, activating Railway mode');
+                        document.cookie = "railway_environment=true; path=/; max-age=86400";
+                        $('body').addClass('railway-environment');
+                        checkMediaElements(); // Run the check again to apply fixes
+                    }
+                });
             }
             
             // Run on page load
