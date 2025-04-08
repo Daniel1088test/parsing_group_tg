@@ -40,9 +40,23 @@ def _save_message_to_db(message_data):
     """
     try:
         channel = models.Channel.objects.get(name=message_data['channel_name'])
+        
+        # Validate media file existence if media path is provided
+        media_path = message_data.get('media', '')
+        if media_path:
+            from django.conf import settings
+            import os
+            
+            # Check if the file exists
+            full_path = os.path.join(settings.MEDIA_ROOT, media_path)
+            if not os.path.exists(full_path):
+                logger.warning(f"Media file not found: {full_path}")
+                # Don't save non-existent media paths
+                media_path = ""
+        
         message = models.Message(
             text=message_data['text'],
-            media=message_data['media'],
+            media=media_path,
             media_type=message_data['media_type'],
             telegram_message_id=message_data['message_id'],
             telegram_channel_id=message_data['channel_id'],
@@ -52,8 +66,11 @@ def _save_message_to_db(message_data):
             session_used=message_data.get('session_used')
         )
         message.save()
+        
+        media_info = f", with media: {media_path}" if media_path else ""
         session_info = f" (via {message_data.get('session_used').phone})" if message_data.get('session_used') else ""
-        logger.info(f"Saved message: channel '{channel.name}', message ID {message_data['message_id']}{session_info}")
+        logger.info(f"Saved message: channel '{channel.name}', message ID {message_data['message_id']}{media_info}{session_info}")
+        
         return message
     except Exception as e:
         logger.error(f"Error saving message: {e}")
@@ -182,13 +199,25 @@ async def download_media(client, message, media_dir):
     """
     try:
         if message.media:
-            os.makedirs(media_dir, exist_ok=True)
+            # Get the absolute path for media directory
+            from django.conf import settings
+            
+            # Use Django's MEDIA_ROOT to ensure we're saving in the right place
+            absolute_media_dir = os.path.join(settings.MEDIA_ROOT, os.path.basename(media_dir))
+            
+            # Ensure the directory exists with proper permissions
+            os.makedirs(absolute_media_dir, exist_ok=True)
+            
+            # Format timestamp correctly
             timestamp = message.date.strftime("%Y%m%d_%H%M%S")
+            
+            # Create the full path for the media file
             file_path = await message.download_media(
-                file=os.path.join(media_dir, f"{message.id}_{timestamp}")
+                file=os.path.join(absolute_media_dir, f"{message.id}_{timestamp}")
             )
+            
             if file_path:
-                logger.debug(f"Downloaded media: {os.path.basename(file_path)}")
+                logger.info(f"Successfully downloaded media: {os.path.basename(file_path)}")
                 return os.path.basename(file_path)
             else:
                 logger.warning(f"Unable to download media for message {message.id}")
@@ -212,8 +241,8 @@ async def save_message_to_data(message, channel, queue, category_id=None, client
         if message.media and client:
             if isinstance(message.media, MessageMediaPhoto):
                 media_type = "photo"
-                media_file = await download_media(client, message, "media/messages")
-                logger.debug(f"Media type: photo, file: {media_file}")
+                media_file = await download_media(client, message, "messages")
+                logger.info(f"Media type: photo, file: {media_file}")
             elif isinstance(message.media, MessageMediaDocument):
                 if message.media.document.mime_type.startswith('video'):
                     media_type = "video"
@@ -221,11 +250,11 @@ async def save_message_to_data(message, channel, queue, category_id=None, client
                     media_type = "gif" if message.media.document.mime_type == 'image/gif' else "image"
                 else:
                     media_type = "document"
-                media_file = await download_media(client, message, "media/messages")
-                logger.debug(f"Media type: {media_type}, file: {media_file}")
+                media_file = await download_media(client, message, "messages")
+                logger.info(f"Media type: {media_type}, file: {media_file}")
             elif isinstance(message.media, MessageMediaWebPage):
                 media_type = "webpage"
-                logger.debug(f"Media type: webpage")
+                logger.info(f"Media type: webpage")
         
         # get the channel name
         channel_name = getattr(channel, 'title', None) or getattr(channel, 'name', 'Unknown channel')
@@ -235,16 +264,51 @@ async def save_message_to_data(message, channel, queue, category_id=None, client
             logger.warning(f"No channel_id in message {message.id} from {channel_name}")
             channel_id = 0
         
+        # Handle the date - always ensure it's a datetime object or properly formatted string
+        message_date = message.date
+        from datetime import datetime
+        
+        if isinstance(message_date, datetime):
+            # Format datetime as string
+            formatted_date = message_date.strftime("%Y-%m-%d %H:%M:%S")
+        elif isinstance(message_date, str):
+            # Try to parse the string to ensure it's a valid date format
+            try:
+                parsed_date = datetime.strptime(message_date, "%Y-%m-%d %H:%M:%S")
+                formatted_date = message_date  # Already correct format
+            except ValueError:
+                # If the date string is in a different format, try to parse it
+                try:
+                    # Try common formats
+                    for fmt in ["%Y-%m-%d", "%d.%m.%Y %H:%M", "%d/%m/%Y", "%Y/%m/%d %H:%M:%S"]:
+                        try:
+                            parsed_date = datetime.strptime(message_date, fmt)
+                            formatted_date = parsed_date.strftime("%Y-%m-%d %H:%M:%S")
+                            break
+                        except ValueError:
+                            continue
+                    else:
+                        # If no format matches, use current time
+                        logger.warning(f"Could not parse date: {message_date}, using current time")
+                        formatted_date = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                except Exception as e:
+                    logger.error(f"Error parsing date {message_date}: {e}")
+                    formatted_date = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        else:
+            # If message_date is something else, use current time
+            logger.warning(f"Unexpected date type: {type(message_date)}, using current time")
+            formatted_date = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        
         # save the message
         message_info = {
             'text': message.text or "",
-            'media': "media/messages/" + media_file if media_file else "",
+            'media': f"messages/{media_file}" if media_file else "",
             'media_type': media_type if media_type else None,
             'message_id': message.id,
             'channel_id': channel_id,
             'channel_name': channel_name,
             'link': f"https://t.me/c/{channel_id}/{message.id}" if channel_id else "#",
-            'date': message.date.strftime("%Y-%m-%d %H:%M:%S"),
+            'date': formatted_date,
             'session_used': session
         }
         
