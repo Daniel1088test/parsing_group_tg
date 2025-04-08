@@ -13,8 +13,37 @@ import os
 from django.conf import settings
 import time
 from urllib.parse import quote_plus
+from django.db import connection, ProgrammingError, OperationalError
+from django.core.exceptions import FieldError
 
 logger = logging.getLogger(__name__)
+
+def safe_db_query(func):
+    """Decorator to safely handle database field errors"""
+    def wrapper(*args, **kwargs):
+        try:
+            return func(*args, **kwargs)
+        except (ProgrammingError, OperationalError, FieldError) as e:
+            from django.contrib import messages
+            from django.shortcuts import redirect
+            
+            # Log the error
+            import logging
+            logger = logging.getLogger('django')
+            logger.error(f"Database error in {func.__name__}: {e}")
+            
+            # Get the request object
+            request = args[0] if args else None
+            
+            if request:
+                messages.error(request, f"Database error: The system cannot complete this operation. Please contact the administrator. Error: {e}")
+                return redirect('home')  # Redirect to a safe page
+            
+            # If we couldn't get request, raise a more generic HttpResponse
+            from django.http import HttpResponse
+            return HttpResponse("Database error. Please contact the administrator.", status=500)
+    
+    return wrapper
 
 def index_view(request):
     """Головна сторінка сайту"""
@@ -221,9 +250,17 @@ def channel_create_view(request):
     })
 
 @login_required
+@safe_db_query
 def channel_detail_view(request, channel_id):
     channel = Channel.objects.get(id=channel_id)
-    return render(request, 'admin_panel/channel_detail.html', {'channel': channel})
+    messages = Message.objects.filter(channel=channel).order_by('-created_at')[:100]
+    
+    context = {
+        'channel': channel,
+        'messages': messages,
+        'title': f'Канал {channel.name}'
+    }
+    return render(request, 'admin_panel/channel_detail.html', context)
 
 @login_required
 def channel_update_view(request, channel_id):
@@ -579,3 +616,84 @@ def run_migrations_view(request):
             messages.error(request, f"Error running migrations: {str(e)}")
     
     return render(request, 'admin_panel/run_migrations.html')
+
+@login_required
+@safe_db_query
+def channels_view(request):
+    """Сторінка зі списком каналів"""
+    channels = Channel.objects.all().order_by('-id')
+    
+    context = {
+        'channels': channels,
+        'title': 'Канали'
+    }
+    return render(request, 'admin_panel/channels.html', context)
+
+@login_required
+@safe_db_query
+def telegram_sessions_view(request):
+    """Сторінка зі списком сесій Telegram"""
+    try:
+        sessions = TelegramSession.objects.all().order_by('-id')
+    except Exception as e:
+        # Fallback to using a minimal set of fields if there's a schema mismatch
+        logger.error(f"Error loading TelegramSession: {e}")
+        # Use raw query to get only existing fields
+        with connection.cursor() as cursor:
+            cursor.execute("""
+                SELECT id, phone, is_active, created_at, updated_at
+                FROM admin_panel_telegramsession
+                ORDER BY id DESC
+            """)
+            columns = [col[0] for col in cursor.description]
+            sessions = [
+                dict(zip(columns, row))
+                for row in cursor.fetchall()
+            ]
+    
+    context = {
+        'sessions': sessions,
+        'title': 'Сесії Telegram'
+    }
+    return render(request, 'admin_panel/telegram_sessions.html', context)
+
+@login_required
+@safe_db_query
+def add_session_view(request):
+    """Сторінка додавання нової сесії Telegram"""
+    if request.method == 'POST':
+        form = TelegramSessionForm(request.POST)
+        if form.is_valid():
+            session = form.save()
+            messages.success(request, f'Сесія {session.phone} успішно додана!')
+            return redirect('telegram_sessions')
+    else:
+        form = TelegramSessionForm()
+    
+    context = {
+        'form': form,
+        'title': 'Додати сесію Telegram'
+    }
+    return render(request, 'admin_panel/add_session.html', context)
+
+@login_required
+@safe_db_query
+def edit_session_view(request, session_id):
+    """Сторінка редагування сесії Telegram"""
+    session = TelegramSession.objects.get(id=session_id)
+    
+    if request.method == 'POST':
+        form = TelegramSessionForm(request.POST, instance=session)
+        if form.is_valid():
+            form.save()
+            messages.success(request, f'Сесія {session.phone} успішно оновлена!')
+            return redirect('telegram_sessions')
+    else:
+        form = TelegramSessionForm(instance=session)
+    
+    context = {
+        'form': form,
+        'session': session,
+        'title': f'Редагування сесії {session.phone}'
+    }
+    return render(request, 'admin_panel/edit_session.html', context)

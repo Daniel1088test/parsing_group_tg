@@ -1,4 +1,5 @@
 from django import forms
+from django.db import connection
 from .models import Channel, Category, Message, TelegramSession, BotSettings
 from django.contrib.auth.forms import UserCreationForm
 from django.contrib.auth.models import User
@@ -8,9 +9,9 @@ class ChannelForm(forms.ModelForm):
         model = Channel
         fields = ['name', 'url', 'category', 'is_active', 'session']
         widgets = {
-            'name': forms.TextInput(attrs={'class': 'form-control', 'required': True}),
-            'url': forms.TextInput(attrs={'class': 'form-control', 'required': True}),
-            'category': forms.Select(attrs={'class': 'form-control', 'required': True}),
+            'name': forms.TextInput(attrs={'class': 'form-control'}),
+            'url': forms.TextInput(attrs={'class': 'form-control'}),
+            'category': forms.Select(attrs={'class': 'form-control'}),
             'is_active': forms.CheckboxInput(attrs={'class': 'form-check-input'}),
             'session': forms.Select(attrs={'class': 'form-control'}),
         }
@@ -39,12 +40,60 @@ class ChannelForm(forms.ModelForm):
             },
         }
 
+class SafeTelegramSessionForm(forms.ModelForm):
+    """
+    TelegramSession form that adapts to available database fields
+    """
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        
+        # Determine which fields actually exist in the database table
+        with connection.cursor() as cursor:
+            cursor.execute("""
+                SELECT column_name 
+                FROM information_schema.columns 
+                WHERE table_name = 'admin_panel_telegramsession';
+            """)
+            existing_columns = [row[0] for row in cursor.fetchall()]
+        
+        # Remove fields that don't exist in the database
+        for field_name in list(self.fields.keys()):
+            # Skip id, created_at, and updated_at as they're managed by Django
+            if field_name in ['id', 'created_at', 'updated_at']:
+                continue
+                
+            if field_name not in existing_columns:
+                self.fields.pop(field_name, None)
+    
+    class Meta:
+        model = TelegramSession
+        fields = [
+            'phone', 'api_id', 'api_hash', 'is_active', 
+            'session_file', 'verification_code', 'password',
+            'session_data', 'auth_token', 'needs_auth'
+        ]
+        widgets = {
+            'phone': forms.TextInput(attrs={'class': 'form-control'}),
+            'api_id': forms.TextInput(attrs={'class': 'form-control'}),
+            'api_hash': forms.TextInput(attrs={'class': 'form-control'}),
+            'is_active': forms.CheckboxInput(attrs={'class': 'form-check-input'}),
+            'session_file': forms.TextInput(attrs={'class': 'form-control'}),
+            'verification_code': forms.TextInput(attrs={'class': 'form-control'}),
+            'password': forms.PasswordInput(attrs={'class': 'form-control'}),
+            'session_data': forms.Textarea(attrs={'class': 'form-control', 'rows': 3}),
+            'auth_token': forms.TextInput(attrs={'class': 'form-control'}),
+            'needs_auth': forms.CheckboxInput(attrs={'class': 'form-check-input'}),
+        }
+
+# For backward compatibility
+TelegramSessionForm = SafeTelegramSessionForm
+
 class CategoryForm(forms.ModelForm):
     class Meta:
         model = Category
         fields = ['name', 'description', 'is_active', 'session']
         widgets = {
-            'name': forms.TextInput(attrs={'class': 'form-control', 'required': True}),
+            'name': forms.TextInput(attrs={'class': 'form-control'}),
             'description': forms.Textarea(attrs={'class': 'form-control', 'rows': 3}),
             'is_active': forms.CheckboxInput(attrs={'class': 'form-check-input'}),
             'session': forms.Select(attrs={'class': 'form-control'}),
@@ -100,25 +149,6 @@ class MessageForm(forms.ModelForm):
             'channel': {
                 'required': "This field is required.",
             },
-        }
-
-class TelegramSessionForm(forms.ModelForm):
-    class Meta:
-        model = TelegramSession
-        fields = ['phone', 'api_id', 'api_hash', 'is_active', 'session_file']
-        widgets = {
-            'phone': forms.TextInput(attrs={'class': 'form-control', 'placeholder': '+123456789'}),
-            'api_id': forms.NumberInput(attrs={'class': 'form-control', 'placeholder': 'Leave empty for default'}),
-            'api_hash': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'Leave empty for default'}),
-            'is_active': forms.CheckboxInput(attrs={'class': 'form-check-input'}),
-            'session_file': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'Optional - usually auto-generated'})
-        }
-        help_texts = {
-            'phone': 'Telephone number with country code (e.g., +380123456789)',
-            'api_id': 'Telegram API ID (leave empty to use default)',
-            'api_hash': 'Telegram API Hash (leave empty to use default)',
-            'is_active': 'Uncheck to temporarily disable this session',
-            'session_file': 'Session file path (leave empty to auto-generate)',
         }
 
 class BotSettingsForm(forms.ModelForm):

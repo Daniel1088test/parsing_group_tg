@@ -1,105 +1,97 @@
 #!/bin/bash
 set -e
 
-echo "===================== Starting Railway Deployment ====================="
+echo "Starting deployment script for Django+Telegram Parser on Railway.app"
 
-# Set PYTHONPATH для доступу до пакетів з поточної директорії
-export PYTHONPATH=$PYTHONPATH:$(pwd)
+# Ensure script is executable on Unix systems
+chmod +x ./scripts/restart_server.py ./scripts/railway_startup_fix.py ./scripts/fix_url_view.py ./scripts/fix_migrations_dependency.py
 
-# Створення необхідних директорій
-echo "Creating required directories..."
+# Create essential directories
+mkdir -p staticfiles
+mkdir -p staticfiles/media
+mkdir -p staticfiles/media/messages
+mkdir -p media
 mkdir -p media/messages
-mkdir -p staticfiles/img
-mkdir -p data/sessions
-mkdir -p static/img
 
-# Встановлення правильних прав доступу
-echo "Setting directory permissions..."
-chmod -R 755 media
-chmod -R 755 staticfiles
-chmod -R 755 data
-chmod -R 755 static
-
-# Очищення файлів кешу Python
-echo "Cleaning Python cache files..."
-find . -name "*.pyc" -delete
-find . -name "__pycache__" -type d -exec rm -rf {} +
-
-# Створення файлу health check для Railway
-echo "Creating health check files..."
-echo "/health" > healthcheck.txt
-echo "200 OK" >> healthcheck.txt
-
-# Створення статичних health файлів для всіх можливих запитів
-echo "Creating static health check files..."
-for DIR in "." "static" "staticfiles"; do
-  for FILE in "health.html" "healthz.html" "health.txt" "healthz.txt"; do
-    echo "OK" > $DIR/$FILE
-    chmod 644 $DIR/$FILE
-  done
-done
-
-# Створення placeholder файлів для медіа
-echo "Creating placeholder images..."
-python -c '
-from PIL import Image, ImageDraw
-import os
-
-# Ensure directories exist
-os.makedirs("staticfiles/img", exist_ok=True)
-os.makedirs("static/img", exist_ok=True)
-
-# Create placeholders
-for path, text in [
-    ("staticfiles/img/placeholder-image.png", "IMAGE"),
-    ("staticfiles/img/placeholder-video.png", "VIDEO"),
-    ("static/img/placeholder-image.png", "IMAGE"),
-    ("static/img/placeholder-video.png", "VIDEO"),
-]:
-    try:
-        img = Image.new("RGB", (300, 200), color=(240, 240, 240))
-        draw = ImageDraw.Draw(img)
-        draw.rectangle([(0, 0), (299, 199)], outline=(200, 200, 200), width=2)
-        draw.text((150, 100), text, fill=(100, 100, 100))
-        img.save(path)
-        print(f"Created {path}")
-    except Exception as e:
-        print(f"Error creating {path}: {e}")
-'
-
-# Виправлення проблем з базою даних - напряму
-echo "Running direct database fix..."
-python scripts/direct_db_fix.py || echo "Direct database fix failed but continuing"
-
-# Запуск міграцій
-echo "Running migrations..."
-python manage.py migrate || echo "Migration failed, will try with --fake-initial"
-python manage.py migrate --fake-initial || echo "Migration with --fake-initial failed, trying individually"
-
-# Якщо міграція не вдалася, пробуємо послідовно для кожного додатку
-if [ $? -ne 0 ]; then
-  echo "Applying migrations app by app..."
-  for APP in admin auth contenttypes sessions admin_panel; do
-    python manage.py migrate $APP --fake-initial || echo "Migration for $APP failed but continuing"
-  done
+# Install core dependencies if running in a container environment 
+if [ -n "$RAILWAY_ENVIRONMENT" ]; then
+    echo "Installing psycopg2-binary for database fixes..."
+    pip install psycopg2-binary
 fi
 
-# Збір статичних файлів
+# Create health check files
+echo "Creating health check files..."
+mkdir -p staticfiles/health
+echo "OK" > staticfiles/health/index.html
+echo "OK" > staticfiles/health.html
+
+# Run core fixes before database operations
+echo "Running environment and URL fixes..."
+python ./scripts/railway_startup_fix.py
+python ./scripts/fix_url_view.py
+
+# Fix migrations and dependencies
+echo "Fixing migrations and dependencies..."
+python ./scripts/fix_migrations_dependency.py
+
+# Database connection check and retry
+echo "Checking database connection and applying fixes..."
+MAX_RETRIES=5
+RETRY_DELAY=2
+RETRY_COUNT=0
+
+while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+    echo "Database fix attempt $((RETRY_COUNT+1))/$MAX_RETRIES"
+    
+    # Run the direct database fix
+    if python direct_db_fix.py; then
+        echo "Database fix successful!"
+        break
+    else
+        echo "Database fix failed, retrying in $RETRY_DELAY seconds..."
+        RETRY_COUNT=$((RETRY_COUNT+1))
+        sleep $RETRY_DELAY
+        RETRY_DELAY=$((RETRY_DELAY*2))  # Exponential backoff
+    fi
+done
+
+if [ $RETRY_COUNT -eq $MAX_RETRIES ]; then
+    echo "WARNING: Max retries reached for database fixes. Will attempt to continue anyway."
+fi
+
+# Run migrations with retry logic
+echo "Running migrations..."
+RETRY_COUNT=0
+RETRY_DELAY=2
+
+while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+    echo "Migration attempt $((RETRY_COUNT+1))/$MAX_RETRIES"
+    
+    if python manage.py migrate --noinput; then
+        echo "Migrations successful!"
+        break
+    else
+        echo "Migrations failed, retrying in $RETRY_DELAY seconds..."
+        RETRY_COUNT=$((RETRY_COUNT+1))
+        sleep $RETRY_DELAY
+        RETRY_DELAY=$((RETRY_DELAY*2))  # Exponential backoff
+    fi
+done
+
+if [ $RETRY_COUNT -eq $MAX_RETRIES ]; then
+    echo "WARNING: Migrations could not be completed after $MAX_RETRIES attempts."
+    echo "Attempting to continue with application startup."
+fi
+
+# Collect static files
 echo "Collecting static files..."
-python manage.py collectstatic --noinput || echo "Collectstatic failed but continuing"
+python manage.py collectstatic --noinput
 
-# Запуск Telegram парсера у фоні
-echo "Starting Telegram parser in background..."
-python run_parser.py &
-PARSER_PID=$!
-echo "Parser started with PID: $PARSER_PID"
+# Start Telethon parser in the background
+echo "Starting Telethon parser in the background..."
+nohup python run_parser.py > ./parser.log 2>&1 &
+echo "Telethon parser started"
 
-# Виведення інформації про середовище
-echo "Environment information:"
-echo "RAILWAY_ENVIRONMENT: $RAILWAY_ENVIRONMENT"
-echo "RAILWAY_PUBLIC_DOMAIN: $RAILWAY_PUBLIC_DOMAIN"
-echo "DATABASE_URL is ${DATABASE_URL:+set}"
-
-# Запуск Django сервера
-echo "Starting Django server..."
+# Start the Django application
+echo "Starting Django application..."
 exec python manage.py runserver 0.0.0.0:8080 
