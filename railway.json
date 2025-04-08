@@ -4,8 +4,7 @@
   "_comment": "IMPORTANT: Make sure to set DATABASE_URL in Railway dashboard!",
   
   "build": {
-    "builder": "DOCKERFILE",
-    "dockerfilePath": "./Dockerfile"
+    "builder": "NIXPACKS"
   },
   "deploy": {
     "startCommand": "bash start.sh",

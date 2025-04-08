@@ -29,22 +29,25 @@ SECRET_KEY = os.environ.get('SECRET_KEY', 'django-insecure-ke3r=i9e97_*@6!^5%5g@
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = os.environ.get('DEBUG', 'False').lower() == 'true'
 
-ALLOWED_HOSTS = ['*']  # Allow all hosts in production for Railway
+# Application domain settings
+RAILWAY_PUBLIC_DOMAIN = os.environ.get('RAILWAY_PUBLIC_DOMAIN', 'parsinggrouptg-production.up.railway.app')
+ALLOWED_HOSTS = ['*', RAILWAY_PUBLIC_DOMAIN, 'localhost', '127.0.0.1']
 
 # Security Settings
 CSRF_TRUSTED_ORIGINS = [
-    'https://parsinggrouptg-production.up.railway.app',
-    'http://parsinggrouptg-production.up.railway.app',
+    f'https://{RAILWAY_PUBLIC_DOMAIN}',
+    f'http://{RAILWAY_PUBLIC_DOMAIN}',
     'http://localhost:8000',
     'http://127.0.0.1:8000',
     'http://healthcheck.railway.app',
+    'https://healthcheck.railway.app',
 ]
-CSRF_COOKIE_SECURE = True
-SESSION_COOKIE_SECURE = True
+CSRF_COOKIE_SECURE = not DEBUG
+SESSION_COOKIE_SECURE = not DEBUG
 SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 
 # Security settings
-SECURE_SSL_REDIRECT = not DEBUG
+SECURE_SSL_REDIRECT = False  # Disable SSL redirect to allow health checks
 SECURE_SSL_REDIRECT_EXEMPT = [
     r'^health/',
     r'^\.well-known/acme-challenge/',
@@ -72,6 +75,7 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+    'whitenoise.runserver_nostatic',
     'admin_panel',
     'tg_bot',
 ]
@@ -118,11 +122,53 @@ DATABASES = {
     }
 }
 
-# Parse database connection url
+# Railway PostgreSQL configuration
 DATABASE_URL = os.environ.get('DATABASE_URL')
-if DATABASE_URL:
-    import dj_database_url
-    DATABASES['default'] = dj_database_url.parse(DATABASE_URL)
+RAILWAY_POSTGRES_CONNECTION_STRING = os.environ.get('DATABASE_PUBLIC_URL')
+
+# Try all possible PostgreSQL connection strings
+db_connection_urls = [
+    DATABASE_URL,
+    RAILWAY_POSTGRES_CONNECTION_STRING,
+    os.environ.get('POSTGRES_URL'),
+    os.environ.get('DATABASE_URL')
+]
+
+# Construct DATABASE_URL from individual PostgreSQL variables if needed
+if not any(db_connection_urls) and all([
+    os.environ.get('PGUSER'),
+    os.environ.get('PGPASSWORD'),
+    os.environ.get('PGHOST'),
+    os.environ.get('PGPORT'),
+    os.environ.get('PGDATABASE')
+]):
+    # Use Railway TCP Proxy if available
+    if os.environ.get('RAILWAY_TCP_PROXY_DOMAIN') and os.environ.get('RAILWAY_TCP_PROXY_PORT'):
+        db_connection_urls.append(
+            f"postgresql://{os.environ.get('PGUSER')}:{os.environ.get('PGPASSWORD')}@"
+            f"{os.environ.get('RAILWAY_TCP_PROXY_DOMAIN')}:{os.environ.get('RAILWAY_TCP_PROXY_PORT')}/"
+            f"{os.environ.get('PGDATABASE')}?sslmode=require"
+        )
+    else:
+        # Direct connection
+        db_connection_urls.append(
+            f"postgresql://{os.environ.get('PGUSER')}:{os.environ.get('PGPASSWORD')}@"
+            f"{os.environ.get('PGHOST')}:{os.environ.get('PGPORT')}/"
+            f"{os.environ.get('PGDATABASE')}"
+        )
+
+# Use the first valid connection URL
+for url in db_connection_urls:
+    if url:
+        try:
+            import dj_database_url
+            DATABASES['default'] = dj_database_url.parse(url)
+            print(f"Using database connection: {url.replace(os.environ.get('PGPASSWORD', ''), '********')}")
+            break
+        except ImportError:
+            print("WARNING: dj-database-url package not found. Install with: pip install dj-database-url")
+        except Exception as e:
+            print(f"Error parsing database URL: {e}")
 
 
 # Password validation
@@ -159,7 +205,7 @@ USE_TZ = True
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/5.0/howto/static-files/
 
-STATIC_URL = 'static/'
+STATIC_URL = '/static/'
 STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
 STATICFILES_DIRS = []  # Start with empty list
 
@@ -177,6 +223,13 @@ WHITENOISE_MAX_AGE = 31536000  # 1 year in seconds
 # Media files
 MEDIA_URL = '/media/'
 MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
+
+# Telegram bot settings from environment variables
+BOT_TOKEN = os.environ.get('BOT_TOKEN', '7923260865:AAGWm7t0Zz2PqFPI5PldEVwrOC4HZ_5oP0c')
+API_ID = os.environ.get('API_ID', '19840544')
+API_HASH = os.environ.get('API_HASH', 'c839f28bad345082329ec086fca021fa')
+ADMIN_ID = os.environ.get('ADMIN_ID', '574349489')
+BOT_USERNAME = os.environ.get('BOT_USERNAME', '@Channels_hunt_bot')
 
 # Logging configuration
 LOGGING = {

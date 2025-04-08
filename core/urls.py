@@ -30,10 +30,16 @@ def health_check(request):
     """Simple health check endpoint that always returns OK"""
     return HttpResponse("OK", content_type="text/plain", status=200)
 
+# Add a simpler route for health check that always works
+def railway_health(request):
+    """Simplified health check for Railway"""
+    return HttpResponse("OK")
+
 urlpatterns = [
     path('admin/', admin.site.urls),
-    path('health/', health_check, name='health_check'),
-    path('', include('tg_bot.urls')),
+    path('health/', health_check, name='health_check'),  # Main health check endpoint
+    path('', railway_health),  # Root path for Railway health checks
+    path('api/', include('tg_bot.urls')),  # Include your app's URLs
 ]
 
 # Serve media files in development
