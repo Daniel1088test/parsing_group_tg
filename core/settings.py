@@ -123,10 +123,12 @@ if 'DATABASE_URL' in os.environ:
             conn_max_age=600,
             conn_health_checks=True,
             ssl_require=False,
-            engine='django.db.backends.postgresql',
-            options='-c statement_timeout=90000',
         )
     }
+    # Додаємо додаткові налаштування для PostgreSQL після створення з'єднання
+    DATABASES['default'].setdefault('OPTIONS', {})
+    DATABASES['default']['OPTIONS']['connect_timeout'] = 60
+    
     print(f"Using DATABASE_URL for database connection")
 # Якщо DATABASE_URL не вказано, спробуємо використати індивідуальні змінні PostgreSQL
 elif all([
@@ -151,10 +153,12 @@ elif all([
             conn_max_age=600,
             conn_health_checks=True,
             ssl_require=False,
-            engine='django.db.backends.postgresql',
-            options='-c statement_timeout=90000',
         )
     }
+    # Додаємо додаткові налаштування для PostgreSQL після створення з'єднання
+    DATABASES['default'].setdefault('OPTIONS', {})
+    DATABASES['default']['OPTIONS']['connect_timeout'] = 60
+    
     print(f"Using PostgreSQL connection from environment variables: {PGHOST}:{PGPORT}/{PGDATABASE}")
 else:
     # Якщо жодне з вищевказаних не працює, використовуємо SQLite
