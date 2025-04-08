@@ -1,59 +1,115 @@
-#!/usr/bin/env python
-"""
-Script for creating symbolic links for media access on Railway deployment.
-This script properly configures Django settings before execution.
-"""
+#!/usr/bin/env python3
 import os
 import sys
-import django
-
-# Configure Django settings
-os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'core.settings')
-django.setup()
-
-# Now we can import Django settings and models
-from django.conf import settings
 import logging
+import django
+import shutil
 
-# Setup logging
+# Configure logging
 logging.basicConfig(
     level=logging.INFO,
-    format='%(levelname)s %(asctime)s %(name)s %(process)d %(thread)d %(message)s',
-    datefmt='%Y-%m-%d %H:%M:%S',
+    format='%(levelname)s %(asctime)s %(filename)s %(lineno)d %(process)d %(message)s',
 )
-logger = logging.getLogger('create_symlinks')
+logger = logging.getLogger(__name__)
 
-def main():
-    """Main function to create symbolic links for media files"""
+try:
+    # Try to set up Django
+    logger.info("Attempting to set up Django for symlink creation...")
+    os.environ.setdefault("DJANGO_SETTINGS_MODULE", "core.settings")
+    django.setup()
+    
+    # Import after Django setup
     try:
-        logger.info("Starting symlink creation...")
+        from django.conf import settings
         
-        # Print environment information
-        logger.info(f"MEDIA_ROOT: {settings.MEDIA_ROOT}")
-        logger.info(f"STATIC_ROOT: {settings.STATIC_ROOT}")
+        # Create symlinks using Django settings
+        logger.info("Creating symlinks using Django settings...")
         
-        # Create symbolic link from /app/staticfiles/media to /app/media
-        static_media_path = os.path.join(settings.STATIC_ROOT, 'media')
+        # Define source and target directories
+        media_root = settings.MEDIA_ROOT
+        static_root = settings.STATIC_ROOT
         
-        # Remove the existing symlink if it exists
-        if os.path.islink(static_media_path):
-            os.unlink(static_media_path)
-            logger.info(f"Removed existing symlink: {static_media_path}")
+        # Create symlink from static to media if needed
+        media_symlink = os.path.join(static_root, 'media')
         
-        # Create the symbolic link
-        try:
-            os.symlink(settings.MEDIA_ROOT, static_media_path)
-            logger.info(f"Created symlink: {static_media_path} -> {settings.MEDIA_ROOT}")
-        except FileExistsError:
-            logger.warning(f"Symlink already exists: {static_media_path}")
-        except Exception as e:
-            logger.error(f"Error creating symlink: {e}")
+        if not os.path.exists(media_symlink):
+            try:
+                os.symlink(media_root, media_symlink)
+                logger.info(f"Created symlink: {media_symlink} -> {media_root}")
+            except OSError:
+                # Fallback for platforms that don't support symlinks
+                logger.warning(f"Symlink creation failed, creating directory: {media_symlink}")
+                os.makedirs(media_symlink, exist_ok=True)
+        else:
+            logger.info(f"Symlink already exists: {media_symlink}")
+            
+        logger.info("Symlink creation complete")
         
-        logger.info("Symlink creation completed successfully!")
-        return 0
-    except Exception as e:
-        logger.error(f"Error in create_symlinks script: {e}", exc_info=True)
-        return 1
+    except ImportError as e:
+        logger.warning(f"Could not import Django settings: {str(e)}")
+        logger.info("Continuing without settings access")
 
-if __name__ == "__main__":
-    sys.exit(main()) 
+except (ImportError, ModuleNotFoundError) as e:
+    # Handle missing Django or core module
+    logger.warning(f"Django setup failed: {str(e)}")
+    logger.info("Creating directories and placeholders as fallback...")
+    
+    # Create standard directories
+    dirs_to_create = [
+        "media",
+        "media/messages",
+        "staticfiles",
+        "staticfiles/img",
+        "staticfiles/media"
+    ]
+    
+    for directory in dirs_to_create:
+        try:
+            os.makedirs(directory, exist_ok=True)
+            logger.info(f"Created directory: {directory}")
+        except Exception as e:
+            logger.error(f"Failed to create directory {directory}: {str(e)}")
+    
+    # Create a basic .htaccess file for media redirection
+    htaccess_path = os.path.join("staticfiles", "media", ".htaccess")
+    try:
+        with open(htaccess_path, "w") as f:
+            f.write("""
+# Redirect media requests to the media directory
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    RewriteRule ^(.*)$ /media/$1 [L]
+</IfModule>
+""")
+        logger.info(f"Created .htaccess file: {htaccess_path}")
+    except Exception as e:
+        logger.error(f"Failed to create .htaccess file: {str(e)}")
+    
+    # Copy placeholder images to the media directory
+    placeholder_image = os.path.join("staticfiles", "img", "placeholder-image.png")
+    placeholder_video = os.path.join("staticfiles", "img", "placeholder-video.png")
+    
+    # Check if placeholders exist, if not create them
+    for placeholder in [placeholder_image, placeholder_video]:
+        if not os.path.exists(placeholder):
+            try:
+                # Create a simple placeholder (1x1 pixel)
+                with open(placeholder, "wb") as f:
+                    # Simple 1x1 transparent PNG
+                    f.write(b'\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x06\x00\x00\x00\x1f\x15\xc4\x89\x00\x00\x00\nIDATx\x9cc\x00\x01\x00\x00\x05\x00\x01\r\n-\xb4\x00\x00\x00\x00IEND\xaeB`\x82')
+                logger.info(f"Created placeholder: {placeholder}")
+            except Exception as e:
+                logger.error(f"Failed to create placeholder: {str(e)}")
+        
+        # Copy to media directory
+        try:
+            media_placeholder = os.path.join("staticfiles", "media", os.path.basename(placeholder))
+            shutil.copy2(placeholder, media_placeholder)
+            logger.info(f"Copied placeholder to media directory: {media_placeholder}")
+        except Exception as e:
+            logger.error(f"Failed to copy placeholder: {str(e)}")
+
+    logger.info("Symlink/directory creation completed in fallback mode")
+
+# Always exit cleanly
+logger.info("Script execution complete") 

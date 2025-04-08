@@ -369,6 +369,32 @@
             placeholder.alt = 'Video thumbnail';
             video.parentNode.replaceChild(placeholder, video);
         }
+
+        // Immediately set all Railway media to placeholders
+        window.addEventListener('DOMContentLoaded', function() {
+            // Check if we're on Railway
+            if (window.location.hostname.includes('railway.app') || 
+                document.cookie.includes('railway_environment=true')) {
+                console.log('Railway environment detected, preemptively replacing media');
+                
+                // Set a cookie to remember we're on Railway
+                document.cookie = "railway_environment=true; path=/; max-age=86400";
+                
+                // Force replace all media elements
+                document.querySelectorAll('.media-container img:not([src^="/staticfiles/"])').forEach(function(img) {
+                    var mediaType = img.closest('[data-media-type]')?.getAttribute('data-media-type') || '';
+                    if (mediaType.includes('video')) {
+                        img.src = '/staticfiles/img/placeholder-video.png';
+                    } else {
+                        img.src = '/staticfiles/img/placeholder-image.png';
+                    }
+                });
+                
+                document.querySelectorAll('.media-container video').forEach(function(video) {
+                    handleVideoError(video);
+                });
+            }
+        });
     </script>
     <!-- End additional head code -->
 </head>
@@ -472,7 +498,7 @@
                                     <p class="card-text">
                                         {{ message.text }}
                                     </p>
-                                    <div class="media-container mb-3">                                                    
+                                    <div class="media-container mb-3" data-media-type="{{ message.media_type }}">                                                    
                                         {% if message.media_type == 'photo' or message.media_type == 'image' %}
                                             {% if message.original_url %}
                                                 <!-- Use Telegram's embed for photos when available -->
@@ -486,12 +512,13 @@
                                                 <img src="{{ MEDIA_URL|default:'/media/' }}{{ message.media }}" 
                                                      onerror="handleImageError(this)"
                                                      class="img-fluid rounded shadow-sm" alt="Image">
+                                                <!-- Hidden backup image that loads immediately -->
+                                                <img src="/staticfiles/img/placeholder-image.png" 
+                                                     style="display:none;" class="backup-image"
+                                                     onload="if(this.previousElementSibling.naturalWidth === 0) { this.previousElementSibling.src = this.src; }">
                                             {% else %}
                                                 <!-- Fallback for no media or URL -->
-                                                <div class="alert alert-warning text-center">
-                                                    <i class="fas fa-image fa-2x mb-2"></i><br>
-                                                    Image not available
-                                                </div>
+                                                <img src="/staticfiles/img/placeholder-image.png" class="img-fluid rounded shadow-sm" alt="Image placeholder">
                                             {% endif %}
                                         {% elif message.media_type == 'video' %}
                                             {% if message.original_url %}
@@ -510,6 +537,12 @@
                                                         <source src="{{ MEDIA_URL|default:'/media/' }}{{ message.media }}" type="video/mp4">
                                                         Your browser does not support video.
                                                     </video>
+                                                    <!-- Hidden element to force replacement if needed -->
+                                                    <img src="/staticfiles/img/placeholder-video.png" style="display:none;" 
+                                                         class="backup-video" onload="setTimeout(function() { 
+                                                            var v = this.previousElementSibling;
+                                                            if(!v.canPlayType || v.error) { handleVideoError(v); }
+                                                        }.bind(this), 500);">
                                                 </div>
                                             {% else %}
                                                 <!-- Fallback for no media or URL -->
@@ -703,7 +736,8 @@
                 $('img').on('error', function() {
                     if (this.src !== '/staticfiles/img/placeholder-image.png' && 
                         this.src !== '/staticfiles/img/placeholder-video.png') {
-                        if ($(this).closest('.media-container').find('video').length > 0) {
+                        if ($(this).closest('.media-container').find('video').length > 0 ||
+                            $(this).closest('.media-container').attr('data-media-type') === 'video') {
                             this.src = '/staticfiles/img/placeholder-video.png';
                         } else {
                             this.src = '/staticfiles/img/placeholder-image.png';
@@ -718,13 +752,25 @@
                 });
                 
                 // Check for Railway environment and apply special fixes
-                if (window.location.hostname.includes('railway.app')) {
+                if (window.location.hostname.includes('railway.app') || 
+                    document.cookie.includes('railway_environment=true')) {
                     console.log('Railway environment detected, applying special fixes');
-                    // Replace all media URLs to use absolute paths
+                    // Document this is a Railway environment
+                    document.cookie = "railway_environment=true; path=/; max-age=86400";
+                    
+                    // Replace all media URLs to use placeholders immediately
                     $('img[src^="/media/"]').each(function() {
                         const originalSrc = $(this).attr('src');
                         $(this).attr('data-original-src', originalSrc);
-                        $(this).attr('src', '/staticfiles/img/placeholder-image.png');
+                        
+                        // Choose placeholder based on media type
+                        const mediaContainer = $(this).closest('.media-container');
+                        if (mediaContainer.attr('data-media-type') === 'video' || 
+                            mediaContainer.find('video').length > 0) {
+                            $(this).attr('src', '/staticfiles/img/placeholder-video.png');
+                        } else {
+                            $(this).attr('src', '/staticfiles/img/placeholder-image.png');
+                        }
                     });
                     
                     $('video source[src^="/media/"]').each(function() {
@@ -740,6 +786,8 @@
             // Additional check after page is fully loaded
             $(window).on('load', function() {
                 setTimeout(checkMediaElements, 500);
+                // Another check after a bit more time
+                setTimeout(checkMediaElements, 2000);
             });
         });
     </script>
