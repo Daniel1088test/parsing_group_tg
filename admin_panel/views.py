@@ -383,6 +383,73 @@ def sessions_list_view(request):
                 messages.success(request, f'Media files fixed. Check the console for details.')
             except Exception as e:
                 messages.error(request, f'Error fixing media files: {str(e)}')
+                
+        # Handle session creation (directly from the list page)
+        elif action == '' or action is None:
+            # If no action specified, treat as session creation
+            phone = request.POST.get('phone')
+            api_id = request.POST.get('api_id', '')
+            api_hash = request.POST.get('api_hash', '')
+            
+            if not phone:
+                messages.error(request, 'Phone number is required')
+                return redirect('sessions_list')
+            
+            # Create the session
+            try:
+                session_data = {
+                    'phone': phone,
+                    'api_id': api_id or settings.TELEGRAM_API_ID,
+                    'api_hash': api_hash or settings.TELEGRAM_API_HASH,
+                    'is_active': True,
+                }
+                
+                # needs_auth field is temporarily removed 
+                session = TelegramSession(**session_data)
+                session.save()
+                
+                messages.success(request, f'Session created for {phone}.')
+                messages.info(request, f'Please authenticate it using the Authorize button.')
+                
+            except Exception as e:
+                messages.error(request, f'Error creating session: {str(e)}')
+                
+        # Handle session update
+        elif action == 'update_session' and session_id:
+            try:
+                session = TelegramSession.objects.get(id=session_id)
+                
+                # Update basic properties
+                session.phone = request.POST.get('phone', session.phone)
+                session.api_id = request.POST.get('api_id', session.api_id)
+                session.api_hash = request.POST.get('api_hash', session.api_hash)
+                session.is_active = request.POST.get('is_active') == 'on'
+                
+                # Save the session
+                session.save()
+                
+                messages.success(request, f'Session {session.phone} updated')
+            except TelegramSession.DoesNotExist:
+                messages.error(request, f'Session with ID {session_id} not found')
+            except Exception as e:
+                messages.error(request, f'Error updating session: {str(e)}')
+                
+        # Handle session deletion
+        elif action == 'delete_session' and session_id:
+            try:
+                session = TelegramSession.objects.get(id=session_id)
+                
+                # Check if this session is in use
+                if Channel.objects.filter(session=session).exists():
+                    messages.error(request, f'Cannot delete session {session.phone} as it is used by channels')
+                else:
+                    # Delete the session
+                    session.delete()
+                    messages.success(request, f'Session {session.phone} deleted')
+            except TelegramSession.DoesNotExist:
+                messages.error(request, f'Session with ID {session_id} not found')
+            except Exception as e:
+                messages.error(request, f'Error deleting session: {str(e)}')
     
     # Get all sessions
     sessions = TelegramSession.objects.all().order_by('-is_active', 'id')

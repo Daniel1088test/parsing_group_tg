@@ -3,23 +3,19 @@ set -e
 
 echo "===================== Starting Railway Deployment ====================="
 
-# Run migrations first
-echo "Running migrations..."
-python manage.py migrate
-
-# Collect static files
-echo "Collecting static files..."
-python manage.py collectstatic --noinput
-
 # Create required directories first
 echo "Creating required directories..."
 mkdir -p media/messages
 mkdir -p staticfiles/img
 mkdir -p data/sessions
 
-# Run session fixes - with additional error handling
-echo "Fixing sessions and media..."
-python manage.py fix_sessions || echo "Warning: fix_sessions command had errors but continuing deployment"
+# Run migrations - continue on error
+echo "Running migrations..."
+python manage.py migrate || echo "Warning: Migration had errors but continuing deployment"
+
+# Collect static files
+echo "Collecting static files..."
+python manage.py collectstatic --noinput || echo "Warning: collectstatic had errors but continuing deployment"
 
 # Make placeholder files if they don't exist yet
 echo "Ensuring placeholder files exist..."
@@ -42,6 +38,10 @@ for path, text in placeholder_paths:
         draw.text((150, 100), text, fill=(100, 100, 100))
         img.save(path)
 " || echo "Warning: Could not create placeholder images"
+
+# Run session fixes - with additional error handling
+echo "Fixing sessions and media..."
+python manage.py fix_sessions || echo "Warning: fix_sessions command had errors but continuing deployment"
 
 # Start the server
 echo "Starting Django server..."
