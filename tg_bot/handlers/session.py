@@ -16,7 +16,11 @@ phone_keyboard = ReplyKeyboardMarkup(
     one_time_keyboard=True
 )
 
+# Додаткові команди авторизації для сумісності
+@session_router.message(F.text.startswith("/authorize"))
+@session_router.message(F.text.startswith("/auth"))
 @session_router.message(Command("authorize"))
+@session_router.message(Command("auth"))
 async def start_auth(message: types.Message):
     """Start the authorization process"""
     try:

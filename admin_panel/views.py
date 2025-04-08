@@ -171,6 +171,7 @@ def index_view(request):
 
 
 def login_view(request):
+    """View for user login"""
     if request.user.is_authenticated:
         return redirect('admin_panel')
     if request.method == 'POST':
@@ -180,27 +181,39 @@ def login_view(request):
                 username=form.cleaned_data['username'],
                 password=form.cleaned_data['password']
             )
-            login(request, user)
-            return redirect('admin_panel')
+            if user is not None:
+                login(request, user)
+                return redirect('admin_panel')
     else:
         form = AuthenticationForm()
     return render(request, 'admin_panel/login.html', {'form': form})
 
 def register_view(request):
+    """View for user registration"""
     if request.user.is_authenticated:
         return redirect('admin_panel')
+        
     if request.method == 'POST':
         form = UserRegistrationForm(request.POST)
         if form.is_valid():
-            user = form.save()
-            messages.success(request, 'Registration successful! Now you can login.')
-            return redirect('login')
+            try:
+                # Збереження користувача
+                user = form.save()
+                # Повідомлення про успішну реєстрацію
+                messages.success(request, 'Реєстрація успішна! Тепер ви можете увійти.')
+                # Перенаправлення на сторінку входу
+                return redirect('login')
+            except Exception as e:
+                # Обробка помилок під час збереження
+                messages.error(request, f'Помилка при створенні користувача: {str(e)}')
         else:
+            # Вивід всіх помилок форми
             for field, errors in form.errors.items():
                 for error in errors:
                     messages.error(request, f'{error}')
     else:
         form = UserRegistrationForm()
+        
     return render(request, 'admin_panel/register.html', {'form': form})
 
 def logout_view(request):

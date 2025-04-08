@@ -18,8 +18,9 @@ import traceback
 # Налаштування логування
 logger = logging.getLogger('admin_operations')
 
-# Створюємо роутер
+# Створюємо роутери
 admin_router = Router()
+router = admin_router  # Для сумісності з існуючим кодом
 
 # create a synchronous function, which we will then wrap in async
 def _create_category(name):

@@ -1,30 +1,48 @@
 from django.urls import path
-from . import views
+from .views import (
+    index_view, login_view, logout_view, admin_panel_view,
+    categories_list_view, category_create_view, category_detail_view, category_update_view, category_delete_view,
+    channels_list_view, channel_create_view, channel_detail_view, channel_update_view, channel_delete_view,
+    messages_list_view, message_detail_view, message_delete_view,
+    sessions_list_view, session_create_view, session_update_view, session_delete_view,
+    authorize_session_view, register_view, bot_settings_view, run_migrations_view, auth_help_view
+)
 
 urlpatterns = [
-    path('', views.admin_panel_view, name='admin_panel'),
-    path('dashboard/', views.admin_panel_view, name='dashboard'),
-    path('login/', views.login_view, name='login'),
-    path('logout/', views.logout_view, name='logout'),
-    path('channels/', views.channels_list_view, name='channels_list'),
-    path('channels/add/', views.channel_create_view, name='channel_create'),
-    path('channels/<int:channel_id>/edit/', views.channel_update_view, name='channel_update'),
-    path('channels/<int:channel_id>/delete/', views.channel_delete_view, name='channel_delete'),
-    path('channels/<int:channel_id>/', views.channel_detail_view, name='channel_detail'),
-    path('categories/', views.categories_list_view, name='categories_list'),
-    path('categories/add/', views.category_create_view, name='category_create'),
-    path('categories/<int:category_id>/edit/', views.category_update_view, name='category_update'),
-    path('categories/<int:category_id>/delete/', views.category_delete_view, name='category_delete'),
-    path('categories/<int:category_id>/', views.category_detail_view, name='category_detail'),
-    path('messages/', views.messages_list_view, name='messages_list'),
-    path('messages/<int:message_id>/', views.message_detail_view, name='message_detail'),
-    path('messages/<int:message_id>/delete/', views.message_delete_view, name='message_delete'),
-    path('sessions/', views.sessions_list_view, name='sessions_list'),
-    path('sessions/add/', views.session_create_view, name='session_create'),
-    path('sessions/<int:session_id>/edit/', views.session_update_view, name='session_update'),
-    path('sessions/<int:session_id>/delete/', views.session_delete_view, name='session_delete'),
-    path('sessions/<int:session_id>/authorize/', views.authorize_session_view, name='authorize_session'),
-    path('auth-help/', views.auth_help_view, name='auth_help'),
-    path('bot-settings/', views.bot_settings_view, name='bot_settings'),
-    path('user-guide/', views.user_guide_view, name='user_guide'),
+    path('', index_view, name='index'),
+    path('login/', login_view, name='login'),
+    path('register/', register_view, name='register'),
+    path('logout/', logout_view, name='logout'),
+    path('admin_panel/', admin_panel_view, name='admin_panel'),
+    
+    # Категорії
+    path('categories/', categories_list_view, name='categories_list'),
+    path('categories/create/', category_create_view, name='category_create'),
+    path('categories/<int:category_id>/', category_detail_view, name='category_detail'),
+    path('categories/<int:category_id>/update/', category_update_view, name='category_update'),
+    path('categories/<int:category_id>/delete/', category_delete_view, name='category_delete'),
+    
+    # Канали
+    path('channels/', channels_list_view, name='channels_list'),
+    path('channels/create/', channel_create_view, name='channel_create'),
+    path('channels/<int:channel_id>/', channel_detail_view, name='channel_detail'),
+    path('channels/<int:channel_id>/update/', channel_update_view, name='channel_update'),
+    path('channels/<int:channel_id>/delete/', channel_delete_view, name='channel_delete'),
+    
+    # Повідомлення
+    path('messages/', messages_list_view, name='messages_list'),
+    path('messages/<int:message_id>/', message_detail_view, name='message_detail'),
+    path('messages/<int:message_id>/delete/', message_delete_view, name='message_delete'),
+    
+    # Сесії
+    path('sessions/', sessions_list_view, name='sessions_list'),
+    path('sessions/create/', session_create_view, name='session_create'),
+    path('sessions/<int:session_id>/update/', session_update_view, name='session_update'),
+    path('sessions/<int:session_id>/delete/', session_delete_view, name='session_delete'),
+    path('sessions/<int:session_id>/authorize/', authorize_session_view, name='authorize_session'),
+    path('sessions/auth-help/', auth_help_view, name='auth_help'),
+    path('run-migrations/', run_migrations_view, name='run_migrations'),
+    
+    # Налаштування бота
+    path('settings/', bot_settings_view, name='bot_settings'),
 ]

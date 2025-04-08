@@ -28,11 +28,51 @@ try:
     # Імпортуємо необхідні модулі
     from aiogram import Bot, Dispatcher
     from aiogram.fsm.storage.memory import MemoryStorage
-    from tg_bot.config import TOKEN_BOT
-    from tg_bot.handlers import common_router, admin_router, session_router
+    from tg_bot.handlers import common_router, admin_router, session_router, session_buttons_router, menu_buttons_router, fallback_router
     from tg_bot.middlewares import ChannelsDataMiddleware
     
+    # Отримуємо токен бота з різних можливих джерел
+    def get_bot_token():
+        # 1. Спочатку перевіряємо змінну середовища
+        token = os.environ.get('BOT_TOKEN')
+        if token:
+            logger.info("Використовуємо BOT_TOKEN з змінних середовища")
+            return token
+            
+        # 2. Перевіряємо змінну з config.py
+        try:
+            from tg_bot.config import TOKEN_BOT
+            if TOKEN_BOT:
+                logger.info("Використовуємо TOKEN_BOT з config.py")
+                return TOKEN_BOT
+        except ImportError:
+            logger.warning("Не вдалося імпортувати TOKEN_BOT з config.py")
+            
+        # 3. Перевіряємо налаштування Django
+        try:
+            from django.conf import settings
+            if hasattr(settings, 'BOT_TOKEN') and settings.BOT_TOKEN:
+                logger.info("Використовуємо BOT_TOKEN з налаштувань Django")
+                return settings.BOT_TOKEN
+        except:
+            logger.warning("Не вдалося отримати токен з налаштувань Django")
+            
+        # 4. Намагаємося отримати з бази даних
+        try:
+            from admin_panel.models import BotSettings
+            bot_settings = BotSettings.objects.first()
+            if bot_settings and bot_settings.bot_token:
+                logger.info("Використовуємо токен з бази даних")
+                return bot_settings.bot_token
+        except:
+            logger.warning("Не вдалося отримати токен з бази даних")
+            
+        # Якщо все невдало, повертаємо хардкодний токен (найгірший варіант)
+        logger.error("Не вдалося знайти токен бота, використовуємо хардкодний токен")
+        return "7923260865:AAGWm7t0Zz2PqFPI5PldEVwrOC4HZ_5oP0c"
+    
     # initialize the bot and dispatcher
+    TOKEN_BOT = get_bot_token()
     bot = Bot(token=TOKEN_BOT)
     storage = MemoryStorage()
     dp = Dispatcher(storage=storage)
@@ -43,8 +83,34 @@ try:
     
     # register all routers
     dp.include_router(session_router)
+    dp.include_router(session_buttons_router)
+    dp.include_router(menu_buttons_router)
     dp.include_router(admin_router)
     dp.include_router(common_router)
+    # Fallback router додаємо останнім, щоб він вловлював всі повідомлення, які не були оброблені іншими роутерами
+    dp.include_router(fallback_router)
+    
+    async def health_check():
+        """
+        Функція для перевірки здоров'я бота
+        Повертає True, якщо бот працює нормально
+        """
+        try:
+            # Перевіряємо, чи можемо отримати інформацію про бота
+            bot_info = await bot.get_me()
+            return {
+                "status": "ok",
+                "bot_id": bot_info.id,
+                "bot_name": bot_info.username,
+                "timestamp": datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            }
+        except Exception as e:
+            logger.error(f"Health check failed: {e}")
+            return {
+                "status": "error",
+                "error": str(e),
+                "timestamp": datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            }
     
     async def main():
         # display information about the bot start

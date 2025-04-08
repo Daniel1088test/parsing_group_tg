@@ -3,7 +3,7 @@ import os
 # Get variables from environment with fallbacks
 API_HASH = os.environ.get('API_HASH', "c839f28bad345082329ec086fca021fa")
 API_ID = os.environ.get('API_ID', "19840544") 
-TOKEN_BOT = os.environ.get('BOT_TOKEN', "7923260865:AAGWm7t0Zz2PqFPI5PldEVwrOC4HZ_5oP0c")
+TOKEN_BOT = os.environ.get('BOT_TOKEN', "7923260865:AAGWm7t0Zz2PqFPI5PldEVwrOC4HZ_5oP0cD")
 ADMIN_ID = int(os.environ.get('ADMIN_ID', "574349489"))
 BOT_USERNAME = os.environ.get('BOT_USERNAME', "@Channels_hunt_bot")
 

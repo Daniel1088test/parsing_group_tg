@@ -15,11 +15,11 @@ Including another URLconf
     2. Add a URL to urlpatterns:  path('blog/', include('blog.urls'))
 """
 from django.contrib import admin
-from django.urls import path, include
+from django.urls import path, include, re_path
 from django.conf import settings
 from django.conf.urls.static import static
 from admin_panel.views import index_view
-from django.http import HttpResponse, FileResponse
+from django.http import HttpResponse, FileResponse, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_GET
 import os
@@ -29,6 +29,9 @@ from django.views.static import serve
 from django.views.generic.base import RedirectView
 from .views import serve_media
 from django.views.generic import TemplateView
+import subprocess
+import psutil
+import time
 
 logger = logging.getLogger('media_handler')
 
@@ -152,72 +155,117 @@ def serve_media(request, path):
     return HttpResponse("Media not found", status=404)
 
 def health_check_view(request):
-    """Simple view that returns 200 OK."""
-    return HttpResponse("OK")
+    """Простий обробник для перевірки здоров'я для Railway"""
+    return JsonResponse({'status': 'ok', 'message': 'Service is running'})
 
 def simple_index_view(request):
     """Simple index view that works without database."""
-    if not request.user.is_authenticated:
-        return RedirectView.as_view(url='/admin_panel/login/')(request)
-    return HttpResponse("""
-    <html>
-    <head>
-        <title>Telegram Parser Admin</title>
-        <meta name="viewport" content="width=device-width, initial-scale=1">
-        <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.2.3/dist/css/bootstrap.min.css">
-        <style>
-            body { padding: 20px; }
-            .card { margin-bottom: 20px; }
-        </style>
-    </head>
-    <body>
-        <div class="container">
-            <h1 class="mt-4 mb-4">Telegram Parser Admin Panel</h1>
-            <div class="row">
-                <div class="col-md-6">
-                    <div class="card">
-                        <div class="card-header">
-                            <h5>Управління</h5>
-                        </div>
-                        <div class="card-body">
-                            <ul class="list-group">
-                                <li class="list-group-item"><a href="/admin_panel/channels/">Канали</a></li>
-                                <li class="list-group-item"><a href="/admin_panel/categories/">Категорії</a></li>
-                                <li class="list-group-item"><a href="/admin_panel/messages/">Повідомлення</a></li>
-                                <li class="list-group-item"><a href="/admin_panel/sessions/">Сесії Telegram</a></li>
-                                <li class="list-group-item"><a href="/admin_panel/settings/">Налаштування</a></li>
-                            </ul>
-                        </div>
-                    </div>
-                </div>
-                <div class="col-md-6">
-                    <div class="card">
-                        <div class="card-header">
-                            <h5>Інструменти</h5>
-                        </div>
-                        <div class="card-body">
-                            <ul class="list-group">
-                                <li class="list-group-item"><a href="/admin/">Django Admin</a></li>
-                                <li class="list-group-item"><a href="/admin_panel/logout/">Вийти</a></li>
-                            </ul>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </body>
-    </html>
-    """, content_type="text/html")
+    from django.shortcuts import redirect
+    if request.user.is_authenticated:
+        return redirect('admin_panel')
+    return redirect('login')
+
+@csrf_exempt
+def bot_status_api(request):
+    """API для перевірки статусу бота"""
+    try:
+        # Перевіряємо, чи бот запущений через перевірку процесів
+        import psutil
+        import os
+        
+        # Шукаємо процеси python, які виконують run_bot.py
+        bot_processes = []
+        for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
+            try:
+                if proc.info['name'].lower() in ['python', 'python.exe', 'python3', 'python3.exe']:
+                    cmdline = ' '.join(proc.info['cmdline'] or []).lower()
+                    if 'run_bot.py' in cmdline:
+                        bot_processes.append(proc.info)
+            except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+                pass
+        
+        # Повертаємо статус
+        if bot_processes:
+            return JsonResponse({
+                'status': 'running',
+                'message': 'Bot is running',
+                'processes': len(bot_processes),
+                'process_info': bot_processes[0] if bot_processes else None
+            })
+        else:
+            return JsonResponse({
+                'status': 'stopped',
+                'message': 'Bot is not running'
+            })
+    except ImportError:
+        # Якщо немає psutil, спробуємо інший метод
+        try:
+            # Альтернативний метод через таблицю процесів у Django
+            import subprocess
+            
+            if os.name == 'posix':  # Linux/Unix
+                result = subprocess.run(['ps', '-ef'], capture_output=True, text=True)
+                bot_running = 'run_bot.py' in result.stdout
+            else:  # Windows
+                result = subprocess.run(['tasklist', '/FI', 'IMAGENAME eq python.exe'], capture_output=True, text=True)
+                bot_running = 'run_bot.py' in result.stdout
+                
+            if bot_running:
+                return JsonResponse({
+                    'status': 'running',
+                    'message': 'Bot is running'
+                })
+            else:
+                return JsonResponse({
+                    'status': 'stopped',
+                    'message': 'Bot is not running'
+                })
+        except Exception as e:
+            # Якщо все інше не працює, перевіримо файли статусу чи директорії
+            try:
+                # Спробуємо перевірити, чи існує директорія з логами бота
+                log_dir = os.path.join('logs', 'bot')
+                if os.path.exists(log_dir) and os.path.isdir(log_dir):
+                    # Перевіряємо, чи є нові логи
+                    logs = [f for f in os.listdir(log_dir) if f.endswith('.log')]
+                    if logs:
+                        newest_log = max(logs, key=lambda x: os.path.getmtime(os.path.join(log_dir, x)))
+                        log_time = os.path.getmtime(os.path.join(log_dir, newest_log))
+                        if (time.time() - log_time) < 60*5:  # останні 5 хвилин
+                            return JsonResponse({
+                                'status': 'likely_running',
+                                'message': 'Bot appears to be running based on recent logs'
+                            })
+                
+                # Якщо немає ознак роботи, повернемо невідомий статус
+                return JsonResponse({
+                    'status': 'unknown',
+                    'message': f'Cannot determine bot status: {str(e)}'
+                })
+            except Exception as e2:
+                return JsonResponse({
+                    'status': 'error',
+                    'message': f'Error checking bot status: {str(e2)}'
+                }, status=500)
+    except Exception as e:
+        return JsonResponse({
+            'status': 'error',
+            'message': f'Error checking bot status: {str(e)}'
+        }, status=500)
 
 # Simplified URL patterns with reliable health check and redirect
 urlpatterns = [
     path('admin/', admin.site.urls),
-    path('', include('admin_panel.urls')),
-    path('health/', lambda request: HttpResponse("OK")),
+    path('admin_panel/', include('admin_panel.urls')),
+    path('', RedirectView.as_view(url='/admin_panel/'), name='root'),
+    path('health/', health_check_view, name='health'),
+    path('healthz/', health_check_view),
+    path('ping/', health_check_view),
+    path('api/bot/status/', bot_status_api, name='bot_status_api'),
     path('favicon.ico', RedirectView.as_view(url='/static/favicon.ico')),
     
     # Explicitly handle media files
-    path('messages/<path:path>', serve_media, name='serve_media'),
+    path('media/<path:path>', serve_media, name='serve_media'),
 ]
 
 # Static files handling

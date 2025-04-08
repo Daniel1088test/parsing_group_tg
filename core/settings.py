@@ -21,6 +21,7 @@ sys.path.insert(0, str(BASE_DIR))
 # Get Railway URL for allowed hosts and CSRF
 RAILWAY_PUBLIC_URL = os.environ.get('RAILWAY_PUBLIC_URL', '')
 RAILWAY_STATIC_URL = os.environ.get('RAILWAY_STATIC_URL', '')
+RAILWAY_PUBLIC_DOMAIN = os.environ.get('RAILWAY_PUBLIC_DOMAIN', '')
 
 ALLOWED_HOSTS = [
     # Default localhost values
@@ -28,10 +29,12 @@ ALLOWED_HOSTS = [
     
     # Railway host names
     '.up.railway.app', '.railway.app',
+    'parsinggrouptg-production.up.railway.app',
     
     # Extract hostname from Railway URL if available
     *([urlparse(RAILWAY_PUBLIC_URL).netloc] if RAILWAY_PUBLIC_URL else []),
     *([urlparse(RAILWAY_STATIC_URL).netloc] if RAILWAY_STATIC_URL else []),
+    *(RAILWAY_PUBLIC_DOMAIN.split(',') if RAILWAY_PUBLIC_DOMAIN else []),
     
     # Any additional hosts from environment
     *(os.environ.get('ALLOWED_HOSTS', '').split(',') if os.environ.get('ALLOWED_HOSTS') else [])
@@ -201,7 +204,7 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 # Login/logout URLs
 LOGIN_URL = '/admin_panel/login/'
-LOGIN_REDIRECT_URL = '/admin_panel/'
+LOGIN_REDIRECT_URL = '/admin_panel/admin_panel/'
 LOGOUT_REDIRECT_URL = '/admin_panel/login/'
 
 # Logging configuration

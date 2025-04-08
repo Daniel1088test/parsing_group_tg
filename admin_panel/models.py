@@ -31,16 +31,21 @@ class Channel(models.Model):
 
 class TelegramSession(models.Model):
     """Telegram session model for storing session data"""
+    session_name = models.CharField(max_length=255, default='default')
     phone = models.CharField(max_length=20, unique=True)
-    api_id = models.CharField(max_length=255)
-    api_hash = models.CharField(max_length=255)
+    api_id = models.CharField(max_length=255, blank=True, null=True)
+    api_hash = models.CharField(max_length=255, blank=True, null=True)
+    session_string = models.TextField(blank=True, null=True)
     is_active = models.BooleanField(default=True)
+    is_bot = models.BooleanField(default=False)
+    verification_code = models.CharField(max_length=10, blank=True, null=True)
+    password = models.CharField(max_length=255, blank=True, null=True)
+    session_data = models.TextField(blank=True, null=True, help_text="Encoded session data for persistent storage")
+    auth_token = models.CharField(max_length=255, blank=True, null=True, help_text="Token for authorizing this session via bot")
+    needs_auth = models.BooleanField(default=True, help_text="Indicates if this session needs manual authentication")
+    session_file = models.CharField(max_length=255, blank=True, null=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
-    session_file = models.CharField(max_length=255, blank=True, null=True)
-    session_data = models.TextField(blank=True, null=True, help_text="Encoded session data for persistent storage")
-    needs_auth = models.BooleanField(default=True, help_text="Indicates if this session needs manual authentication")
-    auth_token = models.CharField(max_length=255, blank=True, null=True, help_text="Token for authorizing this session via bot")
     
     def __str__(self):
         status = "Active" if self.is_active else "Inactive"
@@ -111,6 +116,11 @@ class BotSettings(models.Model):
                                    help_text="Username of your Telegram bot (without @)")
     bot_name = models.CharField(max_length=100, default="Channel Parser Bot", 
                                help_text="Display name of your bot")
+    bot_token = models.CharField(max_length=255, blank=True, null=True)
+    default_api_id = models.IntegerField(default=2496)
+    default_api_hash = models.CharField(max_length=255, blank=True, null=True)
+    polling_interval = models.IntegerField(default=30, help_text="How often to check for new messages (in seconds)")
+    max_messages_per_channel = models.IntegerField(default=10, help_text="Maximum number of messages to fetch per channel")
     auth_guide_text = models.TextField(default="Please follow these steps to authorize your Telegram account",
                                      help_text="Text shown during authorization process")
     welcome_message = models.TextField(default="Welcome to the Channel Parser Bot. Use the menu below:",

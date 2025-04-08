@@ -1,28 +1,28 @@
 # Django and REST Framework
-Django>=5.0.0
+Django==4.2.10
 djangorestframework==3.14.0
 django-cors-headers==4.3.1
 django-filter==23.5
 
 # Database
-psycopg2-binary>=2.9.5
+psycopg2-binary==2.9.9
 
 # Telegram API
-Telethon>=1.28.5
-python-telegram-bot>=20.7
+Telethon==1.32.1
+python-telegram-bot==20.7
 cryptg==0.4.0  # TGCrypto alternative, helps with faster downloads
 
 # Web server and deployment
-gunicorn>=21.2.0
-whitenoise>=6.0.0
-dj-database-url>=2.1.0
+gunicorn==21.2.0
+whitenoise==6.6.0
+dj-database-url==2.1.0
 
 # Utilities
-pillow==10.0.0
-python-dotenv>=1.0.0
+Pillow==10.1.0
+python-dotenv==1.0.0
 requests>=2.0.0
 urllib3==2.0.7
-asgiref==3.8.1
+asgiref==3.7.2
 
 # Production tools
 supervisor==4.2.5
@@ -32,7 +32,7 @@ django-bootstrap5==23.3
 django-crispy-forms==2.1
 pytz==2023.3
 aiofiles==24.1.0
-aiogram>=3.7.0
+aiogram==3.2.0
 aiohappyeyeballs==2.6.1
 aiohttp==3.11.14
 aiosignal==1.3.2
@@ -46,9 +46,9 @@ multidict==6.2.0
 propcache==0.3.0
 pyaes==1.6.1
 pyasn1==0.6.1
-pydantic==2.10.6
+pydantic==2.5.3
 pydantic_core==2.27.2
-qrcode==8.0
+qrcode==7.4.2
 rsa==4.9
 sqlparse==0.5.3
 typing_extensions==4.12.2
@@ -56,3 +56,18 @@ uvicorn==0.27.1
 yarl==1.18.3
 django-compressor>=4.4
 pymediainfo==6.0.1  # For media file metadata
+
+# Additional dependencies
+celery==5.3.6
+redis==5.0.1
+django-extensions==3.2.3
+django-ipware==5.0.1
+django-storages==1.14.2
+cryptography==41.0.5
+pydantic-settings==2.1.0
+python-magic==0.4.27
+daphne==4.0.0
+channels==4.0.0
+channels-redis==4.1.0
+django-csp==3.7
+gevent==23.9.1

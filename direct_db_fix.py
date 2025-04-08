@@ -107,21 +107,25 @@ def get_db_connection():
 def check_table_exists(connection, table_name, db_type='postgres'):
     """Check if a table exists in the database"""
     try:
-        with connection.cursor() as cursor:
-            if db_type == 'postgres':
-                cursor.execute(f"""
-                    SELECT EXISTS (
-                        SELECT FROM information_schema.tables 
-                        WHERE table_name = '{table_name}'
-                    );
-                """)
-                return cursor.fetchone()[0]
-            elif db_type == 'sqlite':
-                cursor.execute(f"""
-                    SELECT name FROM sqlite_master 
-                    WHERE type='table' AND name='{table_name}';
-                """)
-                return cursor.fetchone() is not None
+        cursor = connection.cursor()
+        if db_type == 'postgres':
+            cursor.execute(f"""
+                SELECT EXISTS (
+                    SELECT FROM information_schema.tables 
+                    WHERE table_name = '{table_name}'
+                );
+            """)
+            result = cursor.fetchone()[0]
+            cursor.close()
+            return result
+        elif db_type == 'sqlite':
+            cursor.execute(f"""
+                SELECT name FROM sqlite_master 
+                WHERE type='table' AND name='{table_name}';
+            """)
+            result = cursor.fetchone() is not None
+            cursor.close()
+            return result
         return False
     except Exception as e:
         logger.error(f"Error checking if table exists: {e}")
@@ -130,19 +134,27 @@ def check_table_exists(connection, table_name, db_type='postgres'):
 def check_column_exists(connection, table_name, column_name, db_type='postgres'):
     """Check if a column exists in a table"""
     try:
-        with connection.cursor() as cursor:
-            if db_type == 'postgres':
-                cursor.execute(f"""
-                    SELECT column_name 
-                    FROM information_schema.columns 
-                    WHERE table_name = '{table_name}' AND column_name = '{column_name}';
-                """)
-                return cursor.fetchone() is not None
-            elif db_type == 'sqlite':
-                cursor.execute(f"PRAGMA table_info({table_name});")
-                columns = cursor.fetchall()
-                column_names = [col[1] for col in columns]
-                return column_name in column_names
+        cursor = connection.cursor()
+        if db_type == 'postgres':
+            cursor.execute(f"""
+                SELECT column_name FROM information_schema.columns 
+                WHERE table_name = '{table_name}' AND column_name = '{column_name}';
+            """)
+            result = cursor.fetchone() is not None
+            cursor.close()
+            return result
+        elif db_type == 'sqlite':
+            cursor.execute(f"""
+                PRAGMA table_info({table_name});
+            """)
+            # SQLite returns a list of tuples with column info (cid, name, type, notnull, dflt_value, pk)
+            # We need to check if the column_name exists in any of the results
+            columns = cursor.fetchall()
+            # Column name is at index 1
+            result = any(column[1] == column_name for column in columns)
+            cursor.close()
+            return result
+        return False
     except Exception as e:
         logger.error(f"Error checking if column exists: {e}")
         return False
@@ -160,31 +172,42 @@ def add_column(connection, table_name, column_name, column_type, default=None, d
             logger.info(f"Колонка '{column_name}' вже існує, пропускаємо")
             return True
             
-        with connection.cursor() as cursor:
-            # Build SQL statement based on whether a default is provided
+        # Build SQL statement based on whether a default is provided
+        cursor = connection.cursor()
+        
+        try:
             if db_type == 'postgres':
                 if default is not None:
-                    sql = f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_type} DEFAULT {default};"
+                    cursor.execute(f"""
+                        ALTER TABLE {table_name}
+                        ADD COLUMN {column_name} {column_type} DEFAULT {default};
+                    """)
                 else:
-                    sql = f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_type};"
+                    cursor.execute(f"""
+                        ALTER TABLE {table_name}
+                        ADD COLUMN {column_name} {column_type};
+                    """)
             elif db_type == 'sqlite':
-                # SQLite has limited ALTER TABLE support
+                # SQLite has limited ALTER TABLE support, we can only ADD COLUMN with basic syntax
                 if default is not None:
-                    sql = f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_type} DEFAULT {default};"
+                    cursor.execute(f"""
+                        ALTER TABLE {table_name}
+                        ADD COLUMN {column_name} {column_type} DEFAULT {default};
+                    """)
                 else:
-                    sql = f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_type};"
-                
-            cursor.execute(sql)
+                    cursor.execute(f"""
+                        ALTER TABLE {table_name}
+                        ADD COLUMN {column_name} {column_type};
+                    """)
+                    
+            # Commit the transaction
             connection.commit()
-            logger.info(f"Колонка '{column_name}' успішно додана")
+            logger.info(f"Колонка '{column_name}' типу '{column_type}' успішно додана до таблиці '{table_name}'")
             return True
+        finally:
+            cursor.close()
     except Exception as e:
-        logger.error(f"Помилка додавання колонки '{column_name}': {e}")
-        logger.error(traceback.format_exc())
-        try:
-            connection.rollback()
-        except:
-            pass
+        logger.error(f"Помилка при додаванні колонки '{column_name}' до таблиці '{table_name}': {e}")
         return False
 
 def fix_database():
