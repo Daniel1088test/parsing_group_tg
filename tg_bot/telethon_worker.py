@@ -70,11 +70,29 @@ def _save_message_to_db(message_data):
                         media_path = f"messages/{found_file}"
                         logger.info(f"Found alternative media file: {found_file}")
                     else:
-                        # Don't save non-existent media paths
-                        media_path = ""
+                        # If we have an original URL, keep the media_type but clear the media path
+                        if message_data.get('original_url'):
+                            logger.info(f"No media file found, but have original URL: {message_data.get('original_url')}")
+                            media_path = ""
+                        else:
+                            # Don't save non-existent media paths if no original URL
+                            media_path = ""
+                            logger.warning(f"No media file found and no original URL available")
                 else:
-                    # Don't save non-existent media paths
-                    media_path = ""
+                    # Create the directory if it doesn't exist - this helps with future saves
+                    try:
+                        os.makedirs(dir_name, exist_ok=True)
+                        logger.info(f"Created directory for media: {dir_name}")
+                    except Exception as e:
+                        logger.warning(f"Could not create media directory: {e}")
+                    
+                    # If we have an original URL, keep the media_type but clear the media path
+                    if message_data.get('original_url'):
+                        logger.info(f"Media directory doesn't exist, but have original URL: {message_data.get('original_url')}")
+                        media_path = ""
+                    else:
+                        # Don't save non-existent media paths if no original URL
+                        media_path = ""
         
         # Get original URL from message_data if available
         original_url = message_data.get('original_url')
@@ -233,14 +251,21 @@ async def download_media(client, message, media_dir):
             import re
             import uuid
             import shutil
+            import mimetypes
             
             # Use Django's MEDIA_ROOT to ensure we're saving in the right place
             absolute_media_dir = os.path.join(settings.MEDIA_ROOT, media_dir)
             
-            # Ensure the directory exists with proper permissions
-            os.makedirs(absolute_media_dir, exist_ok=True)
+            # Check if directory exists first to avoid the error
+            if not os.path.exists(absolute_media_dir):
+                try:
+                    os.makedirs(absolute_media_dir, exist_ok=True)
+                    logger.info(f"Created media directory: {absolute_media_dir}")
+                except Exception as e:
+                    # Log but continue - the directory might exist but with different permissions
+                    logger.warning(f"Could not create media directory: {e}")
             
-            # Make sure media directory has correct permissions
+            # Make sure media directory has correct permissions (try/except to avoid errors)
             try:
                 os.chmod(absolute_media_dir, 0o755)
             except Exception as e:
@@ -252,7 +277,34 @@ async def download_media(client, message, media_dir):
             
             # Create safe file name without special characters
             message_id = getattr(message, 'id', 0)
-            file_name = f"{message_id}_{timestamp}_{unique_id}"
+            
+            # Detect media type to add proper extension
+            media_type = "unknown"
+            extension = ""
+            
+            if hasattr(message.media, 'document') and hasattr(message.media.document, 'mime_type'):
+                mime_type = message.media.document.mime_type
+                if mime_type.startswith('video/'):
+                    media_type = "video"
+                    extension = ".mp4"
+                elif mime_type.startswith('image/'):
+                    if mime_type == 'image/gif':
+                        media_type = "gif"
+                        extension = ".gif"
+                    else:
+                        media_type = "photo"
+                        extension = ".jpg"
+                else:
+                    # Try to get extension from mime type
+                    guessed_ext = mimetypes.guess_extension(mime_type)
+                    if guessed_ext:
+                        extension = guessed_ext
+            elif hasattr(message.media, 'photo'):
+                media_type = "photo"
+                extension = ".jpg"
+            
+            # Add extension to filename
+            file_name = f"{message_id}_{timestamp}_{unique_id}{extension}"
             file_name = re.sub(r'[^\w\-_\.]', '_', file_name)  # Replace any non-safe chars
             safe_path = os.path.join(absolute_media_dir, file_name)
             
@@ -280,20 +332,22 @@ async def download_media(client, message, media_dir):
                                 f.read(10)
                                 
                             # Create a copy of the file with the correct extension based on file content
-                            import mimetypes
-                            content_type, encoding = mimetypes.guess_type(file_path)
-                            
-                            if content_type:
-                                extension = mimetypes.guess_extension(content_type) or ''
-                                if extension and not file_path.endswith(extension):
-                                    new_path = f"{file_path}{extension}"
-                                    shutil.copy2(file_path, new_path)
-                                    logger.info(f"Created copy with correct extension: {os.path.basename(new_path)}")
-                                    # Use the new file with extension
-                                    return os.path.basename(new_path)
+                            # Only if we don't already have an extension
+                            if not extension and os.path.splitext(file_path)[1] == '':
+                                import mimetypes
+                                content_type, encoding = mimetypes.guess_type(file_path)
+                                
+                                if content_type:
+                                    guessed_ext = mimetypes.guess_extension(content_type) or ''
+                                    if guessed_ext:
+                                        new_path = f"{file_path}{guessed_ext}"
+                                        shutil.copy2(file_path, new_path)
+                                        logger.info(f"Created copy with correct extension: {os.path.basename(new_path)}")
+                                        # Use the new file with extension
+                                        return os.path.basename(new_path)
                         except Exception as e:
-                            logger.error(f"Downloaded file exists but is not readable: {e}")
-                            return None
+                            logger.warning(f"Downloaded file exists but is not readable: {e}")
+                            # Continue with the original file path
                         
                         return base_name
                     else:
@@ -374,7 +428,7 @@ async def save_message_to_data(message, channel, queue, category_id=None, client
                         except Exception as e:
                             logger.warning(f"Could not create document link: {e}")
                         
-                    # Download the document
+                    # Try to download the document
                     media_file = await download_media(client, message, "messages")
                     logger.info(f"Media type: {media_type}, file: {media_file}, mime: {mime_type}")
                 elif isinstance(message.media, MessageMediaWebPage):
@@ -417,6 +471,10 @@ async def save_message_to_data(message, channel, queue, category_id=None, client
         # Format datetime as string
         formatted_date = message_date.strftime("%Y-%m-%d %H:%M:%S")
         
+        # Ensure we have original_url even if media file download failed
+        if not media_file and original_file_url and (media_type == "video" or media_type == "photo" or media_type == "gif"):
+            logger.info(f"No media file but have original URL: {original_file_url}")
+        
         # save the message
         message_info = {
             'text': message.text or "",
@@ -447,7 +505,8 @@ async def save_message_to_data(message, channel, queue, category_id=None, client
         
         session_info = f" (via {session.phone})" if session else ""
         media_status = f", with media: {media_file}" if media_file else ""
-        logger.info(f"Saved message {message.id} from channel '{channel_name}'{session_info}{media_status}")
+        original_url_info = f", original URL: {original_file_url}" if original_file_url else ""
+        logger.info(f"Saved message {message.id} from channel '{channel_name}'{session_info}{media_status}{original_url_info}")
         
         return saved_message
 

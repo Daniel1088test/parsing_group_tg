@@ -317,6 +317,40 @@
             margin-bottom: 15px;
             color: #333;
         }
+        
+        /* Fix for iframes embedding Telegram content */
+        iframe[src*="t.me"] {
+            width: 100%;
+            min-height: 400px;
+            border: none;
+            border-radius: 12px;
+            overflow: hidden;
+            display: block;
+            margin: 0 auto;
+        }
+        
+        /* Fix for images outside the container */
+        .media-container img {
+            max-width: 100%;
+            height: auto;
+        }
+        
+        /* Telegram-style video player */
+        .telegram-video-player {
+            width: 100%;
+            position: relative;
+            border-radius: 12px;
+            overflow: hidden;
+            background-color: #000;
+        }
+        
+        /* Fix Safari iframe issues */
+        @supports (-webkit-overflow-scrolling: touch) {
+            iframe {
+                width: 1px;
+                min-width: 100%;
+            }
+        }
     </style>
 </head>
 <body>
@@ -423,9 +457,12 @@
                                         {% if message.media_type == 'photo' or message.media_type == 'image' %}
                                             {% if message.original_url %}
                                                 <!-- Use Telegram's embed for photos when available -->
-                                                <iframe src="{{ message.original_url }}" frameborder="0" scrolling="no" 
-                                                       style="width: 100%; height: 400px; border-radius: 12px; overflow: hidden;"
-                                                       allowfullscreen="true"></iframe>
+                                                <div class="telegram-embed">
+                                                    <iframe src="{{ message.original_url }}" frameborder="0" scrolling="no" 
+                                                           sandbox="allow-same-origin allow-scripts allow-popups" 
+                                                           style="width: 100%; height: 400px; border-radius: 12px; overflow: hidden;"
+                                                           allowfullscreen="true"></iframe>
+                                                </div>
                                             {% else %}
                                                 <img src="{{ MEDIA_URL }}{{ message.media }}" 
                                                      class="img-fluid rounded shadow-sm" alt="Image">
@@ -433,9 +470,12 @@
                                         {% elif message.media_type == 'video' %}
                                             {% if message.original_url %}
                                                 <!-- Embed Telegram video -->
-                                                <iframe src="{{ message.original_url }}" frameborder="0" scrolling="no" 
-                                                       style="width: 100%; height: 400px; border-radius: 12px; overflow: hidden;"
-                                                       allowfullscreen="true"></iframe>
+                                                <div class="telegram-video-player">
+                                                    <iframe src="{{ message.original_url }}" frameborder="0" scrolling="no" 
+                                                           sandbox="allow-same-origin allow-scripts allow-popups" 
+                                                           style="width: 100%; height: 400px; border-radius: 12px; overflow: hidden;"
+                                                           allowfullscreen="true"></iframe>
+                                                </div>
                                             {% else %}
                                                 <div class="ratio ratio-16x9">
                                                     <video class="rounded shadow-sm" controls preload="metadata">
@@ -451,9 +491,12 @@
                                             </div>
                                         {% elif message.media_type == 'gif' %}
                                             {% if message.original_url %}
-                                                <iframe src="{{ message.original_url }}" frameborder="0" scrolling="no" 
-                                                       style="width: 100%; height: 400px; border-radius: 12px; overflow: hidden;"
-                                                       allowfullscreen="true"></iframe>
+                                                <div class="telegram-embed">
+                                                    <iframe src="{{ message.original_url }}" frameborder="0" scrolling="no" 
+                                                           sandbox="allow-same-origin allow-scripts allow-popups" 
+                                                           style="width: 100%; height: 400px; border-radius: 12px; overflow: hidden;"
+                                                           allowfullscreen="true"></iframe>
+                                                </div>
                                             {% else %}
                                                 <img src="{{ MEDIA_URL }}{{ message.media }}" 
                                                      class="img-fluid rounded shadow-sm" alt="GIF">
@@ -468,9 +511,12 @@
                                             </div>
                                         {% elif message.media_type == 'webpage' or message.media_type == 'webpage_photo' %}
                                             {% if message.original_url %}
-                                                <iframe src="{{ message.original_url }}" frameborder="0" scrolling="no" 
-                                                       style="width: 100%; height: 400px; border-radius: 12px; overflow: hidden;"
-                                                       allowfullscreen="true"></iframe>
+                                                <div class="webpage-embed">
+                                                    <iframe src="{{ message.original_url }}" frameborder="0" scrolling="no" 
+                                                           sandbox="allow-same-origin allow-scripts allow-popups" 
+                                                           style="width: 100%; height: 400px; border-radius: 12px; overflow: hidden;"
+                                                           allowfullscreen="true"></iframe>
+                                                </div>
                                             {% elif message.media %}
                                                 <img src="{{ MEDIA_URL }}{{ message.media }}" 
                                                      class="img-fluid rounded shadow-sm" alt="Webpage preview">

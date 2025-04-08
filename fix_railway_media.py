@@ -11,6 +11,7 @@ import logging
 import shutil
 import mimetypes
 from pathlib import Path
+from django.db import models
 
 # Configure logging
 logging.basicConfig(
@@ -113,59 +114,104 @@ def fix_media_files():
     image_placeholder = os.path.join(settings.STATIC_ROOT, 'img', 'placeholder-image.png')
     video_placeholder = os.path.join(settings.STATIC_ROOT, 'img', 'placeholder-video.png')
     
-    # Get all messages with media
+    # Make sure placeholders exist - recreate them if they don't
+    create_placeholder_images()
+    
+    # Get all messages with media type set
     try:
-        messages = Message.objects.exclude(media__isnull=True).exclude(media='')
+        # Get all messages with either media or original_url
+        messages = Message.objects.filter(
+            (models.Q(media__isnull=False) & ~models.Q(media='')) |
+            (models.Q(original_url__isnull=False) & ~models.Q(original_url=''))
+        )
         logger.info(f"Found {len(messages)} messages with media")
         
         fixed_count = 0
         for message in messages:
-            if not message.media:
-                continue
-            
-            # Get media path
-            media_path_str = str(message.media)
-            if not media_path_str.startswith('messages/'):
-                media_path_str = f"messages/{media_path_str}"
-                
-            media_path = os.path.join(settings.MEDIA_ROOT, media_path_str)
-            logger.info(f"Processing: {media_path}")
-            
-            # Check if file exists
-            if not os.path.exists(media_path):
-                logger.warning(f"File does not exist: {media_path}")
-                
-                # Determine which placeholder to use
-                if message.media_type in ['photo', 'image', 'gif']:
-                    placeholder = image_placeholder
-                    content_type = 'image/jpeg'
-                else:
-                    placeholder = video_placeholder
-                    content_type = 'video/mp4'
-                
-                # Create directory if needed
-                os.makedirs(os.path.dirname(media_path), exist_ok=True)
-                
-                # Copy placeholder
-                try:
-                    shutil.copy2(placeholder, media_path)
-                    os.chmod(media_path, 0o644)
-                    logger.info(f"Created placeholder for {media_path_str}")
-                    fixed_count += 1
-                except Exception as e:
-                    logger.error(f"Error creating placeholder for {media_path_str}: {e}")
-            else:
-                # File exists, ensure permissions
-                logger.info(f"File exists: {media_path}")
-                try:
-                    os.chmod(media_path, 0o644)
-                    logger.info(f"Updated permissions for: {media_path}")
-                except Exception as e:
-                    logger.warning(f"Could not set permissions for {media_path}: {e}")
+            try:
+                # Process messages with media path
+                if message.media:
+                    media_path_str = str(message.media)
+                    if not media_path_str.startswith('messages/'):
+                        media_path_str = f"messages/{media_path_str}"
+                        
+                    media_path = os.path.join(settings.MEDIA_ROOT, media_path_str)
+                    logger.info(f"Processing: {media_path}")
+                    
+                    # Check if file exists
+                    if not os.path.exists(media_path):
+                        logger.warning(f"File does not exist: {media_path}")
+                        
+                        # If we have an original URL, we can clear the media path and keep the media_type
+                        if message.original_url:
+                            logger.info(f"Message has original URL: {message.original_url}")
+                            message.media = ""
+                            message.save(update_fields=['media'])
+                            fixed_count += 1
+                            continue
+                        
+                        # Determine which placeholder to use
+                        if message.media_type in ['photo', 'image', 'gif']:
+                            placeholder = image_placeholder
+                            content_type = 'image/jpeg'
+                        else:
+                            placeholder = video_placeholder
+                            content_type = 'video/mp4'
+                        
+                        # Create directory if needed
+                        media_dir = os.path.dirname(media_path)
+                        if not os.path.exists(media_dir):
+                            try:
+                                os.makedirs(media_dir, exist_ok=True)
+                                os.chmod(media_dir, 0o755)
+                                logger.info(f"Created directory: {media_dir}")
+                            except Exception as e:
+                                logger.error(f"Error creating directory {media_dir}: {e}")
+                                continue
+                        
+                        # Copy placeholder
+                        try:
+                            shutil.copy2(placeholder, media_path)
+                            os.chmod(media_path, 0o644)
+                            logger.info(f"Created placeholder for {media_path_str}")
+                            fixed_count += 1
+                        except Exception as e:
+                            logger.error(f"Error creating placeholder for {media_path_str}: {e}")
+                    else:
+                        # File exists, ensure permissions
+                        logger.info(f"File exists: {media_path}")
+                        try:
+                            os.chmod(media_path, 0o644)
+                            logger.info(f"Updated permissions for: {media_path}")
+                        except Exception as e:
+                            logger.warning(f"Could not set permissions for {media_path}: {e}")
+                            
+                # Handle messages with original_url but no media
+                elif message.original_url and not message.media and message.media_type:
+                    logger.info(f"Message has original URL but no media: {message.original_url}")
+                    # This is actually okay, we'll display using the original URL
+                    pass
+            except Exception as e:
+                logger.error(f"Error processing message {message.id}: {e}")
                     
         logger.info(f"Fixed {fixed_count} missing media files")
     except Exception as e:
         logger.error(f"Error fixing media files: {e}")
+        
+    # Print a summary of the media situation
+    try:
+        total_messages = Message.objects.count()
+        media_messages = Message.objects.exclude(media_type__isnull=True).exclude(media_type='').count()
+        media_with_file = Message.objects.exclude(media__isnull=True).exclude(media='').count()
+        media_with_url = Message.objects.exclude(original_url__isnull=True).exclude(original_url='').count()
+        
+        logger.info(f"Media summary:")
+        logger.info(f"Total messages: {total_messages}")
+        logger.info(f"Messages with media_type: {media_messages}")
+        logger.info(f"Messages with media file: {media_with_file}")
+        logger.info(f"Messages with original URL: {media_with_url}")
+    except Exception as e:
+        logger.error(f"Error generating media summary: {e}")
 
 def create_symlinks():
     """Create necessary symlinks for consistent media access"""
