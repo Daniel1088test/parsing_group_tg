@@ -6,54 +6,98 @@ from django.contrib import messages
 from django.contrib.auth.forms import AuthenticationForm
 from .models import Category, Message, Channel, TelegramSession
 from .forms import ChannelForm, CategoryForm, MessageForm, UserRegistrationForm
+from django.http import HttpResponse
 
 def index_view(request):
-    category_id = request.GET.get('category')
-    count = int(request.GET.get('count', 5))
-    session_filter = request.GET.get('session')
-    
-    categories = Category.objects.all()
-    
-    # Base query
-    messages_query = Message.objects.select_related('channel', 'session_used', 'channel__session').order_by('-created_at')
-    
-    # Apply filters
-    if category_id and category_id != 'None' and category_id != 'undefined':
+    try:
+        category_id = request.GET.get('category')
+        count = int(request.GET.get('count', 5))
+        session_filter = request.GET.get('session')
+        
+        # Безпечно отримуємо категорії - якщо виникне помилка, повертаємо порожній список
         try:
-            # Convert to integer to ensure it's a valid ID
-            int(category_id)
-            # If a category is specified, filter messages
-            messages_query = messages_query.filter(channel__category_id=category_id)
-        except (ValueError, TypeError):
-            # If conversion fails, don't apply the filter
-            pass
-    
-    if session_filter and session_filter != 'None' and session_filter != 'undefined':
+            categories = Category.objects.all()
+        except Exception as e:
+            categories = []
+            print(f"Error loading categories: {str(e)}")
+        
+        # Base query - з обробкою помилок
         try:
-            # Convert to integer to ensure it's a valid ID
-            int(session_filter)
-            # If a session is specified, filter messages
-            messages_query = messages_query.filter(session_used_id=session_filter)
-        except (ValueError, TypeError):
-            # If conversion fails, don't apply the filter
-            pass
-    
-    # Get final limited result
-    messages_list = messages_query[:count]
-    
-    # Get all active sessions for filter dropdown
-    sessions = TelegramSession.objects.filter(is_active=True).order_by('phone')
-    
-    context = {
-        'categories': categories,
-        'messages': messages_list,
-        'sessions': sessions,
-        'selected_category': category_id if category_id and category_id != 'None' and category_id != 'undefined' else '',
-        'selected_session': session_filter if session_filter and session_filter != 'None' and session_filter != 'undefined' else '',
-        'current_count': count
-    }
-    
-    return render(request, 'admin_panel/index.html', context)
+            messages_query = Message.objects.select_related('channel', 'session_used', 'channel__session').order_by('-created_at')
+            
+            # Apply filters
+            if category_id and category_id != 'None' and category_id != 'undefined':
+                try:
+                    # Convert to integer to ensure it's a valid ID
+                    int(category_id)
+                    # If a category is specified, filter messages
+                    messages_query = messages_query.filter(channel__category_id=category_id)
+                except (ValueError, TypeError):
+                    # If conversion fails, don't apply the filter
+                    pass
+            
+            if session_filter and session_filter != 'None' and session_filter != 'undefined':
+                try:
+                    # Convert to integer to ensure it's a valid ID
+                    int(session_filter)
+                    # If a session is specified, filter messages
+                    messages_query = messages_query.filter(session_used_id=session_filter)
+                except (ValueError, TypeError):
+                    # If conversion fails, don't apply the filter
+                    pass
+            
+            # Get final limited result
+            messages_list = messages_query[:count]
+        except Exception as e:
+            messages_list = []
+            print(f"Error loading messages: {str(e)}")
+        
+        # Get all active sessions for filter dropdown - з обробкою помилок
+        try:
+            sessions = TelegramSession.objects.filter(is_active=True).order_by('phone')
+        except Exception as e:
+            sessions = []
+            print(f"Error loading sessions: {str(e)}")
+        
+        context = {
+            'categories': categories,
+            'messages': messages_list,
+            'sessions': sessions,
+            'selected_category': category_id if category_id and category_id != 'None' and category_id != 'undefined' else '',
+            'selected_session': session_filter if session_filter and session_filter != 'None' and session_filter != 'undefined' else '',
+            'current_count': count
+        }
+        
+        return render(request, 'admin_panel/index.html', context)
+    except Exception as e:
+        print(f"Error in index_view: {str(e)}")
+        # В разі помилки повертаємо просту статичну сторінку
+        error_html = f"""
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>Telegram Parser</title>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <style>
+                body {{ font-family: Arial, sans-serif; line-height: 1.6; padding: 20px; max-width: 800px; margin: 0 auto; }}
+                a {{ display: inline-block; margin: 10px 0; padding: 10px 15px; background: #0088cc; color: white; text-decoration: none; border-radius: 4px; }}
+                h1 {{ color: #0088cc; }}
+            </style>
+        </head>
+        <body>
+            <h1>Telegram Channel Parser</h1>
+            <p>The application is running, but there was an error loading the full page.</p>
+            <div>
+                <a href="/admin/">Go to Admin Panel</a>
+            </div>
+            <div>
+                <a href="https://t.me/Channels_hunt_bot" target="_blank">Open Telegram Bot</a>
+            </div>
+        </body>
+        </html>
+        """
+        return HttpResponse(error_html)
 
 
 def login_view(request):
