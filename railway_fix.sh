@@ -25,40 +25,40 @@ if [ ! -z "$DATABASE_URL" ]; then
   # Verify PostgreSQL connection first, but don't exit on failure
   echo "Verifying PostgreSQL connection..."
   python -c "
-  import os
-  import sys
-  import psycopg2
-  from urllib.parse import urlparse
-  
-  # Parse DATABASE_URL
-  url = urlparse(os.environ.get('DATABASE_URL', ''))
-  dbname = url.path[1:]
-  user = url.username
-  password = url.password
-  host = url.hostname
-  port = url.port
-  
-  try:
-      # Test direct connection to PostgreSQL
-      print(f'Connecting to PostgreSQL: {host}:{port}/{dbname}')
-      conn = psycopg2.connect(
-          dbname=dbname,
-          user=user,
-          password=password,
-          host=host,
-          port=port
-      )
-      cursor = conn.cursor()
-      cursor.execute('SELECT version();')
-      version = cursor.fetchone()[0]
-      print(f'✅ PostgreSQL connection successful: {version}')
-      cursor.close()
-      conn.close()
-  except Exception as e:
-      print(f'❌ PostgreSQL connection error: {e}')
-      # Don't exit, just log the error
-      print('Will continue with migrations anyway')
-  " || echo "PostgreSQL connection check failed, but continuing anyway"
+import os
+import sys
+import psycopg2
+from urllib.parse import urlparse
+
+# Parse DATABASE_URL
+url = urlparse(os.environ.get('DATABASE_URL', ''))
+dbname = url.path[1:]
+user = url.username
+password = url.password
+host = url.hostname
+port = url.port
+
+try:
+    # Test direct connection to PostgreSQL
+    print(f'Connecting to PostgreSQL: {host}:{port}/{dbname}')
+    conn = psycopg2.connect(
+        dbname=dbname,
+        user=user,
+        password=password,
+        host=host,
+        port=port
+    )
+    cursor = conn.cursor()
+    cursor.execute('SELECT version();')
+    version = cursor.fetchone()[0]
+    print(f'✅ PostgreSQL connection successful: {version}')
+    cursor.close()
+    conn.close()
+except Exception as e:
+    print(f'❌ PostgreSQL connection error: {e}')
+    # Don't exit, just log the error
+    print('Will continue with migrations anyway')
+" || echo "PostgreSQL connection check failed, but continuing anyway"
 fi
 
 # Create staticfiles directory if it doesn't exist
@@ -252,8 +252,8 @@ try:
             cursor = connection.cursor()
         
         try:
-            # Check if column exists and fix directly
-            cursor.execute(\"\"\"
+            # Check if column exists and fix directly - Fixed SQL syntax
+            cursor.execute('''
             DO $$
             BEGIN
                 BEGIN
@@ -273,9 +273,9 @@ try:
                 EXCEPTION WHEN duplicate_column THEN
                     RAISE NOTICE 'Column auth_token already exists';
                 END;
-            END
+            END;
             $$;
-            \"\"\")
+            ''')
             print('Direct database fixes applied successfully')
         except Exception as e:
             print(f'Error fixing database directly: {e}')

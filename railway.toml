@@ -1,12 +1,13 @@
 [build]
 builder = "NIXPACKS"
-buildCommand = "chmod +x railway_fix.sh && python manage.py collectstatic --noinput"
+buildCommand = "chmod +x railway_fix.sh railway_health.py && python manage.py collectstatic --noinput"
 
 [deploy]
-startCommand = "bash railway_fix.sh && gunicorn core.wsgi --log-file -"
+startCommand = "python railway_health.py & bash railway_fix.sh && gunicorn core.wsgi --log-file -"
 healthcheckPath = "/health.html"
 healthcheckTimeout = 300
 restartPolicyType = "ON_FAILURE"
+healthcheckInterval = 15
 
 [phases.setup]
 nixPkgs = ["python311", "postgresql", "gcc"] 
