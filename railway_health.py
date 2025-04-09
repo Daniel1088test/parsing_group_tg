@@ -11,8 +11,8 @@ import threading
 import time
 import signal
 
-# Get port from environment or use default
-PORT = int(os.environ.get('PORT', 8080))
+# Use a different port for health check to avoid conflict with Django
+HEALTH_PORT = int(os.environ.get('HEALTH_PORT', 3000))
 
 # Create static health check files
 print("Creating health check files...")
@@ -42,14 +42,14 @@ class HealthHandler(http.server.BaseHTTPRequestHandler):
 
 def run_server():
     """Run the health check server"""
-    print(f"Starting health check server on port {PORT}...")
+    print(f"Starting health check server on port {HEALTH_PORT}...")
     
     # Allow port reuse for faster restart
     socketserver.TCPServer.allow_reuse_address = True
     
     try:
-        with socketserver.TCPServer(("0.0.0.0", PORT), HealthHandler) as httpd:
-            print(f"Health check server running on port {PORT}")
+        with socketserver.TCPServer(("0.0.0.0", HEALTH_PORT), HealthHandler) as httpd:
+            print(f"Health check server running on port {HEALTH_PORT}")
             httpd.serve_forever()
     except OSError as e:
         print(f"Failed to start server: {e}")

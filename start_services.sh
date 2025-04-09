@@ -13,6 +13,8 @@ echo "<html><body>OK</body></html>" > healthz.html
 
 # 2. Start health check server in background
 echo "Starting health check server..."
+# Set health check port to avoid conflict with Django
+export HEALTH_PORT=3000
 nohup python railway_health.py > logs/health_server.log 2>&1 &
 HEALTH_PID=$!
 echo $HEALTH_PID > health_server.pid
@@ -80,13 +82,13 @@ print(f'Using database: {settings.DATABASES[\"default\"][\"ENGINE\"]}')
 # Add missing columns
 try:
     with connection.cursor() as cursor:
-        # BotSettings fixes
+        # BotSettings fixes - fixed syntax error
         cursor.execute('''
         DO $$
         BEGIN
             BEGIN
                 ALTER TABLE IF EXISTS admin_panel_botsettings 
-                ADD COLUMN IF NOT EXISTS bot_username VARCHAR(255) NULL;
+                ADD COLUMN IF NOT EXISTS bot_username VARCHAR(255);
             EXCEPTION WHEN duplicate_column THEN
                 RAISE NOTICE 'Column bot_username already exists';
             END;
@@ -100,7 +102,7 @@ try:
             
             BEGIN
                 ALTER TABLE IF EXISTS admin_panel_telegramsession 
-                ADD COLUMN IF NOT EXISTS auth_token VARCHAR(255) NULL;
+                ADD COLUMN IF NOT EXISTS auth_token VARCHAR(255);
             EXCEPTION WHEN duplicate_column THEN
                 RAISE NOTICE 'Column auth_token already exists';
             END;
@@ -142,19 +144,74 @@ python fix_aiohttp_sessions.py || echo "⚠️ Session fix failed, but continuin
 echo "Starting Telegram bot..."
 mkdir -p logs/bot
 chmod +x direct_bot_runner.py
-nohup python direct_bot_runner.py > logs/bot/bot.log 2>&1 &
-BOT_PID=$!
-echo $BOT_PID > bot.pid
-echo "Bot started with PID: $BOT_PID"
+
+# Try to start bot with retries
+BOT_MAX_RETRIES=3
+BOT_RETRY_COUNT=0
+BOT_STARTED=false
+
+while [ $BOT_RETRY_COUNT -lt $BOT_MAX_RETRIES ] && [ "$BOT_STARTED" = false ]; do
+  nohup python direct_bot_runner.py > logs/bot/bot.log 2>&1 &
+  BOT_PID=$!
+  echo $BOT_PID > bot.pid
+  
+  # Wait a moment to see if it crashes immediately
+  sleep 3
+  
+  # Check if process is still running
+  if ps -p $BOT_PID > /dev/null; then
+    echo "Bot started successfully with PID: $BOT_PID"
+    BOT_STARTED=true
+    
+    # Check if the log contains successful connection
+    if grep -q "Bot connection verified" logs/bot/bot.log; then
+      echo "✅ Bot successfully connected to Telegram API"
+    fi
+  else
+    BOT_RETRY_COUNT=$((BOT_RETRY_COUNT + 1))
+    echo "Bot failed to start (attempt $BOT_RETRY_COUNT/$BOT_MAX_RETRIES)"
+    sleep 3
+  fi
+done
+
+if [ "$BOT_STARTED" = false ]; then
+  echo "⚠️ Failed to start bot after $BOT_MAX_RETRIES attempts"
+  echo "Will rely on process monitor to retry later"
+fi
 
 # 10. Start parser in background if the file exists
 if [ -f "run_parser.py" ]; then
   echo "Starting parser..."
   mkdir -p logs/parser
-  nohup python run_parser.py > logs/parser/parser.log 2>&1 &
-  PARSER_PID=$!
-  echo $PARSER_PID > parser.pid
-  echo "Parser started with PID: $PARSER_PID"
+  
+  # Try to start parser with retries
+  PARSER_MAX_RETRIES=3
+  PARSER_RETRY_COUNT=0
+  PARSER_STARTED=false
+  
+  while [ $PARSER_RETRY_COUNT -lt $PARSER_MAX_RETRIES ] && [ "$PARSER_STARTED" = false ]; do
+    nohup python run_parser.py > logs/parser/parser.log 2>&1 &
+    PARSER_PID=$!
+    echo $PARSER_PID > parser.pid
+    
+    # Wait a moment to see if it crashes immediately
+    sleep 2
+    
+    # Check if process is still running
+    if ps -p $PARSER_PID > /dev/null; then
+      echo "Parser started successfully with PID: $PARSER_PID"
+      PARSER_STARTED=true
+    else
+      PARSER_RETRY_COUNT=$((PARSER_RETRY_COUNT + 1))
+      echo "Parser failed to start (attempt $PARSER_RETRY_COUNT/$PARSER_MAX_RETRIES)"
+      sleep 3
+    fi
+  done
+  
+  if [ "$PARSER_STARTED" = false ]; then
+    echo "⚠️ Failed to start parser after $PARSER_MAX_RETRIES attempts"
+    echo "Will rely on process monitor to retry later"
+  fi
 fi
 
 # 11. Monitor process
@@ -216,4 +273,61 @@ echo "Process monitor started with PID: $MONITOR_PID"
 echo "Starting Django application..."
 PORT=${PORT:-8080}
 echo "Using port: $PORT"
+
+# Check if port is in use and kill the process using it
+echo "Checking if port $PORT is in use..."
+python -c "
+import socket
+import os
+import signal
+import subprocess
+import time
+
+def check_port_in_use(port):
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        return s.connect_ex(('localhost', port)) == 0
+
+def find_process_using_port(port):
+    try:
+        # For Linux/Unix
+        output = subprocess.check_output(['lsof', '-i', f':{port}'], text=True)
+        lines = output.strip().split('\\n')
+        if len(lines) > 1:  # Skip header
+            # Extract PID from the second column
+            return int(lines[1].split()[1])
+    except:
+        try:
+            # Alternative approach
+            output = subprocess.check_output(['fuser', f'{port}/tcp'], text=True)
+            return int(output.strip().split()[0])
+        except:
+            return None
+    return None
+
+# Check if port is in use
+port = int(os.environ.get('PORT', 8080))
+if check_port_in_use(port):
+    print(f'Port {port} is in use')
+    pid = find_process_using_port(port)
+    if pid:
+        print(f'Killing process {pid} using port {port}')
+        try:
+            os.kill(pid, signal.SIGTERM)
+            # Wait a moment for the process to terminate
+            time.sleep(2)
+        except:
+            print(f'Failed to kill process {pid}')
+    else:
+        print(f'Could not find process using port {port}')
+
+    # Verify port is now available
+    if check_port_in_use(port):
+        print(f'Port {port} is still in use. Will try to continue anyway.')
+    else:
+        print(f'Port {port} is now available')
+else:
+    print(f'Port {port} is available')
+" || echo "Port check failed, continuing anyway"
+
+# Start Django
 exec gunicorn core.wsgi:application --bind 0.0.0.0:$PORT --log-file - 
