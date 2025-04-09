@@ -51,29 +51,47 @@ def check_bot_token():
         # Спочатку перевіряємо змінну середовища
         bot_token = os.environ.get('BOT_TOKEN')
         if bot_token:
+            # Check if this is a placeholder token
+            if 'placeholder' in bot_token.lower() or 'replace_me' in bot_token.lower():
+                logger.warning("BOT_TOKEN is set, but appears to be a placeholder. Bot may not function correctly.")
+                # Still return True to attempt to run the bot
+                return True
             return True
             
         # Потім перевіряємо налаштування в Django
         if hasattr(settings, 'BOT_TOKEN'):
-            return bool(settings.BOT_TOKEN)
+            token = settings.BOT_TOKEN
+            # Save to environment variable for child processes
+            os.environ['BOT_TOKEN'] = token
+            return bool(token)
             
         # Потім перевіряємо налаштування в БД
         try:
             bot_settings = BotSettings.objects.first()
             if bot_settings and bot_settings.bot_token:
                 # Встановлюємо токен в змінну середовища
-                os.environ['BOT_TOKEN'] = bot_settings.bot_token
+                token = bot_settings.bot_token
+                os.environ['BOT_TOKEN'] = token
+                # Check if this is a placeholder token
+                if 'placeholder' in token.lower() or 'replace_me' in token.lower():
+                    logger.warning("Token from database appears to be a placeholder. Bot may not function correctly.")
                 return True
         except:
             pass
             
         # Якщо немає токену, перевіряємо в файлі config.py
         try:
+            sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'tg_bot'))
             from tg_bot.config import TOKEN_BOT
             if TOKEN_BOT:
+                # Save to environment variable for child processes
+                os.environ['BOT_TOKEN'] = TOKEN_BOT
+                # Check if this is a placeholder token
+                if 'placeholder' in TOKEN_BOT.lower() or 'replace_me' in TOKEN_BOT.lower():
+                    logger.warning("Token from config.py appears to be a placeholder. Bot may not function correctly.")
                 return True
-        except:
-            pass
+        except Exception as e:
+            logger.warning(f"Failed to import from config.py: {e}")
             
         logger.warning("Не знайдено токен для Telegram бота")
         return False
@@ -81,6 +99,48 @@ def check_bot_token():
         logger.error(f"Помилка при перевірці токену бота: {e}")
         return False
 
+def validate_bot_token():
+    """Validates that the bot token is valid by attempting to connect to the Telegram API"""
+    try:
+        import asyncio
+        from aiogram import Bot
+        
+        async def check_token():
+            try:
+                token = os.environ.get('BOT_TOKEN', '')
+                bot = Bot(token=token)
+                me = await bot.get_me()
+                logger.info(f"✅ Token validated successfully! Connected to @{me.username}")
+                await bot.session.close()
+                return True
+            except Exception as e:
+                logger.error(f"❌ Token validation failed: {e}")
+                return False
+        
+        # Create a new event loop
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            return loop.run_until_complete(check_token())
+        finally:
+            loop.close()
+    except Exception as e:
+        logger.error(f"Error during token validation: {e}")
+        return False
+
+def print_token_instructions():
+    """Prints instructions on how to set a valid bot token"""
+    print("\n===== TELEGRAM BOT TOKEN ISSUE =====")
+    print("The current bot token is invalid or not set properly.")
+    print("To fix this issue:")
+    print("1. Run: python fix_token.py")
+    print("   This utility will help you set a valid token.")
+    print("2. Or set a valid token in one of these locations:")
+    print("   - tg_bot/config.py (TOKEN_BOT variable)")
+    print("   - Environment variable BOT_TOKEN")
+    print("   - Database (BotSettings model)")
+    print("=================================\n")
+    
 def start_bot():
     """Запускає Telegram бота"""
     logger.info("Запускаємо Telegram бота...")
@@ -88,7 +148,14 @@ def start_bot():
     # Перевіряємо наявність токену
     if not check_bot_token():
         logger.warning("Немає токену для Telegram бота. Бот не запущено.")
+        print_token_instructions()
         return False
+    
+    # Validate the token (but continue even if invalid)
+    if not validate_bot_token():
+        logger.warning("Недійсний токен для Telegram бота. Спроба запуску все одно...")
+        print_token_instructions()
+        # Continue anyway to attempt to run the bot
     
     try:
         # Метод 1: Запуск через імпорт і асинхронний запуск
@@ -101,9 +168,10 @@ def start_bot():
             
             # Run the bot in a new process so it doesn't block this script
             bot_process = subprocess.Popen(
-                [sys.executable, '-c', 'import asyncio; from tg_bot.bot import main; asyncio.run(main())'],
+                [sys.executable, '-c', 'import asyncio; import os; os.environ["BOT_TOKEN"]="' + os.environ.get('BOT_TOKEN', '') + '"; from tg_bot.bot import main; asyncio.run(main())'],
                 stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT
+                stderr=subprocess.STDOUT,
+                env=os.environ.copy()  # Pass all environment variables
             )
             
             # Check if process started properly
@@ -140,7 +208,8 @@ def start_bot():
         bot_process = subprocess.Popen(
             [sys.executable, bot_script],
             stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT
+            stderr=subprocess.STDOUT,
+            env=os.environ.copy()  # Pass all environment variables
         )
         
         # Check if process started properly

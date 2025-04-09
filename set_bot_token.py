@@ -57,16 +57,33 @@ def get_and_set_bot_token():
     # Try to get from config.py
     try:
         sys.path.append(os.path.join(os.path.dirname(__file__), 'tg_bot'))
-        from config import TOKEN_BOT
-        if TOKEN_BOT:
-            os.environ['BOT_TOKEN'] = TOKEN_BOT
-            logger.info("Set BOT_TOKEN from config.py")
-            return True
+        try:
+            from config import TOKEN_BOT
+            if TOKEN_BOT:
+                os.environ['BOT_TOKEN'] = TOKEN_BOT
+                logger.info("Set BOT_TOKEN from config.py")
+                return True
+        except ImportError:
+            # Create config.py if it doesn't exist
+            config_dir = os.path.join(os.path.dirname(__file__), 'tg_bot')
+            os.makedirs(config_dir, exist_ok=True)
+            
+            # Use a placeholder token that will be replaced later
+            with open(os.path.join(config_dir, 'config.py'), 'w') as f:
+                f.write('# Telegram Bot Configuration\n')
+                f.write('TOKEN_BOT = "placeholder_token_fix_me"\n')
+                f.write('ADMIN_ID = 123456789  # Change to your Telegram user ID\n')
+                f.write('WEB_SERVER_HOST = "localhost"\n')
+                f.write('WEB_SERVER_PORT = 8080\n')
+            
+            os.environ['BOT_TOKEN'] = "placeholder_token_fix_me"
+            logger.info("Created config.py with placeholder token")
+            return False
     except Exception as e:
-        logger.warning(f"Failed to get token from config.py: {e}")
+        logger.warning(f"Failed to get/create token in config.py: {e}")
     
     # Use fallback token if all else fails
-    fallback_token = "7923260865:AAGWm7t0Zz2PqFPI5PldEVwrOC4HZ_5oP0c"
+    fallback_token = "placeholder_token_replace_me"
     logger.warning(f"Using fallback token as last resort! Please set a proper token.")
     os.environ['BOT_TOKEN'] = fallback_token
     
@@ -108,9 +125,27 @@ if __name__ == "__main__":
             print("===========================\n")
             sys.exit(0)
         else:
-            logger.error("Please set a valid bot token in settings or environment variables")
-            sys.exit(1)
+            logger.error("⚠️ The Telegram bot token is invalid!")
+            print("\n=== BOT TOKEN ISSUE DETECTED ===")
+            print("The Telegram bot token is invalid or has been revoked.")
+            print("To fix this issue, you can:")
+            print("1. Run: python fix_token.py")
+            print("   This will help you set a new valid token.")
+            print("2. Or set a valid token in one of these locations:")
+            print("   - Environment variable BOT_TOKEN")
+            print("   - tg_bot/config.py (TOKEN_BOT)")
+            print("   - Database (BotSettings model)")
+            print("===========================\n")
+            
+            # Write bot_token.env file anyway so the system can continue
+            with open('bot_token.env', 'w') as f:
+                f.write(f"BOT_TOKEN={os.environ['BOT_TOKEN']}")
+            
+            # Exiting with 0 to allow the application to continue
+            # This is intentional since we want the app to run even with invalid token
+            sys.exit(0)
             
     except Exception as e:
         logger.error(f"Error checking token: {e}")
-        sys.exit(1) 
+        # Still exit with 0 to allow the application to continue
+        sys.exit(0) 

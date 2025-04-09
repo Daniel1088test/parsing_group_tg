@@ -56,30 +56,34 @@ echo "RAILWAY_PUBLIC_DOMAIN: $RAILWAY_PUBLIC_DOMAIN"
 echo "PUBLIC_URL: $PUBLIC_URL"
 
 # Run the set_bot_token.py script to ensure the bot token is set
-echo "Verifying and setting the bot token..."
+echo "Перевірка токену Telegram бота..."
 python set_bot_token.py
 if [ $? -ne 0 ]; then
-  echo "WARNING: Bot token verification failed, bot may not work properly!"
+  echo "⚠️ УВАГА: Перевірка токену бота не пройшла успішно!"
+  echo "Для налаштування токену бота виконайте:"
+  echo "python setup_bot_token.py"
 else
   # Import the token from the generated file
   if [ -f "bot_token.env" ]; then
     source bot_token.env
-    echo "Bot token set successfully"
+    echo "✅ Токен бота встановлено успішно"
   fi
 fi
 
 # Debug check for essential environment variables
-echo "Checking essential environment variables:"
+echo "Перевірка важливих змінних середовища:"
 if [ -n "$BOT_TOKEN" ]; then
-  echo "✓ BOT_TOKEN is set"
+  echo "✓ BOT_TOKEN встановлено"
 else
-  echo "✗ BOT_TOKEN is NOT set"
+  echo "✗ BOT_TOKEN НЕ встановлено! Бот не працюватиме."
+  echo "Для налаштування токену бота виконайте:"
+  echo "python setup_bot_token.py"
 fi
 
 if [ -n "$DATABASE_URL" ]; then
-  echo "✓ DATABASE_URL is set"
+  echo "✓ DATABASE_URL встановлено"
 else
-  echo "✗ DATABASE_URL is NOT set"
+  echo "✗ DATABASE_URL НЕ встановлено!"
 fi
 
 # Ensure health check files

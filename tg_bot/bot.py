@@ -67,28 +67,42 @@ try:
         except:
             logger.warning("Не вдалося отримати токен з бази даних")
             
-        # Якщо все невдало, повертаємо хардкодний токен (найгірший варіант)
-        logger.error("Не вдалося знайти токен бота, використовуємо хардкодний токен")
-        return "7923260865:AAGWm7t0Zz2PqFPI5PldEVwrOC4HZ_5oP0c"
+        # 5. Create a placeholder token and inform the user
+        logger.error("Не вдалося знайти токен бота. Використовуємо тимчасовий токен")
+        logger.error("⚠️ Для налаштування справжнього токену, виконайте python fix_token.py")
+        return "placeholder_token_fix_me"
     
     # initialize the bot and dispatcher
     TOKEN_BOT = get_bot_token()
-    bot = Bot(token=TOKEN_BOT)
-    storage = MemoryStorage()
-    dp = Dispatcher(storage=storage)
     
-    # add middleware for channel data
-    dp.message.middleware(ChannelsDataMiddleware())
-    dp.callback_query.middleware(ChannelsDataMiddleware())
+    # Check if this is a placeholder/invalid token
+    if 'placeholder' in TOKEN_BOT.lower() or 'replace' in TOKEN_BOT.lower():
+        logger.warning("⚠️ Using placeholder token. Bot will likely fail to connect to Telegram API")
+        logger.warning("⚠️ Run 'python fix_token.py' to set a valid token")
     
-    # register all routers
-    dp.include_router(session_router)
-    dp.include_router(session_buttons_router)
-    dp.include_router(menu_buttons_router)
-    dp.include_router(admin_router)
-    dp.include_router(common_router)
-    # Fallback router додаємо останнім, щоб він вловлював всі повідомлення, які не були оброблені іншими роутерами
-    dp.include_router(fallback_router)
+    try:
+        bot = Bot(token=TOKEN_BOT)
+        storage = MemoryStorage()
+        dp = Dispatcher(storage=storage)
+        
+        # add middleware for channel data
+        dp.message.middleware(ChannelsDataMiddleware())
+        dp.callback_query.middleware(ChannelsDataMiddleware())
+        
+        # register all routers
+        dp.include_router(session_router)
+        dp.include_router(session_buttons_router)
+        dp.include_router(menu_buttons_router)
+        dp.include_router(admin_router)
+        dp.include_router(common_router)
+        # Fallback router додаємо останнім, щоб він вловлював всі повідомлення, які не були оброблені іншими роутерами
+        dp.include_router(fallback_router)
+    except Exception as bot_init_error:
+        logger.error(f"Failed to initialize bot: {bot_init_error}")
+        logger.error("This is likely due to an invalid bot token.")
+        logger.error("Please run 'python fix_token.py' to set a valid token")
+        # Re-raise the exception to abort startup
+        raise
     
     async def health_check():
         """
