@@ -3,6 +3,7 @@ Django==4.2.10
 djangorestframework==3.14.0
 django-cors-headers==4.3.1
 django-filter==23.5
+dj-database-url==2.3.0
 
 # Database - Ensure psycopg2 is installed
 psycopg2-binary==2.9.9
@@ -16,7 +17,6 @@ cryptg==0.4.0  # TGCrypto alternative, helps with faster downloads
 # Web server and deployment
 gunicorn==21.2.0
 whitenoise==6.6.0
-dj-database-url==2.1.0
 
 # Utilities
 Pillow==10.1.0

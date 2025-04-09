@@ -12,14 +12,22 @@ import traceback
 import subprocess
 from datetime import datetime
 import asyncio
+import io
 
-# Налаштування логування
+# Fix for Windows console encoding issues with emoji
+if sys.platform == 'win32':
+    # Force UTF-8 output encoding when running on Windows
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='backslashreplace')
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='backslashreplace')
+
+# Configure logging
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    datefmt='%Y-%m-%d %H:%M:%S',
-    filename='bot_logs.txt',
-    filemode='a'
+    handlers=[
+        logging.FileHandler('logs/run_bot.log', encoding='utf-8'),
+        logging.StreamHandler(sys.stdout)  # Use stdout instead of stderr for correct encoding
+    ]
 )
 logger = logging.getLogger('run_bot')
 
@@ -295,9 +303,21 @@ def import_with_retry(max_attempts=max_retries, delay=retry_delay):
     
     while attempt < max_attempts:
         try:
-            from tg_bot.bot import main, bot, dp
-            from aiogram.types import BotCommand, BotCommandScopeDefault
-            return main, bot, dp, BotCommand, BotCommandScopeDefault
+            # First try direct import
+            try:
+                # Import all components directly using __all__
+                from tg_bot.bot import main, bot, dp
+                logger.info("Successfully imported bot components directly")
+                return main, bot, dp
+            except ImportError as direct_error:
+                logger.warning(f"Direct import failed: {direct_error}, trying module-level import")
+                # Try alternative import
+                import tg_bot.bot
+                if hasattr(tg_bot.bot, 'main') and hasattr(tg_bot.bot, 'bot') and hasattr(tg_bot.bot, 'dp'):
+                    logger.info("Successfully imported components via module")
+                    return tg_bot.bot.main, tg_bot.bot.bot, tg_bot.bot.dp
+                else:
+                    raise ImportError(f"Bot module does not have required attributes: {dir(tg_bot.bot)}")
         except Exception as e:
             attempt += 1
             last_error = e
@@ -308,36 +328,38 @@ def import_with_retry(max_attempts=max_retries, delay=retry_delay):
     logger.error(f"Failed to import bot modules after {max_attempts} attempts. Last error: {last_error}")
     raise last_error
 
-async def setup_bot_commands(bot, commands_list):
-    """Set up bot commands with retry logic"""
-    max_attempts = 3
-    attempt = 0
-    
-    while attempt < max_attempts:
-        try:
-            await bot.set_my_commands(commands=commands_list, scope=BotCommandScopeDefault())
-            logger.info("Bot commands successfully set up")
-            return True
-        except Exception as e:
-            attempt += 1
-            logger.warning(f"Failed to set bot commands attempt {attempt}: {e}")
-            if attempt < max_attempts:
-                time.sleep(2)
-    
-    logger.error(f"Failed to set bot commands after {max_attempts} attempts")
-    return False
+async def setup_bot_commands(bot, commands=None):
+    """Set up bot commands"""
+    try:
+        # Import needed classes
+        from aiogram.types import BotCommand, BotCommandScopeDefault
+        
+        # Use default commands if none provided
+        if not commands:
+            commands = [
+                BotCommand(command="start", description="Start the bot and show main menu"),
+                BotCommand(command="menu", description="Show the main menu"),
+                BotCommand(command="help", description="Show help information"),
+                BotCommand(command="authorize", description="Start authorization process")
+            ]
+        
+        # Set commands
+        await bot.set_my_commands(commands=commands, scope=BotCommandScopeDefault())
+        logger.info("Bot commands registered successfully")
+    except Exception as e:
+        logger.error(f"Error setting up bot commands: {e}")
 
 async def run():
     try:
         # Import main function with retry
-        main, bot, dp, BotCommand, BotCommandScopeDefault = import_with_retry()
+        main, bot, dp = import_with_retry()
         
         # Set up default commands
         commands = [
-            BotCommand(command="start", description="Start the bot and show main menu"),
-            BotCommand(command="menu", description="Show the main menu"),
-            BotCommand(command="help", description="Show help information"),
-            BotCommand(command="authorize", description="Start authorization process")
+            {"command": "start", "description": "Start the bot and show main menu"},
+            {"command": "menu", "description": "Show the main menu"},
+            {"command": "help", "description": "Show help information"},
+            {"command": "authorize", "description": "Start authorization process"}
         ]
         
         try:

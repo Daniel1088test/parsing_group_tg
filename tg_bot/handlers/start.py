@@ -7,6 +7,12 @@ import qrcode
 from io import BytesIO
 from tg_bot.keyboards.channels_menu import get_channels_keyboard, get_categories_keyboard
 from asgiref.sync import async_to_sync, sync_to_async
+import logging
+
+# Налаштування логгера
+logger = logging.getLogger('tg_bot.handlers.common')
+
+# Створюємо роутер
 router = Router()
 
 def _get_categories():
@@ -20,9 +26,48 @@ def _get_channels():
 # create async functions
 get_categories = sync_to_async(_get_categories)
 get_channels = sync_to_async(_get_channels)
+
 @router.message(CommandStart())
 async def cmd_start(message: types.Message):
-    await message.answer("Hello! I am a bot for parsing messages from Telegram channels.", reply_markup=main_menu_keyboard)
+    try:
+        # Створюємо клавіатуру з 4 кнопками
+        keyboard = types.ReplyKeyboardMarkup(
+            keyboard=[
+                [types.KeyboardButton(text="📎 List of channels")],
+                [types.KeyboardButton(text="📍 Categories menu")],
+                [types.KeyboardButton(text="🌐 Go to the site")],
+                [types.KeyboardButton(text="🔑 Add new session")],
+            ],
+            resize_keyboard=True,
+            is_persistent=True
+        )
+        
+        # Логуємо інформацію для дебагу
+        user_id = message.from_user.id
+        username = message.from_user.username or "unknown"
+        logger.info(f"Received /start command from user {user_id} (@{username})")
+        
+        # Відправляємо привітання з клавіатурою
+        await message.answer("Привіт! Бот запущено. Використовуйте меню нижче:", reply_markup=keyboard)
+        logger.info(f"Start message with 4-button keyboard sent to user {user_id}")
+    except Exception as e:
+        logger.error(f"Error handling /start command: {e}")
+        # Запасний варіант, якщо основний не працює
+        try:
+            simple_keyboard = types.ReplyKeyboardMarkup(
+                keyboard=[
+                    [types.KeyboardButton(text="📎 List of channels")],
+                    [types.KeyboardButton(text="📍 Categories menu")],
+                    [types.KeyboardButton(text="🌐 Go to the site")],
+                    [types.KeyboardButton(text="🔑 Add new session")],
+                ],
+                resize_keyboard=True,
+                is_persistent=True
+            )
+            await message.answer("Привіт! Використовуйте меню:", reply_markup=simple_keyboard)
+        except Exception as e2:
+            logger.error(f"Critical error in start command: {e2}")
+            await message.answer("Бот запущено. Використовуйте команду /menu для відображення кнопок.")
 
 @router.message(F.text == "🌐 Go to the site")   
 async def website(message: types.Message):

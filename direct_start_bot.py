@@ -10,24 +10,34 @@ import logging
 import subprocess
 import signal
 import traceback
+import io
+
+# Fix for Windows console encoding issues with emoji
+if sys.platform == 'win32':
+    # Force UTF-8 output encoding when running on Windows
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='backslashreplace')
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='backslashreplace')
 
 # Setup logging
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.FileHandler('direct_bot.log'),
+        logging.FileHandler('direct_bot.log', encoding='utf-8'),
         logging.StreamHandler()
     ]
 )
-logger = logging.getLogger('direct_bot')
+logger = logging.getLogger('direct_bot_starter')
 
 def signal_handler(sig, frame):
     logger.info(f"Received signal {sig}, shutting down...")
     sys.exit(0)
 
-signal.signal(signal.SIGINT, signal_handler)
-signal.signal(signal.SIGTERM, signal_handler)
+# Register signal handlers if on Unix
+if hasattr(signal, "SIGINT"):
+    signal.signal(signal.SIGINT, signal_handler)
+if hasattr(signal, "SIGTERM"):
+    signal.signal(signal.SIGTERM, signal_handler)
 
 def check_environment():
     """Ensure environment variables are set"""
@@ -69,148 +79,170 @@ def check_environment():
     
     return True
 
-def create_health_checks():
-    """Create health check endpoints"""
-    for file in ['health.txt', 'healthz.txt', 'health.html', 'healthz.html']:
-        try:
-            with open(file, 'w') as f:
-                f.write('ok')
-            logger.info(f"Created health check file: {file}")
-        except Exception as e:
-            logger.error(f"Error creating health check file {file}: {e}")
-
 def run_bot():
-    """Run the bot directly using subprocess"""
+    """Run the bot directly"""
     try:
-        logger.info("Starting the bot process...")
+        logger.info("Starting the bot directly...")
         
-        # Create log directory if it doesn't exist
-        os.makedirs('logs/bot', exist_ok=True)
+        # Ensure path includes current directory
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
         
-        # Start the bot process
-        proc = subprocess.Popen(
-            [sys.executable, 'run_bot.py'],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            universal_newlines=True,
-            bufsize=1  # Line buffered
-        )
+        # Verify Django setup
+        import django
+        os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'core.settings')
+        django.setup()
+        logger.info("Django setup completed")
         
-        # Print the PID
-        logger.info(f"Bot started with PID: {proc.pid}")
+        # Direct bot launch
+        import asyncio
         
-        # Save PID to file
-        with open('direct_bot.pid', 'w') as f:
-            f.write(str(proc.pid))
+        # Create run coroutine
+        async def run_async_bot():
+            try:
+                # First try direct import
+                try:
+                    from tg_bot.bot import main, bot, dp
+                    logger.info("Successfully imported bot components")
+                except ImportError:
+                    # Try loading module and accessing attributes
+                    logger.warning("Direct import failed, trying module-level import")
+                    import tg_bot.bot
+                    main = tg_bot.bot.main
+                    bot = tg_bot.bot.bot
+                    dp = tg_bot.bot.dp
+                    logger.info("Successfully imported via module")
+                
+                # Run the main function
+                logger.info("Starting bot main function")
+                await main()
+                return True
+            except ImportError as e:
+                logger.error(f"Critical error in bot: {e}")
+                logger.error(traceback.format_exc())
+                return False
+            except Exception as e:
+                logger.error(f"Error running bot: {e}")
+                logger.error(traceback.format_exc())
+                return False
         
-        # Monitor the process output
-        for line in proc.stdout:
-            sys.stdout.write(line)
-            logger.info(line.strip())
-        
-        # Wait for the process to complete
-        return_code = proc.wait()
-        logger.error(f"Bot process exited with code {return_code}")
-        return return_code
+        # Run the async function
+        if asyncio.run(run_async_bot()):
+            logger.info("Bot completed successfully")
+            return 0
+        else:
+            logger.error("Bot failed to run")
+            return 1
     except Exception as e:
-        logger.error(f"Error running bot: {e}")
+        logger.error(f"Critical error in bot: {e}")
         logger.error(traceback.format_exc())
         return 1
 
-def run_emergency_direct():
-    """Run the bot using direct aiogram import without Django"""
+def run_emergency_bot():
+    """Run a minimal emergency bot if the main bot fails"""
     try:
-        logger.info("Starting emergency direct bot operation...")
+        logger.info("Starting emergency minimal bot...")
         
-        # Import aiogram and other dependencies
-        from aiogram import Bot, Dispatcher
-        from aiogram.types import BotCommand, BotCommandScopeDefault, Message, ReplyKeyboardMarkup, KeyboardButton
+        import asyncio
+        from aiogram import Bot, Dispatcher, types
         from aiogram.filters import Command
         
-        # Get bot token
+        # Get token
         token = os.environ.get('BOT_TOKEN')
         if not token:
-            logger.error("No BOT_TOKEN found in environment!")
+            logger.error("No BOT_TOKEN available for emergency bot")
             return 1
         
         # Initialize bot and dispatcher
         bot = Bot(token=token)
         dp = Dispatcher()
         
-        # Register command handlers
-        @dp.message(Command("start"))
-        async def cmd_start(message: Message):
-            """Start command handler"""
-            keyboard = ReplyKeyboardMarkup(
+        # Create the full 4-button keyboard - explicit layout
+        def get_full_keyboard():
+            return types.ReplyKeyboardMarkup(
                 keyboard=[
-                    [KeyboardButton(text="📎 List of channels")],
-                    [KeyboardButton(text="📍 Categories menu")],
-                    [KeyboardButton(text="🌐 Go to the site")],
-                    [KeyboardButton(text="🔑 Add new session")],
+                    [types.KeyboardButton(text="📎 List of channels")],
+                    [types.KeyboardButton(text="📍 Categories menu")],
+                    [types.KeyboardButton(text="🌐 Go to the site")],
+                    [types.KeyboardButton(text="🔑 Add new session")],
                 ],
                 resize_keyboard=True,
-                is_persistent=True
+                is_persistent=True,
+                input_field_placeholder="Виберіть опцію..."
             )
-            await message.answer("Welcome to the Channel Parser Bot. Use the menu below:", reply_markup=keyboard)
+        
+        # Register basic handlers
+        @dp.message(Command("start"))
+        async def cmd_start(message: types.Message):
+            keyboard = get_full_keyboard()
+            logger.info(f"Sending 4-button keyboard to user {message.from_user.id} on /start")
+            await message.answer("Bot is running in emergency mode. Use the menu below:", reply_markup=keyboard)
         
         @dp.message(Command("menu"))
-        async def cmd_menu(message: Message):
-            """Menu command handler"""
-            keyboard = ReplyKeyboardMarkup(
-                keyboard=[
-                    [KeyboardButton(text="📎 List of channels")],
-                    [KeyboardButton(text="📍 Categories menu")],
-                    [KeyboardButton(text="🌐 Go to the site")],
-                    [KeyboardButton(text="🔑 Add new session")],
-                ],
-                resize_keyboard=True,
-                is_persistent=True
-            )
-            await message.answer("Here's the menu:", reply_markup=keyboard)
+        async def cmd_menu(message: types.Message):
+            keyboard = get_full_keyboard()
+            logger.info(f"Sending 4-button keyboard to user {message.from_user.id} on /menu")
+            await message.answer("Menu:", reply_markup=keyboard)
         
-        async def set_bot_commands():
-            """Set up bot commands"""
-            commands = [
-                BotCommand(command="start", description="Start the bot and show main menu"),
-                BotCommand(command="menu", description="Show the main menu"),
-                BotCommand(command="help", description="Show help"),
-            ]
-            try:
-                await bot.set_my_commands(commands=commands, scope=BotCommandScopeDefault())
-                logger.info("Bot commands registered successfully")
-            except Exception as e:
-                logger.error(f"Error setting bot commands: {e}")
+        # Special handler for button clicks
+        @dp.message()
+        async def all_messages(message: types.Message):
+            text = message.text if message.text else ""
+            logger.info(f"Received message from user {message.from_user.id}: {text}")
+            
+            # Always send the keyboard with any message
+            keyboard = get_full_keyboard()
+            
+            # Different texts for different buttons
+            if text in ["📎 List of channels", "List of channels"]:
+                await message.answer("List of channels functionality (emergency mode)", reply_markup=keyboard)
+            elif text in ["📍 Categories menu", "Categories menu"]:
+                await message.answer("Categories menu functionality (emergency mode)", reply_markup=keyboard)
+            elif text in ["🌐 Go to the site", "Go to the site"]:
+                await message.answer("Website functionality (emergency mode)", reply_markup=keyboard)
+            elif text in ["🔑 Add new session", "Add new session"]:
+                await message.answer("Add session functionality (emergency mode)", reply_markup=keyboard)
+            else:
+                # For any other message, just send back the menu
+                await message.answer("Please use the menu buttons below:", reply_markup=keyboard)
         
         async def main():
-            """Main function"""
+            # First check if we can connect to Telegram
             try:
-                # Get bot info
-                bot_info = await bot.get_me()
-                logger.info(f"Bot connected: @{bot_info.username} (ID: {bot_info.id})")
-                
-                # Create verification flag
-                with open('bot_verified.flag', 'w') as f:
-                    f.write(f"{bot_info.id}:{bot_info.username}")
-                logger.info("Created bot verification flag")
-                
-                # Set up commands
-                await set_bot_commands()
-                
-                # Start long polling
-                logger.info("Starting polling...")
-                await dp.start_polling(bot)
+                me = await bot.get_me()
+                logger.info(f"Emergency bot connected as @{me.username}")
             except Exception as e:
-                logger.error(f"Error in main function: {e}")
-                logger.error(traceback.format_exc())
+                logger.error(f"Failed to connect emergency bot: {e}")
+                return False
+            
+            # Setup proper shutdown
+            async def shutdown():
+                # Close the bot session
+                if hasattr(bot, 'session') and hasattr(bot.session, 'close') and not bot.session.closed:
+                    await bot.session.close()
+                    logger.info("Bot session closed properly")
+            
+            try:
+                # Start polling
+                logger.info("Starting emergency bot polling...")
+                await dp.start_polling(bot)
+                return True
+            except Exception as e:
+                logger.error(f"Error in emergency bot polling: {e}")
+                return False
+            finally:
+                # Always ensure session is closed
+                await shutdown()
         
         # Run the bot
-        import asyncio
-        logger.info("Running emergency direct bot...")
-        asyncio.run(main())
+        if asyncio.run(main()):
+            logger.info("Emergency bot running successfully")
+            return 0
+        else:
+            logger.error("Emergency bot failed to start")
+            return 1
         
-        return 0
     except Exception as e:
-        logger.error(f"Error running emergency direct bot: {e}")
+        logger.error(f"Critical error in emergency bot: {e}")
         logger.error(traceback.format_exc())
         return 1
 
@@ -220,25 +252,18 @@ if __name__ == "__main__":
     # Check environment
     check_environment()
     
-    # Create health check files
-    create_health_checks()
-    
     # Create necessary directories
     os.makedirs('logs/bot', exist_ok=True)
-    os.makedirs('media/messages', exist_ok=True)
-    os.makedirs('staticfiles/media', exist_ok=True)
     
     try:
-        # First try standard bot launch
-        logger.info("Attempting standard bot launch...")
+        # First try the standard bot
         exit_code = run_bot()
         
-        # If that fails, try emergency direct method
+        # If that fails, try emergency bot
         if exit_code != 0:
-            logger.warning("Standard bot launch failed, trying emergency direct method...")
-            exit_code = run_emergency_direct()
+            logger.warning("Main bot failed, trying emergency bot")
+            exit_code = run_emergency_bot()
         
-        # Exit with the appropriate code
         sys.exit(exit_code)
     except KeyboardInterrupt:
         logger.info("Interrupted by user")
@@ -246,4 +271,4 @@ if __name__ == "__main__":
     except Exception as e:
         logger.error(f"Unhandled exception: {e}")
         logger.error(traceback.format_exc())
-        sys.exit(1) 
+        sys.exit(1)

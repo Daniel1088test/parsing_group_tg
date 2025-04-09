@@ -1,80 +1,9 @@
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
-from asgiref.sync import sync_to_async
 import logging
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger('main_menu_keyboard')
 
-async def get_main_menu_keyboard():
-    """Get the main menu keyboard with the appropriate style"""
-    try:
-        # Get bot settings
-        from admin_panel.models import BotSettings
-        settings = await sync_to_async(BotSettings.get_settings)()
-        
-        # Choose keyboard style based on settings
-        style = settings.menu_style if hasattr(settings, 'menu_style') else 'default'
-        
-        if style == 'compact':
-            # Compact style - more buttons per row
-            keyboard = ReplyKeyboardMarkup(
-                keyboard=[
-                    [
-                        KeyboardButton(text="📎 List of channels"),
-                        KeyboardButton(text="📍 Categories menu"),
-                    ],
-                    [
-                        KeyboardButton(text="🌐 Go to the site"),
-                        KeyboardButton(text="🔑 Add new session"),
-                    ]
-                ],
-                resize_keyboard=True,
-                is_persistent=True
-            )
-        elif style == 'expanded':
-            # Expanded style - descriptive buttons
-            keyboard = ReplyKeyboardMarkup(
-                keyboard=[
-                    [KeyboardButton(text="📎 View all channels")],
-                    [KeyboardButton(text="📍 Browse channel categories")],
-                    [KeyboardButton(text="🌐 Open web interface")],
-                    [KeyboardButton(text="🔑 Authorize new session")],
-                ],
-                resize_keyboard=True,
-                is_persistent=True
-            )
-        else:
-            # Default style
-            keyboard = ReplyKeyboardMarkup(
-                keyboard=[
-                    [KeyboardButton(text="📎 List of channels")],
-                    [KeyboardButton(text="📍 Categories menu")],
-                    [KeyboardButton(text="🌐 Go to the site")],
-                    [KeyboardButton(text="🔑 Add new session")],
-                ],
-                resize_keyboard=True,
-                is_persistent=True
-            )
-        
-        return keyboard
-    except Exception as e:
-        logger.error(f"Error creating dynamic keyboard: {e}")
-        # Return default keyboard if anything fails
-        return get_default_keyboard()
-
-def get_default_keyboard():
-    """Get a default keyboard that works without any database dependencies"""
-    return ReplyKeyboardMarkup(
-        keyboard=[
-            [KeyboardButton(text="📎 List of channels")],
-            [KeyboardButton(text="📍 Categories menu")],
-            [KeyboardButton(text="🌐 Go to the site")],
-            [KeyboardButton(text="🔑 Add new session")],
-        ],
-        resize_keyboard=True,
-        is_persistent=True
-    )
-
-# Create a default instance for immediate use with persistent flag
+# Створюємо клавіатуру головного меню - кожна кнопка на окремому рядку
 main_menu_keyboard = ReplyKeyboardMarkup(
     keyboard=[
         [KeyboardButton(text="📎 List of channels")],
@@ -83,5 +12,63 @@ main_menu_keyboard = ReplyKeyboardMarkup(
         [KeyboardButton(text="🔑 Add new session")],
     ],
     resize_keyboard=True,
-    is_persistent=True
+    is_persistent=True,
+    input_field_placeholder="Виберіть опцію з меню",
+    one_time_keyboard=False,
+    selective=False
 )
+
+# Функція для створення меню з 4 кнопками
+async def get_main_menu_keyboard():
+    """
+    Створює клавіатуру головного меню з 4 кнопками.
+    Ніколи не повертає None - завжди працює.
+    """
+    try:
+        keyboard = ReplyKeyboardMarkup(
+            keyboard=[
+                [KeyboardButton(text="📎 List of channels")],
+                [KeyboardButton(text="📍 Categories menu")],
+                [KeyboardButton(text="🌐 Go to the site")],
+                [KeyboardButton(text="🔑 Add new session")],
+            ],
+            resize_keyboard=True,
+            is_persistent=True,
+            input_field_placeholder="Виберіть опцію з меню"
+        )
+        logger.info("Generated dynamic main menu keyboard with 4 buttons")
+        return keyboard
+    except Exception as e:
+        logger.error(f"Error generating keyboard: {e}")
+        # Запасний варіант
+        return get_default_keyboard()
+
+def get_default_keyboard():
+    """Створює стандартну клавіатуру без залежностей від бази даних"""
+    try:
+        keyboard = ReplyKeyboardMarkup(
+            keyboard=[
+                [KeyboardButton(text="📎 List of channels")],
+                [KeyboardButton(text="📍 Categories menu")],
+                [KeyboardButton(text="🌐 Go to the site")],
+                [KeyboardButton(text="🔑 Add new session")],
+            ],
+            resize_keyboard=True,
+            is_persistent=True,
+            input_field_placeholder="Виберіть опцію з меню"
+        )
+        logger.info("Created fallback keyboard with 4 buttons")
+        return keyboard
+    except Exception as e:
+        logger.error(f"Critical error creating fallback keyboard: {e}")
+        # Остаточний запасний варіант - найпростіша версія
+        return ReplyKeyboardMarkup(
+            keyboard=[
+                [KeyboardButton(text="📎 Channels")],
+                [KeyboardButton(text="📍 Categories")],
+                [KeyboardButton(text="🌐 Site")],
+                [KeyboardButton(text="🔑 Session")],
+            ],
+            resize_keyboard=True,
+            is_persistent=True
+        )

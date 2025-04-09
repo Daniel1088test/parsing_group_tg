@@ -10,14 +10,21 @@ import logging
 import subprocess
 import traceback
 import signal
+import io
+
+# Fix for Windows console encoding issues with emoji
+if sys.platform == 'win32':
+    # Force UTF-8 output encoding when running on Windows
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='backslashreplace')
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='backslashreplace')
 
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.FileHandler('railway_startup.log'),
-        logging.StreamHandler()
+        logging.FileHandler('railway_startup.log', encoding='utf-8'),
+        logging.StreamHandler(sys.stdout)  # Use stdout instead of stderr for correct encoding
     ]
 )
 logger = logging.getLogger('railway_startup')
@@ -33,6 +40,15 @@ def ensure_environment():
     """Ensure environment variables are set correctly"""
     # Set Django settings
     os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'core.settings')
+    
+    # Check for DATABASE_URL for Railway
+    database_url = os.environ.get('DATABASE_URL')
+    if database_url:
+        logger.info(f"Using DATABASE_URL for database connection")
+        # Make sure database URL is properly configured in Django settings
+        os.environ['USE_POSTGRES'] = 'True'
+    else:
+        logger.info("No DATABASE_URL found, will use SQLite database")
     
     # Get bot token
     token = os.environ.get('BOT_TOKEN')

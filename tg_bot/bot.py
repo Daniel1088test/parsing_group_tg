@@ -10,6 +10,10 @@ logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     datefmt='%Y-%m-%d %H:%M:%S',
+    handlers=[
+        logging.FileHandler('logs/telegram_bot.log', encoding='utf-8'),
+        logging.StreamHandler(sys.stdout)  # Use sys.stdout to fix encoding issues
+    ]
 )
 logger = logging.getLogger('telegram_bot')
 
@@ -96,6 +100,55 @@ try:
         dp.message.middleware(ChannelsDataMiddleware())
         dp.callback_query.middleware(ChannelsDataMiddleware())
         dp.message.middleware(MenuInitMiddleware())  # Add menu middleware
+        
+        # Special handler for start command to fix keyboard issues
+        @dp.message(Command("start"))
+        async def force_start(message: types.Message):
+            """Ensure the start command shows all 4 buttons"""
+            try:
+                # Create keyboard with all 4 buttons
+                keyboard = types.ReplyKeyboardMarkup(
+                    keyboard=[
+                        [types.KeyboardButton(text="📎 List of channels")],
+                        [types.KeyboardButton(text="📍 Categories menu")],
+                        [types.KeyboardButton(text="🌐 Go to the site")],
+                        [types.KeyboardButton(text="🔑 Add new session")],
+                    ],
+                    resize_keyboard=True,
+                    is_persistent=True,
+                    input_field_placeholder="Виберіть опцію з меню..."
+                )
+                
+                # Log for debugging
+                user_id = message.from_user.id
+                username = message.from_user.username or "unknown"
+                logger.info(f"Direct start handler for user {user_id} (@{username})")
+                
+                # Send message with keyboard
+                await message.answer(
+                    "Привіт! Бот запущено. Використовуйте меню нижче:",
+                    reply_markup=keyboard
+                )
+                logger.info(f"Start message with 4-button keyboard sent to user {user_id}")
+            except Exception as e:
+                logger.error(f"Error in direct start handler: {e}")
+                try:
+                    # Last resort keyboard
+                    simple_keyboard = types.ReplyKeyboardMarkup(
+                        keyboard=[
+                            [types.KeyboardButton(text="📎 List of channels")],
+                            [types.KeyboardButton(text="📍 Categories menu")],
+                            [types.KeyboardButton(text="🌐 Go to the site")],
+                            [types.KeyboardButton(text="🔑 Add new session")],
+                        ],
+                        resize_keyboard=True,
+                        is_persistent=True,
+                        input_field_placeholder="Виберіть опцію..."
+                    )
+                    await message.answer("Меню бота:", reply_markup=simple_keyboard)
+                except Exception as e2:
+                    logger.error(f"Critical error in direct start handler: {e2}")
+                    await message.answer("Використовуйте команду /menu")
         
         # Add special command to force menu refresh
         @dp.message(Command("menu"))
@@ -216,7 +269,7 @@ try:
             logger.error(f"Error deleting webhook: {e}")
         
         # Start a heartbeat task to log bot status periodically
-        asyncio.create_task(heartbeat_task())
+        heartbeat_monitor = asyncio.create_task(heartbeat_task())
         
         # start polling
         logger.info("Starting to receive updates...")
@@ -233,6 +286,27 @@ try:
             import traceback
             logger.error(traceback.format_exc())
         finally:
+            # Clean up on shutdown
+            logger.info("Bot stopping, cleaning up resources...")
+            
+            # Cancel heartbeat task
+            if heartbeat_monitor and not heartbeat_monitor.done():
+                heartbeat_monitor.cancel()
+                try:
+                    await heartbeat_monitor
+                except asyncio.CancelledError:
+                    logger.info("Heartbeat task cancelled")
+            
+            # Close bot session
+            if bot.session and not bot.session.closed:
+                await bot.session.close()
+                logger.info("Bot session closed")
+            
+            # Close storage if applicable
+            if hasattr(dp.storage, 'close'):
+                await dp.storage.close()
+                logger.info("Storage connection closed")
+            
             logger.info("Bot stopped")
     
     async def heartbeat_task():
@@ -254,6 +328,9 @@ try:
             except Exception as e:
                 logger.error(f"Error in heartbeat task: {e}")
                 # Continue even after errors
+    
+    # Export the main components for other modules to import
+    __all__ = ["main", "bot", "dp"]
     
     if __name__ == "__main__":
         try:
