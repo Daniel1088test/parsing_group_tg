@@ -11,6 +11,7 @@ import sys
 import threading
 import time
 import subprocess
+from asgiref.sync import sync_to_async  # Add import for async Django support
 
 # Configure logging for the entire project
 logging.basicConfig(

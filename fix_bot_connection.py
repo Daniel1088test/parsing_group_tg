@@ -39,7 +39,9 @@ except Exception as e:
 # Import Django models
 try:
     from django.db import connection, transaction
+    from django.db.utils import OperationalError, ProgrammingError
     from admin_panel.models import BotSettings
+    from asgiref.sync import sync_to_async  # Import sync_to_async
     logger.info("Models imported successfully")
 except Exception as e:
     logger.error(f"Failed to import models: {e}")
@@ -110,9 +112,10 @@ async def verify_token(token):
         logger.error(traceback.format_exc())
         return False, None
 
-def fix_database():
-    """Ensure BotSettings table is correctly set up"""
-    logger.info("Checking database structure")
+# Make this function synchronous so we can wrap it with sync_to_async
+def _fix_database():
+    """Ensure BotSettings table is correctly set up - synchronous version"""
+    logger.info("Checking database structure - sync version")
     token = get_bot_token()
     
     try:
@@ -189,8 +192,14 @@ def fix_database():
     except Exception as e:
         logger.error(f"Database fix failed: {e}")
         logger.error(traceback.format_exc())
-        connection.rollback()
+        try:
+            connection.rollback()
+        except:
+            pass
         return False
+
+# Create an async wrapper around the database fix function
+fix_database = sync_to_async(_fix_database)
 
 def distribute_token(token):
     """Distribute token to all necessary locations"""
@@ -232,6 +241,23 @@ def distribute_token(token):
     os.environ['BOT_TOKEN'] = token
     logger.info("✅ Updated environment variable")
 
+# Make this function synchronous so we can wrap it with sync_to_async
+@sync_to_async
+def update_botsettings_with_username(token, username):
+    """Update BotSettings with username - sync version that's wrapped to be async-safe"""
+    try:
+        settings = BotSettings.objects.first()
+        if settings:
+            settings.bot_token = token
+            settings.bot_username = username
+            settings.save()
+            logger.info(f"Updated BotSettings with username: {username}")
+            return True
+        return False
+    except Exception as e:
+        logger.error(f"Failed to update BotSettings with username: {e}")
+        return False
+
 async def main():
     """Main execution function"""
     logger.info("=== Starting bot connection fix ===")
@@ -246,10 +272,14 @@ async def main():
     # Step 2: Distribute token
     distribute_token(token)
     
-    # Step 3: Fix database
-    db_fixed = fix_database()
-    if not db_fixed:
-        logger.warning("Database fix encountered issues")
+    # Step 3: Fix database - use sync_to_async
+    try:
+        db_fixed = await fix_database()
+        if not db_fixed:
+            logger.warning("Database fix encountered issues")
+    except Exception as e:
+        logger.error(f"Error in fix_database: {e}")
+        db_fixed = False
     
     # Step 4: Verify token
     verified, bot_info = await verify_token(token)
@@ -260,15 +290,7 @@ async def main():
         
         # Add bot username to BotSettings if it was verified
         if bot_info:
-            try:
-                settings = BotSettings.objects.first()
-                if settings:
-                    settings.bot_token = token
-                    settings.bot_username = bot_info.username
-                    settings.save()
-                    logger.info(f"Updated BotSettings with username: {bot_info.username}")
-            except Exception as e:
-                logger.error(f"Failed to update BotSettings with username: {e}")
+            await update_botsettings_with_username(token, bot_info.username)
         
         return True
     else:
