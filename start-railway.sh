@@ -12,6 +12,11 @@ export PORT=${PORT:-8080}
 echo "Making fix scripts executable..."
 chmod +x railway_fix.sh
 chmod +x sql_fix.py
+chmod +x fix_aiohttp_sessions.py
+
+# Run our session fix first to fix the unclosed sessions warning
+echo "Fixing aiohttp session issues..."
+python fix_aiohttp_sessions.py
 
 # Run our comprehensive migration fix
 echo "Running comprehensive migration fix..."
