@@ -81,7 +81,7 @@ def ensure_bot_token():
 # Setup Django
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'core.settings')
 try:
-    django.setup()
+django.setup()
     logger.info("Django successfully initialized")
 except Exception as e:
     logger.error(f"Error initializing Django: {e}")
@@ -89,13 +89,13 @@ except Exception as e:
 
 # Create necessary media directories
 try:
-    from django.conf import settings
-    os.makedirs(settings.MEDIA_ROOT, exist_ok=True)
-    os.makedirs(os.path.join(settings.MEDIA_ROOT, 'messages'), exist_ok=True)
-    logger.info(f"Ensured media directories exist: {settings.MEDIA_ROOT}/messages")
-    
-    # Also create static img directory for placeholders
-    os.makedirs(os.path.join(settings.STATIC_ROOT, 'img'), exist_ok=True)
+from django.conf import settings
+os.makedirs(settings.MEDIA_ROOT, exist_ok=True)
+os.makedirs(os.path.join(settings.MEDIA_ROOT, 'messages'), exist_ok=True)
+logger.info(f"Ensured media directories exist: {settings.MEDIA_ROOT}/messages")
+
+# Also create static img directory for placeholders
+os.makedirs(os.path.join(settings.STATIC_ROOT, 'img'), exist_ok=True)
 except Exception as e:
     logger.error(f"Error creating directories: {e}")
     # Create fallback directories

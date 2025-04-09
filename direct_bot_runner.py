@@ -12,7 +12,7 @@ import traceback
 import gc
 
 # Set up environment variables directly from Railway
-os.environ['BOT_TOKEN'] = "7923260865:AAGYew9JnOJV6hz0LGeRCb1kS6AejHoX61g"
+os.environ['BOT_TOKEN'] = "8102516142:AAFTsVXXujHHKoX2KZGqZXBHPBznfgh7kg0"
 os.environ['API_ID'] = "19840544"
 os.environ['API_HASH'] = "c839f28bad345082329ec086fca021fa"
 os.environ['PGHOST'] = "postgres.railway.internal"
@@ -81,7 +81,7 @@ async def verify_bot_token():
         from aiogram import Bot
         
         # Use the token directly from environment
-        token = "7923260865:AAGYew9JnOJV6hz0LGeRCb1kS6AejHoX61g"
+        token = "8102516142:AAFTsVXXujHHKoX2KZGqZXBHPBznfgh7kg0"
         
         # Try to connect to Telegram API
         bot = Bot(token=token)

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Скрипт для видалення рекламних повідомлень про VPN з бази даних
-Спеціальна версія для Railway з мінімальною кількістю залежностей
+та оновлення токену бота на новий
 """
 import os
 import sys
@@ -18,7 +18,7 @@ django.setup()
 
 # Імпорт моделей
 from django.db import connection, transaction
-from admin_panel.models import Message, Channel
+from admin_panel.models import Message, Channel, BotSettings
 
 def direct_db_cleanup():
     """Видаляє спам через прямі SQL-запити для швидкості"""
@@ -141,19 +141,121 @@ def clear_message_cache():
             except Exception as e:
                 logger.error(f"Помилка при очищенні кешу {cache_dir}: {e}")
 
+def update_bot_token():
+    """Оновлює токен бота в усіх необхідних місцях"""
+    # Новий токен бота
+    new_token = "8102516142:AAFTsVXXujHHKoX2KZGqZXBHPBznfgh7kg0"
+    new_username = "chan_parsing_mon_bot"
+    
+    try:
+        # 1. Оновлюємо в базі даних
+        bot_settings = BotSettings.objects.first()
+        if bot_settings:
+            bot_settings.bot_token = new_token
+            bot_settings.bot_username = new_username
+            bot_settings.save()
+            logger.info(f"✓ Токен бота оновлено в базі даних")
+        else:
+            # Створюємо нові налаштування, якщо їх немає
+            BotSettings.objects.create(
+                bot_token=new_token,
+                bot_username=new_username,
+                bot_name="Channel Parsing Bot"
+            )
+            logger.info(f"✓ Створено нові налаштування бота з новим токеном")
+        
+        # 2. Оновлюємо в змінній середовища
+        os.environ['BOT_TOKEN'] = new_token
+        os.environ['BOT_USERNAME'] = new_username
+        logger.info(f"✓ Токен бота оновлено в змінних середовища")
+        
+        # 3. Оновлюємо в config.py, якщо він існує
+        config_path = 'tg_bot/config.py'
+        if os.path.exists(config_path):
+            try:
+                with open(config_path, 'r', encoding='utf-8') as f:
+                    content = f.read()
+                
+                # Оновлюємо токен у config.py
+                import re
+                updated_content = re.sub(
+                    r'TOKEN_BOT\s*=.*?[\'\"].*?[\'\"]', 
+                    f'TOKEN_BOT = os.environ.get(\'BOT_TOKEN\', "{new_token}")',
+                    content
+                )
+                
+                # Оновлюємо ім'я користувача бота
+                updated_content = re.sub(
+                    r'BOT_USERNAME\s*=.*?[\'\"].*?[\'\"]', 
+                    f'BOT_USERNAME = os.environ.get(\'BOT_USERNAME\', "{new_username}")',
+                    updated_content
+                )
+                
+                with open(config_path, 'w', encoding='utf-8') as f:
+                    f.write(updated_content)
+                
+                logger.info(f"✓ Токен бота оновлено в {config_path}")
+            except Exception as e:
+                logger.error(f"Помилка при оновленні {config_path}: {e}")
+        
+        # 4. Оновлюємо в bot_token.env
+        with open('bot_token.env', 'w', encoding='utf-8') as f:
+            f.write(f"BOT_TOKEN={new_token}")
+        logger.info(f"✓ Токен бота оновлено в bot_token.env")
+        
+        # 5. Оновлюємо в .env
+        env_path = '.env'
+        if os.path.exists(env_path):
+            try:
+                with open(env_path, 'r', encoding='utf-8') as f:
+                    lines = f.readlines()
+                
+                with open(env_path, 'w', encoding='utf-8') as f:
+                    token_updated = False
+                    username_updated = False
+                    
+                    for line in lines:
+                        if line.startswith('BOT_TOKEN='):
+                            f.write(f"BOT_TOKEN={new_token}\n")
+                            token_updated = True
+                        elif line.startswith('BOT_USERNAME='):
+                            f.write(f"BOT_USERNAME={new_username}\n")
+                            username_updated = True
+                        else:
+                            f.write(line)
+                    
+                    # Додаємо змінні, якщо вони не існують
+                    if not token_updated:
+                        f.write(f"\nBOT_TOKEN={new_token}\n")
+                    if not username_updated:
+                        f.write(f"BOT_USERNAME={new_username}\n")
+                
+                logger.info(f"✓ Токен бота оновлено в {env_path}")
+            except Exception as e:
+                logger.error(f"Помилка при оновленні {env_path}: {e}")
+        
+        return True
+    except Exception as e:
+        logger.error(f"Помилка при оновленні токену бота: {e}")
+        return False
+
 if __name__ == "__main__":
-    logger.info("Починаємо очищення бази даних від рекламного спаму...")
+    logger.info("Починаємо очищення бази даних від рекламного спаму та оновлення токену бота...")
     
     try:
         # Виконуємо всі операції в транзакції
         with transaction.atomic():
+            # Спочатку оновлюємо токен бота
+            update_bot_token()
+            
+            # Потім очищаємо базу даних від спаму
             direct_db_cleanup()
             remove_vpn_channels()
         
         # Очищаємо кеш повідомлень
         clear_message_cache()
         
-        logger.info("✅ Очищення успішно завершено!")
+        logger.info("✅ Очищення та оновлення токену успішно завершено!")
         
     except Exception as e:
         logger.error(f"❌ Критична помилка під час виконання: {e}")

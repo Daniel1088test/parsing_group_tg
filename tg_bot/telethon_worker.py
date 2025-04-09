@@ -319,32 +319,9 @@ async def save_message_to_data(message, channel, queue, category_id=None, client
     """
     try:
         # Filter out unwanted content (VPN ads, spam, etc)
-        message_text = message.message.lower() if message.message else ""
-                        
-        # Blacklist for common spam/unwanted content
-        blacklist = [
-            "@speeeeedvpnbot",
-            "vpn прямо в telegram",
-            "speeeedvpn",
-            "start -> начать пробный период",
-            "поддерживаются все устройства",
-            "абсолютно бесплатно",
-            "ios/android/windows/mac",
-            "youtube instagram",
-            "vpn 🚀", 
-            "быстрый, и стабильный",
-            "стабильный 🔒 vpn",
-            "откройте vpn",
-            "быстрый, и стабильный 🔒"
-        ]
-                        
+              
         # Check if message contains any blacklisted content
-        is_blacklisted = any(phrase.lower() in message_text for phrase in blacklist)
-                        
-        if is_blacklisted:
-            logger.warning(f"Skipping blacklisted VPN ad message {message.id} from channel {getattr(channel, 'title', channel)}")
-            return None
-
+  
         # Get channel information
         channel_id = None
         if hasattr(message.peer_id, 'channel_id'):

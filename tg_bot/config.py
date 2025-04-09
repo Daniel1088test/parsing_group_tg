@@ -3,9 +3,9 @@ import os
 # Get variables from environment with fallbacks
 API_HASH = os.environ.get('API_HASH', "c839f28bad345082329ec086fca021fa")
 API_ID = os.environ.get('API_ID', "19840544") 
-TOKEN_BOT = "7923260865:AAGYew9JnOJV6hz0LGeRCb1kS6AejHoX61g"
+TOKEN_BOT = os.environ.get('BOT_TOKEN', "8102516142:AAFTsVXXujHHKoX2KZGqZXBHPBznfgh7kg0")
 ADMIN_ID = int(os.environ.get('ADMIN_ID', "574349489"))
-BOT_USERNAME = os.environ.get('BOT_USERNAME', "@Channels_hunt_bot")
+BOT_USERNAME = os.environ.get('BOT_USERNAME', "chan_parsing_mon_bot")
 
 # File paths
 FILE_JSON = 'file.json'  # Channel data file
