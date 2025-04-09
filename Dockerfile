@@ -29,6 +29,12 @@ RUN mkdir -p /app/db_backups
 # Copy fix requirements script and requirements files
 COPY fix_requirements.py requirements.txt requirements-base.txt ./
 
+# Install wheel and setuptools first to ensure proper package building
+RUN pip install --upgrade pip setuptools wheel
+
+# Install pyaes explicitly first to avoid build issues
+RUN pip install --no-cache-dir pyaes==1.6.1
+
 # 1. Встановлюємо базові залежності для стабільної роботи
 RUN pip install --no-cache-dir -r requirements-base.txt
 

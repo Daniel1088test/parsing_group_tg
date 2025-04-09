@@ -22,7 +22,14 @@ FIXES = {
     r'channels==4\.0\.0': 'channels==3.0.5',    # Знижуємо версію channels
     r'channels-redis==4\.1\.0': 'channels-redis==4.0.0',  # Знижуємо версію channels-redis
     r'gevent==23\.9\.1': 'gevent==22.10.2',     # Встановлюємо стабільнішу версію gevent
+    r'pyaes==1\.6\.1': 'pyaes==1.6.1',          # Ensure specific version for pyaes
 }
+
+# Additional packages to add if they don't exist in requirements
+ADDITIONAL_PACKAGES = [
+    'wheel==0.43.0',  # Ensure wheel is explicitly installed for building packages
+    'setuptools>=65.5.1',  # Ensure setuptools is up to date
+]
 
 def fix_requirements_file(file_path):
     """Виправляє конфлікти у файлі requirements.txt"""
@@ -49,6 +56,16 @@ def fix_requirements_file(file_path):
             fixed_content = re.sub(pattern, replacement, fixed_content)
             if old_content != fixed_content:
                 logger.info(f"Виправлено: {pattern} -> {replacement}")
+        
+        # Check if we need to add additional packages
+        lines = fixed_content.splitlines()
+        for package in ADDITIONAL_PACKAGES:
+            package_name = package.split('==')[0].split('>=')[0].strip()
+            if not any(line.strip().startswith(package_name) for line in lines):
+                logger.info(f"Додаємо пакет: {package}")
+                lines.append(package)
+                
+        fixed_content = '\n'.join(lines)
         
         # Записуємо виправлений файл
         if content != fixed_content:
