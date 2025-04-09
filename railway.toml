@@ -1,6 +1,6 @@
 [build]
 builder = "NIXPACKS"
-buildCommand = "pip install -r requirements.txt && python manage.py collectstatic --noinput"
+buildCommand = "pip install -r requirements.txt && pip install qrcode[pil] && python manage.py collectstatic --noinput"
 
 [deploy]
 startCommand = "python start_bot.py"

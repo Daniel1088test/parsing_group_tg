@@ -4,6 +4,12 @@ import asyncio
 import logging
 from datetime import datetime
 import sys
+import traceback
+from aiogram import Bot, Dispatcher, types
+from aiogram.enums import ParseMode
+from aiogram.filters import CommandStart
+from aiogram.types import Message
+from aiogram.utils.markdown import hbold
 
 # configuration of logging
 logging.basicConfig(
@@ -27,14 +33,56 @@ try:
     logger.info("Django setup successful")
 except Exception as e:
     logger.error(f"Django setup error: {e}")
+    traceback.print_exc()
 
 try:
     # Імпортуємо необхідні модулі
     from aiogram import Bot, Dispatcher, types, F
     from aiogram.fsm.storage.memory import MemoryStorage
     from aiogram.filters import Command
-    from tg_bot.handlers import common_router, admin_router, session_router, session_buttons_router, menu_buttons_router, fallback_router
-    from tg_bot.middlewares import ChannelsDataMiddleware, MenuInitMiddleware
+    
+    # Імпортуємо роутери та middleware з обробкою помилок
+    try:
+        from tg_bot.handlers import common_router, admin_router, session_router, session_buttons_router, menu_buttons_router, fallback_router
+    except ImportError as router_error:
+        logger.error(f"Error importing routers: {router_error}")
+        
+        # Створюємо порожні роутери як заміну
+        from aiogram import Router
+        common_router = Router(name="emergency_common")
+        admin_router = Router(name="emergency_admin")
+        session_router = Router(name="emergency_session")
+        session_buttons_router = Router(name="emergency_session_buttons")
+        menu_buttons_router = Router(name="emergency_menu_buttons")
+        fallback_router = Router(name="emergency_fallback")
+        
+        # Створюємо аварійний обробник для команди start
+        @common_router.message(Command("start"))
+        async def emergency_start(message: types.Message):
+            await message.answer("Bot is running in emergency mode. Some modules failed to load.")
+            keyboard = types.ReplyKeyboardMarkup(
+                keyboard=[
+                    [types.KeyboardButton(text="📎 List of channels")],
+                    [types.KeyboardButton(text="📍 Categories menu")],
+                    [types.KeyboardButton(text="🌐 Go to the site")],
+                    [types.KeyboardButton(text="🔑 Add new session")],
+                ],
+                resize_keyboard=True
+            )
+            await message.answer("Emergency menu:", reply_markup=keyboard)
+    
+    try:
+        from tg_bot.middlewares import ChannelsDataMiddleware, MenuInitMiddleware
+    except ImportError as middleware_error:
+        logger.error(f"Error importing middleware: {middleware_error}")
+        
+        # Створюємо прості middleware як заміну
+        from aiogram import BaseMiddleware
+        class EmergencyMiddleware(BaseMiddleware):
+            async def __call__(self, handler, event, data):
+                return await handler(event, data)
+        
+        ChannelsDataMiddleware = MenuInitMiddleware = EmergencyMiddleware
     
     # Отримуємо токен бота з різних можливих джерел
     def get_bot_token():

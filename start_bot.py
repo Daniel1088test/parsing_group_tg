@@ -9,6 +9,8 @@ import time
 import traceback
 import django
 from django.core.management import call_command
+import importlib
+import subprocess
 
 # Configure logging
 logging.basicConfig(
@@ -132,9 +134,55 @@ def serve_http():
     logger.info("Health check HTTP server started in background thread")
     return server_thread
 
+def check_and_install_dependencies():
+    """Check for missing dependencies and install them"""
+    missing_packages = []
+    
+    # List of critical packages the bot needs
+    required_packages = [
+        'qrcode',
+        'pillow',
+        'aiogram',
+        'django',
+        'requests',
+        'telethon',
+        'psycopg2-binary',
+        'dj-database-url'
+    ]
+    
+    # Check each package
+    for package in required_packages:
+        try:
+            importlib.import_module(package)
+            logger.info(f"Package {package} is already installed")
+        except ImportError:
+            logger.warning(f"Package {package} is missing")
+            missing_packages.append(package)
+    
+    # Install missing packages
+    if missing_packages:
+        logger.warning(f"Installing missing packages: {', '.join(missing_packages)}")
+        try:
+            # Handle special case for pillow (required by qrcode[pil])
+            if 'qrcode' in missing_packages and 'pillow' not in missing_packages:
+                missing_packages.append('pillow')
+            
+            # Install packages
+            subprocess.check_call([sys.executable, "-m", "pip", "install"] + missing_packages)
+            logger.info("All missing packages have been installed")
+            return True
+        except Exception as e:
+            logger.error(f"Error installing packages: {e}")
+            return False
+    return True
+
 def main():
     """Main function"""
     logger.info("=== Starting Railway Bot Deployment ===")
+    
+    # Check and install dependencies
+    logger.info("Checking and installing dependencies...")
+    check_and_install_dependencies()
     
     # Check database
     logger.info("Checking database...")

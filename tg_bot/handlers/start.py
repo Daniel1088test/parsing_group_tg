@@ -1,13 +1,20 @@
 from aiogram import Router, types, F
 from aiogram.filters import CommandStart
 from tg_bot.keyboards.main_menu import main_menu_keyboard
-from tg_bot.config import WEB_SERVER_PORT, ADMIN_ID
+from tg_bot.config import WEB_SERVER_PORT, ADMIN_ID, PUBLIC_URL
 from aiogram.utils.markdown import hlink
-import qrcode
+import logging
 from io import BytesIO
 from tg_bot.keyboards.channels_menu import get_channels_keyboard, get_categories_keyboard
 from asgiref.sync import async_to_sync, sync_to_async
-import logging
+
+# Імпортуємо qrcode з обробкою помилок
+try:
+    import qrcode
+    QR_CODE_AVAILABLE = True
+except ImportError:
+    QR_CODE_AVAILABLE = False
+    logging.warning("qrcode module not installed. QR code generation will be disabled.")
 
 # Налаштування логгера
 logger = logging.getLogger('tg_bot.handlers.common')
@@ -110,8 +117,11 @@ async def cmd_start(message: types.Message):
 
 @router.message(F.text == "🌐 Go to the site")   
 async def website(message: types.Message):
-    # Use external IP address or domain name, if it is configured
-    website_url = f"http://192.168.0.237:{WEB_SERVER_PORT}"  # Changed to IP that is displayed when Flask starts
+    # Use external PUBLIC_URL from config if available
+    if PUBLIC_URL and "railway.app" in PUBLIC_URL:
+        website_url = PUBLIC_URL
+    else:
+        website_url = f"http://192.168.0.237:{WEB_SERVER_PORT}"  # Local development URL
     
     # Create inline keyboard with button to go to the website
     keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
@@ -123,9 +133,23 @@ async def website(message: types.Message):
 
 @router.callback_query(F.data == "get_qr_code")
 async def send_qr_code(callback: types.CallbackQuery):
-    website_url = f"http://192.168.0.237:{WEB_SERVER_PORT}"
+    # Use the same URL logic as in the website function
+    from tg_bot.config import PUBLIC_URL
+    
+    if PUBLIC_URL and "railway.app" in PUBLIC_URL:
+        website_url = PUBLIC_URL
+    else:
+        website_url = f"http://192.168.0.237:{WEB_SERVER_PORT}"  # Local development URL
     
     try:
+        if not QR_CODE_AVAILABLE:
+            await callback.message.answer(
+                "QR code generation is disabled because the qrcode module is not installed.\n"
+                f"Please visit the website directly: {website_url}"
+            )
+            await callback.answer("QR code generation is disabled")
+            return
+            
         # Create QR code for the website
         qr = qrcode.QRCode(
             version=1,
@@ -153,6 +177,7 @@ async def send_qr_code(callback: types.CallbackQuery):
         )
         await callback.answer()
     except Exception as e:
+        logger.error(f"Error creating/sending QR code: {e}")
         await callback.message.answer(f"Error creating QR code: {e}")
         await callback.answer("Failed to create QR code")
 
