@@ -11,6 +11,17 @@ import signal
 import traceback
 import gc
 
+# Set up environment variables directly from Railway
+os.environ['BOT_TOKEN'] = "7923260865:AAGYew9JnOJV6hz0LGeRCb1kS6AejHoX61g"
+os.environ['API_ID'] = "19840544"
+os.environ['API_HASH'] = "c839f28bad345082329ec086fca021fa"
+os.environ['PGHOST'] = "postgres.railway.internal"
+os.environ['PGPORT'] = "5432"
+os.environ['PGUSER'] = "postgres"
+os.environ['PGPASSWORD'] = "urCNhXdwvbqOvvEsJDffIiDUMcLhAvcs"
+os.environ['PGDATABASE'] = "railway"
+os.environ['DATABASE_URL'] = "postgresql://postgres:urCNhXdwvbqOvvEsJDffIiDUMcLhAvcs@postgres.railway.internal:5432/railway"
+
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
@@ -69,28 +80,8 @@ async def verify_bot_token():
     try:
         from aiogram import Bot
         
-        token = os.environ.get('BOT_TOKEN', '')
-        if not token:
-            # Try to get from Django settings
-            try:
-                from django.conf import settings
-                token = getattr(settings, 'BOT_TOKEN', '')
-            except Exception:
-                pass
-            
-            # Try to get from database
-            if not token:
-                try:
-                    from admin_panel.models import BotSettings
-                    bot_settings = BotSettings.objects.first()
-                    if bot_settings:
-                        token = bot_settings.bot_token or ''
-                except Exception:
-                    pass
-        
-        if not token:
-            logger.error("No bot token found!")
-            return False
+        # Use the token directly from environment
+        token = "7923260865:AAGYew9JnOJV6hz0LGeRCb1kS6AejHoX61g"
         
         # Try to connect to Telegram API
         bot = Bot(token=token)
