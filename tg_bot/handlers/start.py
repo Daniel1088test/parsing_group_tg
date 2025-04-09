@@ -30,6 +30,37 @@ get_channels = sync_to_async(_get_channels)
 @router.message(CommandStart())
 async def cmd_start(message: types.Message):
     try:
+        # Check for deep link parameters (auth token)
+        if message.text and len(message.text.split()) > 1:
+            auth_token = message.text.split()[1]
+            logger.info(f"Received deep link with auth_token: {auth_token}")
+            
+            # Handle auth token (format: auth_SESSION_ID_TIMESTAMP)
+            if auth_token.startswith('auth_'):
+                try:
+                    parts = auth_token.split('_')
+                    if len(parts) >= 3:
+                        session_id = int(parts[1])
+                        logger.info(f"Processing authorization token for session_id: {session_id}")
+                        
+                        # Import Django models
+                        from admin_panel.models import TelegramSession
+                        
+                        # Get the session
+                        session = await sync_to_async(TelegramSession.objects.get)(id=session_id)
+                        if session:
+                            # Mark the session as authorized
+                            session.is_authorized = True
+                            await sync_to_async(session.save)()
+                            
+                            # Send confirmation to user
+                            await message.answer(f"✅ Successfully authorized session for phone: {session.phone}")
+                            logger.info(f"Session {session_id} authorized successfully")
+                            
+                except Exception as auth_error:
+                    logger.error(f"Error processing auth token: {auth_error}")
+                    await message.answer("❌ Error processing authorization token. Please try again.")
+        
         # Створюємо клавіатуру з 4 кнопками
         keyboard = types.ReplyKeyboardMarkup(
             keyboard=[

@@ -734,45 +734,40 @@ def authorize_session_view(request, session_id):
     """View for authorizing a Telegram session directly from the website"""
     session = get_object_or_404(TelegramSession, pk=session_id)
     
-    if request.method == 'POST':
-        try:
-            # Generate QR code authorization link
-            from urllib.parse import quote_plus
-            
-            # Get bot username from environment variables or settings
-            bot_username = os.environ.get('BOT_USERNAME', 'chan_parsing_mon_bot')
-            
-            # Generate a unique deep link to the bot
-            authorization_token = f"auth_{session_id}_{int(time.time())}"
-            deep_link = f"https://t.me/{bot_username}?start={authorization_token}"
-            
-            # Store the authorization token in the session
-            if not hasattr(session, 'auth_token') or not session.auth_token:
-                session.auth_token = authorization_token
-                session.save()
-            
-            # Send success message with link
-            messages.success(request, 'Click the button below to authorize this session via Telegram bot')
-            
-            context = {
-                'session': session,
-                'deep_link': deep_link,
-                'authorization_token': authorization_token,
-                'title': f'Authorize Session: {session.phone}'
-            }
-            return render(request, 'admin_panel/authorize_session.html', context)
-            
-        except Exception as e:
-            messages.error(request, f'Error starting authorization: {str(e)}')
-    
-    # If GET request, show confirmation page
-    context = {
-        'session': session,
-        'title': f'Authorize Session: {session.phone}'
-    }
-    return render(request, 'admin_panel/authorize_session_confirm.html', context)
-
-@login_required
+    try:
+        # Get bot username from environment or settings
+        bot_username = os.environ.get('BOT_USERNAME', 'chan_parsing_mon_bot')
+        
+        # Generate a unique deep link to the bot
+        authorization_token = f"auth_{session_id}_{int(time.time())}"
+        deep_link = f"https://t.me/{bot_username}?start={authorization_token}"
+        
+        # Store the authorization token with the session
+        if hasattr(session, 'auth_token'):
+            session.auth_token = authorization_token
+            session.save(update_fields=['auth_token'])
+        
+        # Handle form submission for refreshing status
+        if request.method == 'POST':
+            # Check if the session is now authorized
+            session.refresh_from_db()
+            if hasattr(session, 'is_authorized') and session.is_authorized:
+                messages.success(request, f'Session {session.phone} has been successfully authorized!')
+                return redirect('admin_panel:sessions_list')
+            else:
+                messages.warning(request, f'Session {session.phone} is not yet authorized. Please open the Telegram bot link.')
+        
+        # Render the template with deep link
+        return render(request, 'admin_panel/authorize_session.html', {
+            'session': session,
+            'deep_link': deep_link,
+            'bot_username': bot_username
+        })
+    except Exception as e:
+        logger.error(f"Error in authorize_session_view: {e}")
+        logger.error(traceback.format_exc())
+        messages.error(request, f"Error authorizing session: {str(e)}")
+        return redirect('admin_panel:sessions_list')@login_required
 def run_migrations_view(request):
     """View for running database migrations"""
     if request.method == 'POST':

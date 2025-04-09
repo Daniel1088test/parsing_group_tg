@@ -139,10 +139,10 @@ def fix_database_issues():
             f.write(content)
             
         # Fix custom SQL migrations
-        self.fix_migrations_sql()
+        fix_migrations_sql()
             
         # Update URL patterns to remove leading slashes
-        self.fix_url_patterns()
+        fix_url_patterns()
         
         # Apply migrations
         try:
@@ -168,7 +168,7 @@ def fix_database_issues():
         logger.error(traceback.format_exc())
         return False
 
-def fix_migrations_sql(self):
+def fix_migrations_sql():
     """Fix SQL syntax errors in migrations"""
     try:
         migrations_dir = Path('admin_panel/migrations')
@@ -195,7 +195,7 @@ def fix_migrations_sql(self):
         logger.error(f"Error fixing migrations SQL: {e}")
         return False
 
-def fix_url_patterns(self):
+def fix_url_patterns():
     """Fix URL patterns with leading slashes"""
     try:
         # Find all urls.py files

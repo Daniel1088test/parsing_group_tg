@@ -44,6 +44,7 @@ class TelegramSession(models.Model):
     session_string = models.TextField(blank=True, null=True)
     is_active = models.BooleanField(default=True)
     is_bot = models.BooleanField(default=False)
+    is_authorized = models.BooleanField(default=False, help_text="Indicates if this session has been authorized via deep link")
     verification_code = models.CharField(max_length=10, blank=True, null=True)
     password = models.CharField(max_length=255, blank=True, null=True)
     session_data = models.TextField(blank=True, null=True, help_text="Encoded session data for persistent storage")
@@ -56,6 +57,7 @@ class TelegramSession(models.Model):
     def __str__(self):
         status = "Active" if self.is_active else "Inactive"
         auth_status = " (Needs Auth)" if self.needs_auth else ""
+        auth_status = " (Authorized)" if self.is_authorized else auth_status
         return f"{self.phone} - {status}{auth_status}"
     
     class Meta:

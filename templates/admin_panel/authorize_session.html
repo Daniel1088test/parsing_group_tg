@@ -30,16 +30,20 @@
                     </div>
                     
                     <div class="mt-4">
-                        <a href="{% url 'sessions_list' %}" class="btn btn-secondary">
+                        <a href="{% url 'admin_panel:sessions_list' %}" class="btn btn-secondary">
                             <i class="fas fa-arrow-left"></i> Back to Sessions List
                         </a>
-                        <a href="{% url 'sessions_list' %}" class="btn btn-success">
-                            <i class="fas fa-sync"></i> Refresh Status
-                        </a>
+                        
+                        <form method="post" action="" class="d-inline">
+                            {% csrf_token %}
+                            <button type="submit" class="btn btn-success">
+                                <i class="fas fa-sync"></i> Refresh Status
+                            </button>
+                        </form>
                     </div>
                 </div>
             </div>
         </div>
     </div>
 </div>
-{% endblock %} 
+{% endblock %}
