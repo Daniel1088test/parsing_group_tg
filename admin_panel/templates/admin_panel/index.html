@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Telegram Channel Parser</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body { 
+            padding: 20px;
+            background-color: #f8f9fa; 
+        }
+        .main-card {
+            border-radius: 10px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            background-color: white;
+            padding: 30px;
+            margin-top: 30px;
+        }
+        .btn-custom {
+            padding: 12px 20px;
+            margin: 8px 0;
+            font-weight: 500;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="row">
+            <div class="col-md-8 offset-md-2 main-card">
+                <h1 class="text-primary text-center mb-4">Telegram Channel Parser</h1>
+                
+                <div class="alert alert-info">
+                    <p class="lead">Додаток працює. Оберіть опцію нижче:</p>
+                </div>
+                
+                {% if error_message %}
+                <div class="alert alert-danger">
+                    <h4>Помилка:</h4>
+                    <p>{{ error_message }}</p>
+                </div>
+                {% endif %}
+
+                <div class="d-grid gap-3 col-md-8 mx-auto mt-4">
+                    <a href="/admin/" class="btn btn-primary btn-custom">
+                        <i class="bi bi-gear-fill"></i> Адмін-панель Django
+                    </a>
+                    <a href="/admin_panel/admin_panel/" class="btn btn-success btn-custom">
+                        <i class="bi bi-list-check"></i> Панель керування парсером
+                    </a>
+                    <a href="https://t.me/Channels_hunt_bot" target="_blank" class="btn btn-info btn-custom">
+                        <i class="bi bi-telegram"></i> Відкрити Telegram бот
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html> 

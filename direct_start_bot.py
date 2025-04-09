@@ -217,9 +217,21 @@ def run_emergency_bot():
             # Setup proper shutdown
             async def shutdown():
                 # Close the bot session
-                if hasattr(bot, 'session') and hasattr(bot.session, 'close') and not bot.session.closed:
-                    await bot.session.close()
-                    logger.info("Bot session closed properly")
+                if hasattr(bot, 'session') and hasattr(bot.session, 'close'):
+                    if not bot.session.closed:
+                        await bot.session.close()
+                        logger.info("Bot session closed properly")
+                
+                # Explicitly close any aiohttp client sessions
+                import aiohttp
+                import asyncio
+                import gc
+                
+                # Find and close all active aiohttp sessions
+                for obj in gc.get_objects():
+                    if isinstance(obj, aiohttp.ClientSession) and not obj.closed:
+                        logger.info(f"Closing unclosed ClientSession: {obj!r}")
+                        await obj.close()
             
             try:
                 # Start polling
