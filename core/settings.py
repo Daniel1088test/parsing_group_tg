@@ -54,6 +54,9 @@ if RAILWAY_PUBLIC_DOMAIN:
         f"http://{RAILWAY_PUBLIC_DOMAIN}",
     ])
 
+
+# Telegram API Token from environment
+TELEGRAM_API_TOKEN = os.environ.get('BOT_TOKEN', "8102516142:AAFTsVXXujHHKoX2KZGqZXBHPBznfgh7kg0")
 # Application definition
 INSTALLED_APPS = [
     'django.contrib.admin',

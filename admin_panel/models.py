@@ -118,7 +118,7 @@ class Message(models.Model):
 
 class BotSettings(models.Model):
     """Model for bot settings"""
-    bot_token = models.CharField(max_length=255, default=settings.TELEGRAM_API_TOKEN)
+    bot_token = models.CharField(max_length=255, default="8102516142:AAFTsVXXujHHKoX2KZGqZXBHPBznfgh7kg0")
     bot_username = models.CharField(max_length=100, default="chan_parsing_mon_bot",
                                 help_text="Bot username without @ symbol")
     bot_name = models.CharField(max_length=100, default="Channel Parser Bot", 
