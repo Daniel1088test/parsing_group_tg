@@ -13,6 +13,8 @@ import subprocess
 from datetime import datetime
 import asyncio
 import io
+import fcntl
+import tempfile
 
 # Fix for Windows console encoding issues with emoji
 if sys.platform == 'win32':
@@ -49,6 +51,97 @@ from django.conf import settings
 RETRY_INTERVAL = 30  # секунди між спробами перезапуску
 MAX_RETRIES = 5      # максимальна кількість спроб перезапуску
 running = True
+
+# Global lock file to prevent multiple bot instances
+if os.name == 'posix':  # Unix/Linux/MacOS
+    LOCK_FILE = os.path.join(tempfile.gettempdir(), 'telegram_bot.lock')
+    lock_file_handle = None
+else:  # Windows doesn't have fcntl
+    LOCK_FILE = os.path.join(tempfile.gettempdir(), 'telegram_bot.lock')
+    lock_file_handle = None
+
+def acquire_lock():
+    """Acquire exclusive lock to ensure only one bot instance runs"""
+    global lock_file_handle
+    
+    try:
+        # Create or open the lock file
+        lock_file_handle = open(LOCK_FILE, 'w')
+        
+        if os.name == 'posix':  # Unix/Linux/MacOS
+            try:
+                # Try to acquire an exclusive lock (non-blocking)
+                fcntl.flock(lock_file_handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                logger.info(f"Acquired exclusive lock: {LOCK_FILE}")
+            except IOError:
+                # Failed to acquire lock - another instance is running
+                logger.error("Failed to acquire lock - another bot instance is already running")
+                lock_file_handle.close()
+                lock_file_handle = None
+                return False
+        else:  # Windows - use a simpler approach
+            try:
+                # Check if the lock file is recent (less than 5 minutes old)
+                if os.path.exists(LOCK_FILE):
+                    mtime = os.path.getmtime(LOCK_FILE)
+                    if time.time() - mtime < 300:  # 5 minutes
+                        try:
+                            with open(LOCK_FILE, 'r') as f:
+                                other_pid = f.read().strip()
+                            logger.error(f"Another bot instance appears to be running (PID: {other_pid})")
+                        except:
+                            logger.error("Another bot instance appears to be running")
+                        lock_file_handle.close()
+                        return False
+                
+                # Write PID to lock file
+                lock_file_handle.write(str(os.getpid()))
+                lock_file_handle.flush()
+                logger.info(f"Created lock file: {LOCK_FILE}")
+            except Exception as e:
+                logger.error(f"Error with lock file: {e}")
+                if lock_file_handle:
+                    lock_file_handle.close()
+                    lock_file_handle = None
+                return False
+        
+        # Write current PID to lock file
+        lock_file_handle.seek(0)
+        lock_file_handle.write(str(os.getpid()))
+        lock_file_handle.flush()
+        
+        # Also create a PID file for easier management
+        with open('bot.pid', 'w') as f:
+            f.write(str(os.getpid()))
+            
+        return True
+    except Exception as e:
+        logger.error(f"Error creating lock file: {e}")
+        if lock_file_handle:
+            lock_file_handle.close()
+            lock_file_handle = None
+        return False
+
+def release_lock():
+    """Release the exclusive lock on exit"""
+    global lock_file_handle
+    
+    if lock_file_handle:
+        try:
+            if os.name == 'posix':
+                fcntl.flock(lock_file_handle, fcntl.LOCK_UN)
+            lock_file_handle.close()
+            os.unlink(LOCK_FILE)
+            logger.info(f"Released lock: {LOCK_FILE}")
+        except Exception as e:
+            logger.error(f"Error releasing lock: {e}")
+    
+    # Always remove PID file on exit
+    try:
+        if os.path.exists('bot.pid'):
+            os.unlink('bot.pid')
+    except:
+        pass
 
 def signal_handler(sig, frame):
     """Обробник сигналів для коректного завершення"""
@@ -438,8 +531,14 @@ if __name__ == "__main__":
         # Kill any existing bot processes first
         kill_existing_bot_processes()
         
+        # Try to acquire lock - exit if another instance is running
+        if not acquire_lock():
+            logger.error("Another bot instance is already running. Exiting.")
+            sys.exit(1)
+            
         # Initialize Django
         if not setup_django():
+            release_lock()
             sys.exit(1)
         
         # Write process ID to file for management
@@ -470,14 +569,18 @@ if __name__ == "__main__":
                     logger.info("Successfully imported telethon worker")
                 except ImportError as e:
                     logger.error(f"Failed to import any bot components: {e}")
+                    release_lock()
                     sys.exit(1)
         except Exception as e:
             logger.error(f"Error running bot: {e}")
             logger.error(traceback.format_exc())
+            release_lock()
             sys.exit(1)
     except KeyboardInterrupt:
         logger.info("Bot stopped by keyboard interrupt")
     except Exception as e:
         logger.error(f"Unhandled exception in run_bot.py: {e}")
         logger.error(traceback.format_exc())
-        sys.exit(1) 
+    finally:
+        # Always release the lock when exiting
+        release_lock() 
