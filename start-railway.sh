@@ -176,6 +176,16 @@ else
     echo "✅ BOT_TOKEN is set and ready to use"
 fi
 
+# Run the bot connection fix script
+echo "Running comprehensive bot connection fix..."
+chmod +x fix_bot_connection.py
+python fix_bot_connection.py
+if [ $? -eq 0 ]; then
+    echo "✅ Bot connection fix completed successfully"
+else
+    echo "⚠️ Bot connection fix encountered issues, but continuing"
+fi
+
 # Ensure health check files
 echo "ok" > health.txt
 echo "ok" > health.html
@@ -410,6 +420,23 @@ os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'core.settings')
 django.setup()
 try:
     from admin_panel.models import BotSettings
+    from django.db import connection
+    
+    # First check if the BotSettings table structure is correct
+    with connection.cursor() as cursor:
+        cursor.execute(\"\"\"
+            SELECT column_name FROM information_schema.columns 
+            WHERE table_name='admin_panel_botsettings'
+        \"\"\")
+        columns = [row[0] for row in cursor.fetchall()]
+        print(f'BotSettings table has columns: {columns}')
+        
+        # Check if bot_username column exists, if not add it
+        if 'bot_username' not in columns:
+            print('Adding missing bot_username column to BotSettings table')
+            cursor.execute('ALTER TABLE admin_panel_botsettings ADD COLUMN bot_username VARCHAR(255) NULL')
+    
+    # Now get BotSettings safely
     settings = BotSettings.objects.first()
     if settings:
         print(f'✓ BotSettings found in database: {settings.id}')
@@ -418,12 +445,45 @@ try:
             print(f'✓ Bot token is set in database: {masked_token}')
         else:
             print('✗ Bot token is not set in database')
+            # Set the token
+            settings.bot_token = os.environ.get('BOT_TOKEN', '')
+            settings.save()
+            print('✓ Updated bot_token in database')
     else:
         print('ℹ️ No BotSettings found in database, will create default')
-        BotSettings.objects.create(bot_token=os.environ.get('BOT_TOKEN', ''))
+        BotSettings.objects.create(
+            bot_token=os.environ.get('BOT_TOKEN', ''),
+            bot_username='Channels_hunt_bot'  # Default username
+        )
         print('✓ Created default BotSettings')
 except Exception as e:
     print(f'Error checking BotSettings: {e}')
+    # Emergency fix - create missing table or column directly
+    try:
+        with connection.cursor() as cursor:
+            print('Attempting emergency database fix...')
+            # Try to create the table if it doesn't exist
+            cursor.execute(\"\"\"
+                CREATE TABLE IF NOT EXISTS admin_panel_botsettings (
+                    id SERIAL PRIMARY KEY,
+                    bot_token VARCHAR(255) NOT NULL,
+                    bot_username VARCHAR(255) NULL,
+                    welcome_message TEXT NULL,
+                    auth_guide_text TEXT NULL,
+                    menu_style VARCHAR(50) NULL
+                )
+            \"\"\")
+            print('✓ Emergency table creation completed')
+            
+            # Insert default settings if needed
+            cursor.execute(\"\"\"
+                INSERT INTO admin_panel_botsettings (bot_token, bot_username)
+                SELECT %s, %s
+                WHERE NOT EXISTS (SELECT 1 FROM admin_panel_botsettings)
+            \"\"\", [os.environ.get('BOT_TOKEN', ''), 'Channels_hunt_bot'])
+            print('✓ Emergency settings insertion completed')
+    except Exception as fix_error:
+        print(f'Emergency fix failed: {fix_error}')
 "
 
 # Extra bot launch as fallback if both others failed
@@ -445,6 +505,16 @@ if ! (ps -p $DIRECT_BOT_PID > /dev/null || ps -p $EMERGENCY_BOT_PID > /dev/null 
     
     # Create a special flag file to indicate we've tried everything
     echo "$(date) - All methods tried" > bot_all_methods_attempted.flag
+fi
+
+# Final rescue - run the comprehensive fix and restart script if no verification
+if [ ! -f "bot_verified.flag" ]; then
+    echo "⚠️⚠️⚠️ CRITICAL: Bot verification not detected, running comprehensive fix and restart script..."
+    chmod +x run_fix_and_restart.sh
+    nohup bash run_fix_and_restart.sh > logs/comprehensive_fix.log 2>&1 &
+    RESCUE_PID=$!
+    echo $RESCUE_PID > rescue.pid
+    echo "Comprehensive fix and restart script started with PID: $RESCUE_PID"
 fi
 
 # Start the bot monitor in daemon mode to keep bot alive
