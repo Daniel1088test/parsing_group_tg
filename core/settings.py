@@ -102,12 +102,11 @@ WSGI_APPLICATION = 'core.wsgi.application'
 # Database
 # https://docs.djangoproject.com/en/4.2/ref/settings/#databases
 
-# Check if we need to use PostgreSQL (for Railway)
-USE_POSTGRES = os.environ.get('USE_POSTGRES', 'False').lower() == 'true'
+# Check if DATABASE_URL is provided (for Railway deployment)
 DATABASE_URL = os.environ.get('DATABASE_URL')
 
-if USE_POSTGRES and DATABASE_URL:
-    # Use PostgreSQL via DATABASE_URL
+if DATABASE_URL:
+    # Always use PostgreSQL when DATABASE_URL is provided
     DATABASES = {
         'default': dj_database_url.config(
             default=DATABASE_URL,
@@ -117,7 +116,7 @@ if USE_POSTGRES and DATABASE_URL:
     }
     print("Using PostgreSQL database from DATABASE_URL")
 else:
-    # Default SQLite database
+    # Default SQLite database for local development
     DATABASES = {
         'default': {
             'ENGINE': 'django.db.backends.sqlite3',
