@@ -32,10 +32,14 @@ COPY fix_requirements.py requirements.txt requirements-base.txt ./
 # 1. Встановлюємо базові залежності для стабільної роботи
 RUN pip install --no-cache-dir -r requirements-base.txt
 
-# 2. Встановлюємо Pillow окремо, щоб переконатися, що він правильно встановлений
+# 2. Ensure psycopg2 is installed first (both binary and regular versions)
+RUN pip install --no-cache-dir psycopg2-binary==2.9.9
+RUN pip install --no-cache-dir psycopg2==2.9.9 || echo "Regular psycopg2 failed to install, continuing with binary version"
+
+# 3. Встановлюємо Pillow окремо, щоб переконатися, що він правильно встановлений
 RUN pip install --no-cache-dir Pillow==10.1.0
 
-# 3. Виправляємо requirements.txt і встановлюємо всі залежності
+# 4. Виправляємо requirements.txt і встановлюємо всі залежності
 RUN python fix_requirements.py && \
     pip install --no-cache-dir -r requirements.txt || \
     echo "Warning: Could not install all requirements, continuing with base dependencies"
@@ -47,7 +51,16 @@ COPY . .
 RUN mkdir -p staticfiles media logs/bot data/sessions
 
 # Make scripts executable
-RUN chmod +x migrate-railway.py run_bot.py run_parser.py start-railway.sh
+RUN chmod +x migrate-railway.py run_bot.py run_parser.py start-railway.sh run.py
+
+# Test database connectivity before starting
+RUN echo "Testing database connection during build..." && \
+    python -c "import sys; \
+    try: \
+        import psycopg2; print('✓ psycopg2 is properly installed'); \
+    except ImportError: \
+        print('✗ psycopg2 import failed!'); sys.exit(1); \
+    " || echo "Warning: psycopg2 test failed, but continuing build"
 
 # Run the application
 CMD ["bash", "start-railway.sh"] 

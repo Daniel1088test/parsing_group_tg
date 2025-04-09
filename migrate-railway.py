@@ -197,14 +197,45 @@ def check_installed_packages():
                 logger.error(f"✗ Пакет {package} не встановлено!")
                 
                 # Екстрена інсталяція для критичних пакетів
-                if package.lower() in ['pillow', 'django']:
+                if package.lower() in ['pillow', 'django', 'psycopg2']:
                     logger.warning(f"Спроба встановити {package}...")
                     try:
-                        subprocess.run([sys.executable, "-m", "pip", "install", package], check=True)
-                        logger.info(f"Пакет {package} успішно встановлено")
+                        # Special handling for psycopg2
+                        if package.lower() == 'psycopg2':
+                            # Try installing binary package first
+                            subprocess.run([sys.executable, "-m", "pip", "install", "psycopg2-binary==2.9.9"], check=True)
+                            logger.info(f"Пакет psycopg2-binary успішно встановлено")
+                            
+                            # Then try installing the regular package 
+                            try:
+                                subprocess.run([sys.executable, "-m", "pip", "install", "psycopg2==2.9.9"], check=True)
+                                logger.info(f"Пакет psycopg2 успішно встановлено")
+                            except Exception as e:
+                                logger.warning(f"Не вдалося встановити psycopg2, але psycopg2-binary вже встановлено: {e}")
+                        else:
+                            # For other packages
+                            subprocess.run([sys.executable, "-m", "pip", "install", package], check=True)
+                            logger.info(f"Пакет {package} успішно встановлено")
                     except Exception as e:
                         logger.error(f"Не вдалося встановити {package}: {e}")
         
+        # Additional check for database connection
+        try:
+            import psycopg2
+            logger.info("Testing database connection...")
+            db_url = os.environ.get('DATABASE_URL')
+            if db_url:
+                conn = psycopg2.connect(db_url)
+                cursor = conn.cursor()
+                cursor.execute('SELECT 1')
+                cursor.close()
+                conn.close()
+                logger.info("✓ Database connection successful!")
+            else:
+                logger.warning("⚠️ DATABASE_URL environment variable not set!")
+        except Exception as e:
+            logger.error(f"⚠️ Database connection failed: {e}")
+            
         return True
     except Exception as e:
         logger.error(f"Помилка при перевірці пакетів: {e}")

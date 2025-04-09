@@ -23,6 +23,12 @@ fi
 chmod +x migrate-railway.py
 chmod +x run_bot.py
 chmod +x run_parser.py
+chmod +x run.py
+
+# Install psycopg2 explicitly to ensure database connectivity
+echo "Installing psycopg2 for database connectivity..."
+pip install psycopg2-binary==2.9.9
+pip install psycopg2==2.9.9 || echo "Could not install psycopg2, but continuing with psycopg2-binary"
 
 # Run our enhanced migration script that handles errors and prepares media paths
 echo "Running enhanced migration script..."
@@ -54,44 +60,60 @@ echo "ok" > health.html
 echo "ok" > healthz.txt
 echo "ok" > healthz.html
 
-# Start the Telegram bot in background with proper logging
-echo "Starting Telegram bot in background..."
-nohup python run_bot.py > logs/bot/bot.log 2>&1 &
-BOT_PID=$!
-echo "Bot started with PID: $BOT_PID"
-
-# Start the Telegram parser in background with proper logging
-echo "Starting Telegram parser in background..."
-nohup python run_parser.py > logs/bot/parser.log 2>&1 &
-PARSER_PID=$!
-echo "Parser started with PID: $PARSER_PID"
-
-# Give the background processes a moment to start and check if they're running
-sleep 2
-
-# Check if processes are running - with fallback for systems without ps
-if command -v ps >/dev/null 2>&1; then
-    # ps command exists
-    ps -p $BOT_PID >/dev/null && echo "Bot is running correctly" || echo "Warning: Bot may have failed to start"
-    ps -p $PARSER_PID >/dev/null && echo "Parser is running correctly" || echo "Warning: Parser may have failed to start"
-else
-    # ps command doesn't exist - alternative check using /proc on Linux
-    if [ -d "/proc/$BOT_PID" ]; then
-        echo "Bot is running correctly"
-    else
-        echo "Warning: Bot may have failed to start"
-    fi
+# Function to retry starting a process in case of failure
+start_process_with_retry() {
+    local cmd="$1"
+    local log_file="$2"
+    local process_name="$3"
+    local max_retries=3
+    local retry=0
+    local pid=0
     
-    if [ -d "/proc/$PARSER_PID" ]; then
-        echo "Parser is running correctly"
-    else
-        echo "Warning: Parser may have failed to start"
-    fi
-fi
+    while [ $retry -lt $max_retries ]; do
+        echo "Starting $process_name (attempt $(($retry+1))/$max_retries)..."
+        nohup python $cmd > $log_file 2>&1 &
+        pid=$!
+        
+        # Give process time to initialize
+        sleep 5
+        
+        # Check if process is still running
+        if ps -p $pid > /dev/null 2>&1; then
+            echo "✓ $process_name started successfully with PID: $pid"
+            echo $pid > ${process_name}.pid
+            return 0
+        else
+            echo "✗ $process_name failed to start (attempt $(($retry+1)))"
+            retry=$(($retry+1))
+        fi
+    done
+    
+    echo "CRITICAL: Failed to start $process_name after $max_retries attempts!"
+    return 1
+}
 
-# Create PID files for service monitoring
-echo $BOT_PID > bot.pid
-echo $PARSER_PID > parser.pid
+# Start the Telegram bot in background with proper logging and retry
+echo "Starting Telegram bot..."
+start_process_with_retry "run_bot.py" "logs/bot/bot.log" "bot"
+BOT_STATUS=$?
+
+# Start the Telegram parser in background with proper logging and retry
+echo "Starting Telegram parser..."
+start_process_with_retry "run_parser.py" "logs/bot/parser.log" "parser"
+PARSER_STATUS=$?
+
+# Ensure proper startup of services
+if [ $BOT_STATUS -eq 0 ] && [ $PARSER_STATUS -eq 0 ]; then
+    echo "All background services started successfully!"
+else
+    echo "WARNING: Some background services failed to start properly."
+    # Try an alternative approach using run.py which can start both services
+    echo "Attempting to start services using the run.py script..."
+    nohup python run.py > logs/combined_services.log 2>&1 &
+    RUN_PID=$!
+    echo $RUN_PID > combined.pid
+    echo "Combined services started with PID: $RUN_PID"
+fi
 
 # Use existing healthcheck.py instead of creating it inline
 if [ -f "healthcheck.py" ]; then
