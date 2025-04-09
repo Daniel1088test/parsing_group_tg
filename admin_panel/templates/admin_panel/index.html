@@ -1,61 +1,794 @@
+{% load custom_filters %}
+{% load static %}
 <!DOCTYPE html>
 <html lang="uk">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Telegram Channel Parser</title>
+    <title>Telegram Parser | Monitoring channels</title>    
+
+    <!-- Bootstrap 5 CSS -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- DataTables CSS -->
+    <link rel="stylesheet" href="https://cdn.datatables.net/1.13.6/css/dataTables.bootstrap5.min.css">
+    <link rel="stylesheet" href="https://cdn.datatables.net/responsive/2.5.0/css/responsive.bootstrap5.min.css">
+    <!-- Font Awesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css">
+    <!-- AOS for animations -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/aos@2.3.4/dist/aos.css">
+    <!-- Add base URL for media files -->
+    <base href="/">
+    
     <style>
-        body { 
-            padding: 20px;
-            background-color: #f8f9fa; 
+        :root {
+            --primary-color: #4e73df;
+            --secondary-color: #8e54e9;
+            --info-color: #36b9cc;
+            --dark-color: #343a40;
+            --light-color: #f8f9fc;
         }
-        .main-card {
-            border-radius: 10px;
+        
+        body {
+            background-color: var(--light-color);
+            font-family: 'Nunito', sans-serif;
+            color: #333;
+        }
+        
+        .navbar {
+            background: linear-gradient(to right, var(--primary-color), var(--secondary-color));
             box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-            background-color: white;
-            padding: 30px;
-            margin-top: 30px;
         }
-        .btn-custom {
-            padding: 12px 20px;
-            margin: 8px 0;
+        
+        .navbar-brand {
+            font-weight: 700;
+            font-size: 1.5rem;
+        }
+        
+        .navbar .nav-link {
+            color: rgba(255, 255, 255, 0.85) !important;
+            font-weight: 500;
+            padding: 0.5rem 1rem;
+            transition: all 0.3s;
+        }
+        
+        .navbar .nav-link:hover {
+            color: #fff !important;
+            transform: translateY(-2px);
+        }
+        
+        .navbar .nav-link.active {
+            color: #fff !important;
+            font-weight: 600;
+        }
+        
+        .hero-section {
+            background: linear-gradient(135deg, rgba(78, 115, 223, 0.9) 0%, rgba(142, 84, 233, 0.9) 100%), url('https://source.unsplash.com/random/1200x800/?telegram') center/cover no-repeat;
+            padding: 6rem 0;
+            color: white;
+            text-align: center;
+        }
+        
+        .hero-title {
+            font-size: 2.8rem;
+            font-weight: 700;
+            text-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+        }
+        
+        .hero-text {
+            font-size: 1.2rem;
+            max-width: 700px;
+            margin: 0 auto;
+            opacity: 0.9;
+            text-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+        }
+        
+        .card {
+            border: none;
+            border-radius: 0.5rem;
+            box-shadow: 0 0.15rem 1.75rem 0 rgba(58, 59, 69, 0.1);
+            transition: all 0.3s ease;
+            margin-bottom: 1.5rem;
+            overflow: hidden;
+        }
+        
+        .card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 0.5rem 2rem 0 rgba(58, 59, 69, 0.2);
+        }
+        
+        .card-header {
+            background: linear-gradient(to right, var(--primary-color), var(--secondary-color));
+            color: white;
+            font-weight: 600;
+            padding: 1rem 1.25rem;
+            border-bottom: none;
+        }
+        
+        .card-body {
+            padding: 1.25rem;
+        }
+        
+        .message-card {
+            border-left: 4px solid var(--primary-color);
+            transition: all 0.3s;
+        }
+        
+        .message-card:hover {
+            border-left-color: var(--secondary-color);
+        }
+        
+        .message-date {
+            font-size: 0.85rem;
+            color: #6c757d;
+        }
+        
+        .message-link {
+            color: var(--primary-color);
+            text-decoration: none;
+            transition: all 0.2s;
+        }
+        
+        .message-link:hover {
+            color: var(--secondary-color);
+        }
+        
+        .category-nav {
+            padding: 0.5rem 1rem;
+            margin-bottom: 2rem;
+            border-radius: 0.5rem;
+            background-color: white;
+            box-shadow: 0 0.15rem 1.75rem 0 rgba(58, 59, 69, 0.1);
+        }
+        
+        .category-item {
+            padding: 0.5rem 1rem;
+            border-radius: 2rem;
+            margin: 0.25rem;
+            color: var(--dark-color);
+            background-color: #f0f3fa;
+            transition: all 0.3s;
+            display: inline-block;
+            text-decoration: none;
             font-weight: 500;
         }
+        
+        .category-item:hover {
+            background-color: #e9ecef;
+            color: var(--primary-color);
+        }
+        
+        .category-item.active {
+            background: linear-gradient(to right, var(--primary-color), var(--secondary-color));
+            color: white;
+        }
+        
+        .footer {
+            background-color: var(--dark-color);
+            color: rgba(255, 255, 255, 0.8);
+            padding: 3rem 0;
+        }
+        
+        .footer-title {
+            color: white;
+            font-weight: 600;
+            margin-bottom: 1.5rem;
+        }
+        
+        .footer-link {
+            color: rgba(255, 255, 255, 0.6);
+            text-decoration: none;
+            transition: all 0.3s;
+            display: block;
+            margin-bottom: 0.5rem;
+        }
+        
+        .footer-link:hover {
+            color: white;
+            transform: translateX(5px);
+        }
+        
+        .social-icon {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            background-color: rgba(255, 255, 255, 0.1);
+            color: white;
+            margin-right: 0.5rem;
+            transition: all 0.3s;
+        }
+        
+        .social-icon:hover {
+            background-color: var(--primary-color);
+            transform: translateY(-3px);
+        }
+        
+        .back-to-top {
+            position: fixed;
+            bottom: 2rem;
+            right: 2rem;
+            width: 50px;
+            height: 50px;
+            border-radius: 50%;
+            background: linear-gradient(to right, var(--primary-color), var(--secondary-color));
+            color: white;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.25rem;
+            opacity: 0;
+            transition: all 0.3s;
+            z-index: 99;
+            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.2);
+        }
+        
+        .back-to-top.show {
+            opacity: 1;
+            cursor: pointer;
+        }
+        
+        .back-to-top:hover {
+            transform: translateY(-5px);
+        }
+        
+        /* Loading indicator */
+        .loading {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(255, 255, 255, 0.7);
+            z-index: 9999;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .spinner {
+            width: 50px;
+            height: 50px;
+            border: 5px solid rgba(0, 0, 0, 0.1);
+            border-radius: 50%;
+            border-top-color: var(--primary-color);
+            animation: spin 0.8s ease-in-out infinite;
+        }
+        
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        
+        /* Telegram-like media styling */
+        .media-container {
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+            max-width: 100%;
+            margin-bottom: 15px;
+        }
+        
+        .media-container img {
+            max-width: 100%;
+            border-radius: 12px;
+            display: block;
+            margin: 0 auto;
+        }
+        
+        .media-container video {
+            max-width: 100%;
+            border-radius: 12px;
+            display: block;
+            margin: 0 auto;
+            background-color: #000;
+        }
+        
+        .media-container iframe {
+            border-radius: 12px;
+            overflow: hidden;
+            display: block;
+            margin: 0 auto;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+        }
+        
+        /* Make cards look more like Telegram messages */
+        .message-card {
+            border-radius: 12px;
+            border-left: none;
+            border: none;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+            transition: transform 0.2s;
+        }
+        
+        .message-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.15);
+        }
+        
+        .message-card .card-body {
+            padding: 20px;
+        }
+        
+        .message-text {
+            font-size: 15px;
+            line-height: 1.5;
+            margin-bottom: 15px;
+            color: #333;
+        }
+        
+        /* Fix for iframes embedding Telegram content */
+        iframe[src*="t.me"] {
+            width: 100%;
+            min-height: 400px;
+            border: none;
+            border-radius: 12px;
+            overflow: hidden;
+            display: block;
+            margin: 0 auto;
+        }
+        
+        /* Fix for images outside the container */
+        .media-container img {
+            max-width: 100%;
+            height: auto;
+        }
+        
+        /* Telegram-style video player */
+        .telegram-video-player {
+            width: 100%;
+            position: relative;
+            border-radius: 12px;
+            overflow: hidden;
+            background-color: #000;
+        }
+        
+        /* Fix Safari iframe issues */
+        @supports (-webkit-overflow-scrolling: touch) {
+            iframe {
+                width: 1px;
+                min-width: 100%;
+            }
+        }
     </style>
+
+    <!-- Start additional head code -->
+    <script>
+        // Global function to handle media errors
+        function handleImageError(img) {
+            img.onerror = null;
+            img.src = '/staticfiles/img/placeholder-image.png';
+            return true;
+        }
+        
+        function handleVideoError(video) {
+            var placeholder = document.createElement('img');
+            placeholder.src = '/staticfiles/img/placeholder-video.png';
+            placeholder.className = 'img-fluid rounded shadow-sm';
+            placeholder.alt = 'Video thumbnail';
+            video.parentNode.replaceChild(placeholder, video);
+        }
+
+        // Immediately set all Railway media to placeholders
+        window.addEventListener('DOMContentLoaded', function() {
+            // Check if we're on Railway
+            if (window.location.hostname.includes('railway.app') || 
+                document.cookie.includes('railway_environment=true')) {
+                console.log('Railway environment detected, preemptively replacing media');
+                
+                // Set a cookie to remember we're on Railway
+                document.cookie = "railway_environment=true; path=/; max-age=86400";
+                
+                // Force replace all media elements
+                document.querySelectorAll('.media-container img:not([src^="/staticfiles/"])').forEach(function(img) {
+                    var mediaType = img.closest('[data-media-type]')?.getAttribute('data-media-type') || '';
+                    if (mediaType.includes('video')) {
+                        img.src = '/staticfiles/img/placeholder-video.png';
+                    } else {
+                        img.src = '/staticfiles/img/placeholder-image.png';
+                    }
+                });
+                
+                document.querySelectorAll('.media-container video').forEach(function(video) {
+                    handleVideoError(video);
+                });
+            }
+        });
+    </script>
+    <!-- End additional head code -->
 </head>
 <body>
-    <div class="container">
-        <div class="row">
-            <div class="col-md-8 offset-md-2 main-card">
-                <h1 class="text-primary text-center mb-4">Telegram Channel Parser</h1>
-                
-                <div class="alert alert-info">
-                    <p class="lead">Додаток працює. Оберіть опцію нижче:</p>
-                </div>
-                
-                {% if error_message %}
-                <div class="alert alert-danger">
-                    <h4>Помилка:</h4>
-                    <p>{{ error_message }}</p>
-                </div>
-                {% endif %}
+    <!-- Loading indicator -->
+    <div class="loading" id="loadingIndicator">
+        <div class="spinner"></div>
+    </div>
 
-                <div class="d-grid gap-3 col-md-8 mx-auto mt-4">
-                    <a href="/admin/" class="btn btn-primary btn-custom">
-                        <i class="bi bi-gear-fill"></i> Адмін-панель Django
-                    </a>
-                    <a href="/admin_panel/admin_panel/" class="btn btn-success btn-custom">
-                        <i class="bi bi-list-check"></i> Панель керування парсером
-                    </a>
-                    <a href="https://t.me/Channels_hunt_bot" target="_blank" class="btn btn-info btn-custom">
-                        <i class="bi bi-telegram"></i> Відкрити Telegram бот
-                    </a>
+    <!-- Navigation -->
+    <nav class="navbar navbar-expand-lg navbar-dark">
+        <div class="container">
+            <a class="navbar-brand" href="{% url 'index' %}">
+                <i class="fas fa-robot me-2"></i>
+                Telegram Parser
+            </a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav ms-auto">
+                    
+                    <li class="nav-item">
+                        <a class="nav-link" href="#categories"><i class="fas fa-folder me-1"></i> Categories</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="#sessions"><i class="fas fa-users me-1"></i> Sessions</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="#messages"><i class="fas fa-comments me-1"></i> Messages</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="{% url 'admin_panel' %}"><i class="fas fa-sign-in-alt me-1"></i> Admin panel</a>
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Hero Section -->
+    <section class="hero-section">
+        <div class="container">
+            <h1 class="hero-title mb-4" data-aos="fade-up">Telegram Parser</h1>
+            <p class="hero-text mb-5" data-aos="fade-up" data-aos-delay="200">
+                The fastest and most convenient service for monitoring messages from telegram channels.
+                Get up-to-date information in real time.
+            </p>
+            <a href="#messages" class="btn btn-light btn-lg" data-aos="fade-up" data-aos-delay="400">
+                <i class="fas fa-search me-2"></i> View messages
+            </a>
+        </div>
+    </section>
+
+    <!-- Categories Section -->
+    <section class="py-5" id="categories">
+        <div class="container">
+            <h2 class="text-center mb-4" data-aos="fade-up">Categories</h2>
+            <div class="row justify-content-center">
+                <div class="col-lg-10">
+                    <div class="category-nav text-center" data-aos="fade-up" data-aos-delay="200">
+                        <a href="?" class="category-item {% if not selected_category %}active{% endif %}" data-category-id="">All categories</a>
+                        {% for category in categories %}
+                            <a href="?category={{ category.id }}{% if selected_session %}&session={{ selected_session }}{% endif %}&count={{ current_count }}" 
+                               class="category-item {% if selected_category == category.id|stringformat:'s' %}active{% endif %}" 
+                               data-category-id="{{ category.id }}">
+                                {{ category.name }}
+                                {% if category.session %}
+                                <small class="badge bg-info">{{ category.session.phone }}</small>
+                                {% endif %}
+                            </a>
+                        {% endfor %}
+                    </div>
                 </div>
             </div>
         </div>
-    </div>
+    </section>
     
+   
+    <!-- Messages Section -->
+    <section class="py-5 bg-light" id="messages">
+        <div class="container">
+            <h2 class="text-center mb-5" data-aos="fade-up">Latest messages</h2>
+            <div class="row" id="messagesContainer">
+                {% if messages %}
+                    {% for message in messages %}
+                        <div class="col-lg-6 mb-4">
+                            <div class="card message-card h-100">
+                                <div class="card-body">
+                                    <h5 class="card-title">
+                                        {{ message.channel.name }}
+                                        {% if message.channel.session %}
+                                            <span class="badge bg-warning">{{ message.channel.session.phone }}</span>
+                                        {% endif %}
+                                    </h5>
+                                    <h6 class="card-subtitle mb-2 text-muted">
+                                        <span class="badge bg-primary">{{ message.channel.category.name }}</span>
+                                        {% if message.session_used %}
+                                            <span class="badge bg-success ms-2">Via {{ message.session_used.phone }}</span>
+                                        {% endif %}
+                                    </h6>
+                                    <p class="card-text">
+                                        {{ message.text }}
+                                    </p>
+                                    <div class="media-container mb-3" data-media-type="{{ message.media_type }}">                                                    
+                                        {% if message.media_type == 'photo' or message.media_type == 'image' %}
+                                            {% if message.original_url %}
+                                                <!-- Use Telegram's embed for photos when available -->
+                                                <div class="telegram-embed">
+                                                    <iframe src="{{ message.original_url }}" frameborder="0" scrolling="no" 
+                                                           sandbox="allow-same-origin allow-scripts allow-popups" 
+                                                           style="width: 100%; height: 400px; border-radius: 12px; overflow: hidden;"
+                                                           allowfullscreen="true"></iframe>
+                                                </div>
+                                            {% elif message.media %}
+                                                <img src="{{ MEDIA_URL|default:'/media/' }}{{ message.media }}" 
+                                                     onerror="handleImageError(this)"
+                                                     class="img-fluid rounded shadow-sm" alt="Image">
+                                                <!-- Hidden backup image that loads immediately -->
+                                                <img src="/staticfiles/img/placeholder-image.png" 
+                                                     style="display:none;" class="backup-image"
+                                                     onload="if(this.previousElementSibling.naturalWidth === 0) { this.previousElementSibling.src = this.src; }">
+                                            {% else %}
+                                                <!-- Fallback for no media or URL -->
+                                                <img src="/staticfiles/img/placeholder-image.png" class="img-fluid rounded shadow-sm" alt="Image placeholder">
+                                            {% endif %}
+                                        {% elif message.media_type == 'video' %}
+                                            {% if message.original_url %}
+                                                <!-- Embed Telegram video -->
+                                                <div class="telegram-video-player">
+                                                    <iframe src="{{ message.original_url }}" frameborder="0" scrolling="no" 
+                                                           sandbox="allow-same-origin allow-scripts allow-popups" 
+                                                           style="width: 100%; height: 400px; border-radius: 12px; overflow: hidden;"
+                                                           allowfullscreen="true"></iframe>
+                                                </div>
+                                            {% elif message.media %}
+                                                <div class="ratio ratio-16x9">
+                                                    <video class="rounded shadow-sm" controls preload="metadata"
+                                                           poster="/staticfiles/img/placeholder-video.png"
+                                                           onerror="handleVideoError(this)">
+                                                        <source src="{{ MEDIA_URL|default:'/media/' }}{{ message.media }}" type="video/mp4">
+                                                        Your browser does not support video.
+                                                    </video>
+                                                    <!-- Hidden element to force replacement if needed -->
+                                                    <img src="/staticfiles/img/placeholder-video.png" style="display:none;" 
+                                                         class="backup-video" onload="setTimeout(function() { 
+                                                            var v = this.previousElementSibling;
+                                                            if(!v.canPlayType || v.error) { handleVideoError(v); }
+                                                        }.bind(this), 500);">
+                                                </div>
+                                            {% else %}
+                                                <!-- Fallback for no media or URL -->
+                                                <img src="/staticfiles/img/placeholder-video.png" class="img-fluid rounded shadow-sm" alt="Video thumbnail">
+                                            {% endif %}
+                                            <div class="mt-2 text-center">
+                                                <a href="{{ message.telegram_link }}" class="btn btn-sm btn-primary" target="_blank">
+                                                    <i class="fab fa-telegram"></i> Open in Telegram
+                                                </a>
+                                            </div>
+                                        {% elif message.media_type == 'gif' %}
+                                            {% if message.original_url %}
+                                                <div class="telegram-embed">
+                                                    <iframe src="{{ message.original_url }}" frameborder="0" scrolling="no" 
+                                                           sandbox="allow-same-origin allow-scripts allow-popups" 
+                                                           style="width: 100%; height: 400px; border-radius: 12px; overflow: hidden;"
+                                                           allowfullscreen="true"></iframe>
+                                                </div>
+                                            {% elif message.media %}
+                                                <img src="{{ MEDIA_URL|default:'/media/' }}{{ message.media }}" 
+                                                     onerror="handleImageError(this)"
+                                                     class="img-fluid rounded shadow-sm" alt="GIF">
+                                            {% else %}
+                                                <!-- Fallback for no media or URL -->
+                                                <img src="/staticfiles/img/placeholder-image.png" class="img-fluid rounded shadow-sm" alt="GIF placeholder">
+                                            {% endif %}
+                                        {% elif message.media_type == 'document' %}
+                                            <div class="document-container p-3 bg-light rounded shadow-sm">
+                                                <i class="fas fa-file-alt me-2"></i>
+                                                {% if message.media %}
+                                                <a href="{{ MEDIA_URL|default:'/media/' }}{{ message.media }}" 
+                                                   target="_blank" download>
+                                                   Download file
+                                                </a>
+                                                {% else %}
+                                                <span class="text-muted">File not available</span>
+                                                {% endif %}
+                                            </div>
+                                        {% elif message.media_type == 'webpage' or message.media_type == 'webpage_photo' %}
+                                            {% if message.original_url %}
+                                                <div class="webpage-embed">
+                                                    <iframe src="{{ message.original_url }}" frameborder="0" scrolling="no" 
+                                                           sandbox="allow-same-origin allow-scripts allow-popups" 
+                                                           style="width: 100%; height: 400px; border-radius: 12px; overflow: hidden;"
+                                                           allowfullscreen="true"></iframe>
+                                                </div>
+                                            {% elif message.media %}
+                                                <img src="{{ MEDIA_URL|default:'/media/' }}{{ message.media }}" 
+                                                     onerror="handleImageError(this)"
+                                                     class="img-fluid rounded shadow-sm" alt="Webpage preview">
+                                            {% else %}
+                                                <div class="alert alert-info text-center">
+                                                    <i class="fas fa-link fa-2x mb-2"></i><br>
+                                                    Webpage preview not available
+                                                </div>
+                                            {% endif %}
+                                        {% endif %}
+                                    </div>
+                                    
+                                    <div class="d-flex justify-content-between align-items-center">
+                                        <small class="message-date">
+                                            <i class="far fa-clock me-1"></i> {{ message.created_at }}
+                                        </small>
+                                        <a href="{{ message.telegram_link }}" target="_blank" class="message-link">
+                                            <i class="fas fa-external-link-alt me-1"></i> Link
+                                        </a>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    {% endfor %}
+                    
+                    {% if messages|length >= current_count %}
+                    <div class="col-12 text-center mb-5">
+                        <a href="?category={{ selected_category }}&session={{ selected_session }}&count={{ current_count|add:5 }}" class="btn btn-outline-primary load-more">
+                            <i class="fas fa-plus-circle me-2"></i> Show more
+                        </a>
+                    </div>
+                    {% endif %}
+                {% else %}
+                    <div class="col-12 text-center">
+                        <p>No messages to display.</p>
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="footer">
+
+        <div class="container">
+            <div class="text-center mt-4 pt-4 border-top border-secondary">
+                <p class="mb-0">&copy; 2025 Telegram Parser. All rights reserved.</p>
+            </div>
+        </div>
+    </footer>
+
+    <!-- Back to top button -->
+    <div class="back-to-top" id="backToTop">
+        <i class="fas fa-arrow-up"></i>
+    </div>
+
+    <!-- jQuery -->
+    <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+    <!-- Bootstrap 5 JS -->
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+    <!-- DataTables JS -->
+    <script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
+    <script src="https://cdn.datatables.net/1.13.6/js/dataTables.bootstrap5.min.js"></script>
+    <script src="https://cdn.datatables.net/responsive/2.5.0/js/dataTables.responsive.min.js"></script>
+    <!-- AOS JS -->
+    <script src="https://cdn.jsdelivr.net/npm/aos@2.3.4/dist/aos.js"></script>
+    
+    <script>
+        // Initialize AOS animation
+        AOS.init({
+            duration: 100,
+            easing: 'ease-in-out',
+            once: true
+        });
+        
+        $(document).ready(function() {
+            // Hide loading indicator
+            $('#loadingIndicator').hide();
+            
+            // Back to top button functionality
+            $(window).scroll(function() {
+                if ($(this).scrollTop() > 300) {
+                    $('#backToTop').addClass('show');
+                } else {
+                    $('#backToTop').removeClass('show');
+                }
+            });
+            
+            $('#backToTop').click(function() {
+                $('html, body').animate({scrollTop: 0}, 800);
+                return false;
+            });
+            
+            // Category filter click handler
+            $(document).on('click', '.category-item', function(e) {
+                e.preventDefault();
+                
+                const categoryId = $(this).data('category-id');
+                
+                // Update active class
+                $('.category-item').removeClass('active');
+                $(this).addClass('active');
+                
+                // Reload page with category parameter - only add categoryId if it's not empty
+                if (categoryId === '' || categoryId === undefined) {
+                    window.location.href = `?`;
+                } else {
+                    window.location.href = `?category=${categoryId}`;
+                }
+            });
+            
+            // Load more messages
+            $(document).on('click', '.load-more', function(e) {
+                e.preventDefault();
+                
+                const categoryId = $(this).data('category');
+                const sessionId = "{{ selected_session }}";
+                const currentCount = "{{ current_count|default:5 }}";
+                const newCount = parseInt(currentCount) + 5;
+                
+                // Build URL with parameters
+                let url = `?count=${newCount}`;
+                if (categoryId && categoryId !== 'undefined') {
+                    url += `&category=${categoryId}`;
+                }
+                if (sessionId && sessionId !== 'undefined') {
+                    url += `&session=${sessionId}`;
+                }
+                
+                // Reload page with parameters
+                window.location.href = url;
+            });
+            
+            // Fix broken images and videos
+            function checkMediaElements() {
+                // Preload placeholder images to ensure they're in cache
+                const imagePreloader = new Image();
+                imagePreloader.src = '/staticfiles/img/placeholder-image.png';
+                
+                const videoPreloader = new Image();
+                videoPreloader.src = '/staticfiles/img/placeholder-video.png';
+                
+                // Set fallback for broken images - additional backup
+                $('img').on('error', function() {
+                    if (this.src !== '/staticfiles/img/placeholder-image.png' && 
+                        this.src !== '/staticfiles/img/placeholder-video.png') {
+                        if ($(this).closest('.media-container').find('video').length > 0 ||
+                            $(this).closest('.media-container').attr('data-media-type') === 'video') {
+                            this.src = '/staticfiles/img/placeholder-video.png';
+                        } else {
+                            this.src = '/staticfiles/img/placeholder-image.png';
+                        }
+                    }
+                });
+                
+                // Fix video elements that fail to load - additional backup
+                $('video').on('error', function() {
+                    const container = $(this).parent();
+                    container.html('<img src="/staticfiles/img/placeholder-video.png" class="img-fluid rounded shadow-sm" alt="Video thumbnail">');
+                });
+                
+                // Check for Railway environment and apply special fixes
+                if (window.location.hostname.includes('railway.app') || 
+                    document.cookie.includes('railway_environment=true')) {
+                    console.log('Railway environment detected, applying special fixes');
+                    // Document this is a Railway environment
+                    document.cookie = "railway_environment=true; path=/; max-age=86400";
+                    
+                    // Replace all media URLs to use placeholders immediately
+                    $('img[src^="/media/"]').each(function() {
+                        const originalSrc = $(this).attr('src');
+                        $(this).attr('data-original-src', originalSrc);
+                        
+                        // Choose placeholder based on media type
+                        const mediaContainer = $(this).closest('.media-container');
+                        if (mediaContainer.attr('data-media-type') === 'video' || 
+                            mediaContainer.find('video').length > 0) {
+                            $(this).attr('src', '/staticfiles/img/placeholder-video.png');
+                        } else {
+                            $(this).attr('src', '/staticfiles/img/placeholder-image.png');
+                        }
+                    });
+                    
+                    $('video source[src^="/media/"]').each(function() {
+                        const videoElement = $(this).closest('video')[0];
+                        handleVideoError(videoElement);
+                    });
+                }
+            }
+            
+            // Run on page load
+            checkMediaElements();
+            
+            // Additional check after page is fully loaded
+            $(window).on('load', function() {
+                setTimeout(checkMediaElements, 500);
+                // Another check after a bit more time
+                setTimeout(checkMediaElements, 2000);
+            });
+        });
+    </script>
 </body>
 </html> 
