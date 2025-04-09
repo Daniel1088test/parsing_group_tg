@@ -1,23 +1,15 @@
 #!/usr/bin/env python3
 """
-Master script to fix all issues with the application
+Comprehensive fix script for Telegram Bot and Django project
+Fixes common issues and ensures proper database and environment setup
 """
 import os
 import sys
 import logging
-import traceback
-import re
-import json
 import subprocess
+import importlib.util
+import traceback
 import time
-from pathlib import Path
-
-# Set environment variables first
-os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'core.settings')
-os.environ.setdefault('BOT_TOKEN', '8102516142:AAFTsVXXujHHKoX2KZGqZXBHPBznfgh7kg0')
-os.environ.setdefault('BOT_USERNAME', 'chan_parsing_mon_bot')
-os.environ.setdefault('API_ID', '19840544')
-os.environ.setdefault('API_HASH', 'c839f28bad345082329ec086fca021fa')
 
 # Configure logging
 logging.basicConfig(
@@ -25,801 +17,278 @@ logging.basicConfig(
     format='%(asctime)s - %(levelname)s - %(message)s',
     handlers=[
         logging.FileHandler('fix_all_issues.log', encoding='utf-8'),
+        logging.StreamHandler(sys.stdout)
     ]
 )
-logger = logging.getLogger(__name__)
+logger = logging.getLogger('fix_all_issues')
 
-# Add console handler with proper encoding
-console_handler = logging.StreamHandler(sys.stdout)
-console_handler.setLevel(logging.INFO)
-console_handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
-logger.addHandler(console_handler)
-
-# Safe import of django
-try:
-    import django
-    import psycopg2
-    django.setup()
-    logger.info("[OK] Django initialized successfully")
-except Exception as e:
-    logger.error(f"Error initializing Django: {e}")
-    logger.error(traceback.format_exc())
-
-def kill_existing_processes():
-    """Kill any existing bot, parser, or Django processes"""
+def run_fix_script(script_name, description):
+    """Run a fix script and handle errors"""
+    logger.info(f"Running {description}...")
+    
     try:
-        # Find and kill Python processes
-        if sys.platform == "win32":
-            # Windows
-            subprocess.run(["taskkill", "/F", "/IM", "python.exe", "/T"], 
-                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            logger.info("Killed any existing Python processes on Windows")
-        else:
-            # Unix-like
-            subprocess.run(["pkill", "-f", "python"], 
-                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            logger.info("Killed any existing Python processes on Unix")
-            
-        # Wait a moment for processes to terminate
-        time.sleep(2)
-        
-        return True
-    except Exception as e:
-        logger.error(f"Error killing existing processes: {e}")
-        return False
-
-def fix_database_issues():
-    """Fix database connection and model issues"""
-    try:
-        # Get Django settings
-        from django.conf import settings
-        
-        # Check if running in Railway environment
-        is_railway = os.environ.get('RAILWAY_ENVIRONMENT') is not None or os.environ.get('RAILWAY_SERVICE_NAME') is not None
-        
-        if is_railway:
-            # Railway environment with PostgreSQL
-            db_settings = {
-                'ENGINE': 'django.db.backends.postgresql',
-                'NAME': os.environ.get('PGDATABASE', 'railway'),
-                'USER': os.environ.get('PGUSER', 'postgres'),
-                'PASSWORD': os.environ.get('PGPASSWORD', ''),
-                'HOST': os.environ.get('PGHOST', 'postgres.railway.internal'),
-                'PORT': os.environ.get('PGPORT', '5432'),
-            }
-            logger.info("Configuring for Railway PostgreSQL environment")
-        else:
-            # Local development - use SQLite
-            db_path = os.path.join(settings.BASE_DIR, 'db.sqlite3')
-            db_settings = {
-                'ENGINE': 'django.db.backends.sqlite3',
-                'NAME': db_path,
-            }
-            logger.info(f"Configuring for local environment with SQLite at {db_path}")
-        
-        # Update settings.py with the correct database settings
-        settings_path = os.path.join('core', 'settings.py')
-        
-        if not os.path.exists(settings_path):
-            logger.error(f"Settings file not found at {settings_path}")
+        # Check if the script exists
+        if not os.path.exists(script_name):
+            logger.warning(f"Script {script_name} not found, skipping")
             return False
-            
-        with open(settings_path, 'r', encoding='utf-8') as f:
-            content = f.read()
-            
-        # Update DATABASE settings
-        db_str = json.dumps(db_settings, indent=4).replace('"', "'")
-        db_str = db_str.replace("'ENGINE'", "'ENGINE'").replace("'NAME'", "'NAME'")
         
-        # Replace existing DATABASES setting
-        if 'DATABASES' in content:
-            content = re.sub(
-                r'DATABASES\s*=\s*\{[^}]*\}',
-                f'DATABASES = {{\n    "default": {db_str}\n}}',
-                content
-            )
-            logger.info("Updated DATABASES setting in settings.py")
-        
-        # Add TELEGRAM_API_TOKEN if not present
-        if 'TELEGRAM_API_TOKEN' not in content:
-            # Find a good insertion point
-            if '# Application definition' in content:
-                content = content.replace(
-                    '# Application definition',
-                    f'# Telegram API Token\nTELEGRAM_API_TOKEN = os.environ.get("BOT_TOKEN", "8102516142:AAFTsVXXujHHKoX2KZGqZXBHPBznfgh7kg0")\n\n# Application definition'
-                )
-            else:
-                # Add at the end
-                content += '\n# Telegram API Token\nTELEGRAM_API_TOKEN = os.environ.get("BOT_TOKEN", "8102516142:AAFTsVXXujHHKoX2KZGqZXBHPBznfgh7kg0")\n'
-            
-            logger.info("Added TELEGRAM_API_TOKEN to settings.py")
-        
-        # Write updated content
-        with open(settings_path, 'w', encoding='utf-8') as f:
-            f.write(content)
-            
-        # Fix custom SQL migrations
-        fix_migrations_sql()
-            
-        # Update URL patterns to remove leading slashes
-        fix_url_patterns()
-        
-        # Apply migrations
+        # Run the script as a module if possible
+        module_name = os.path.splitext(script_name)[0]
         try:
-            # Initialize Django
-            from django.core.management import call_command
+            spec = importlib.util.spec_from_file_location(module_name, script_name)
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
             
-            # Make migrations
-            logger.info("Running makemigrations...")
-            call_command('makemigrations')
+            # Call main() function if it exists
+            if hasattr(module, 'main'):
+                module.main()
+                logger.info(f"Successfully ran {script_name}")
+                return True
+        except Exception as import_error:
+            logger.warning(f"Error importing {script_name} as module: {import_error}")
             
-            # Apply migrations
-            logger.info("Running migrate...")
-            call_command('migrate')
-            
-            logger.info("[OK] Applied database migrations")
-        except Exception as e:
-            logger.error(f"Error applying migrations: {e}")
-            logger.error(traceback.format_exc())
-        
+        # Fall back to subprocess
+        logger.info(f"Running {script_name} as subprocess...")
+        subprocess.check_call([sys.executable, script_name])
+        logger.info(f"Successfully ran {script_name} as subprocess")
         return True
     except Exception as e:
-        logger.error(f"Error fixing database issues: {e}")
+        logger.error(f"Error running {script_name}: {e}")
         logger.error(traceback.format_exc())
         return False
 
-def fix_migrations_sql():
-    """Fix SQL syntax errors in migrations"""
-    try:
-        migrations_dir = Path('admin_panel/migrations')
-        if not migrations_dir.exists():
-            logger.warning("Migrations directory not found")
-            return False
-            
-        for migration_file in migrations_dir.glob('*.py'):
-            with open(migration_file, 'r', encoding='utf-8') as f:
-                content = f.read()
-                
-            # Fix incorrect DO 1 BEGIN syntax in SQL
-            if 'DO 1 BEGIN' in content:
-                content = content.replace('DO 1 BEGIN', 'DO $$ BEGIN')
-                content = content.replace('END 1;', 'END $$;')
-                
-                with open(migration_file, 'w', encoding='utf-8') as f:
-                    f.write(content)
-                    
-                logger.info(f"Fixed SQL syntax in {migration_file}")
-        
-        return True
-    except Exception as e:
-        logger.error(f"Error fixing migrations SQL: {e}")
-        return False
-
-def fix_url_patterns():
-    """Fix URL patterns with leading slashes"""
-    try:
-        # Find all urls.py files
-        urls_files = []
-        for root, dirs, files in os.walk('.'):
-            for file in files:
-                if file == 'urls.py':
-                    urls_files.append(os.path.join(root, file))
-        
-        for urls_file in urls_files:
-            with open(urls_file, 'r', encoding='utf-8') as f:
-                content = f.read()
-                
-            # Fix patterns with leading slashes
-            if "r'^/" in content:
-                content = content.replace("r'^/", "r'^")
-                
-                with open(urls_file, 'w', encoding='utf-8') as f:
-                    f.write(content)
-                    
-                logger.info(f"Fixed URL patterns in {urls_file}")
-        
-        return True
-    except Exception as e:
-        logger.error(f"Error fixing URL patterns: {e}")
-        return False
-
-def fix_templates():
-    """Fix issues with Django templates"""
-    try:
-        # Create template directories
-        templates_dir = Path('templates')
-        admin_templates_dir = templates_dir / 'admin_panel'
-        
-        templates_dir.mkdir(exist_ok=True)
-        admin_templates_dir.mkdir(exist_ok=True)
-        logger.info(f"Created template directories: {templates_dir}, {admin_templates_dir}")
-        
-        # Create base.html template if it doesn't exist
-        base_template = templates_dir / 'base.html'
-        if not base_template.exists():
-            base_content = """<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{% block title %}Telegram Channel Parser{% endblock %}</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link href="https://cdn.jsdelivr.net/npm/font-awesome@4.7.0/css/font-awesome.min.css" rel="stylesheet">
-    {% block extra_css %}{% endblock %}
-</head>
-<body>
-    <nav class="navbar navbar-expand-lg navbar-dark bg-primary mb-4">
-        <div class="container">
-            <a class="navbar-brand" href="/">Telegram Channel Parser</a>
-            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
-                <span class="navbar-toggler-icon"></span>
-            </button>
-            <div class="collapse navbar-collapse" id="navbarNav">
-                <ul class="navbar-nav ms-auto">
-                    {% if user.is_authenticated %}
-                    <li class="nav-item">
-                        <a class="nav-link" href="/admin_panel/channels/">Channels</a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link" href="/admin_panel/sessions/">Sessions</a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link" href="/admin_panel/categories/">Categories</a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link" href="/admin_panel/messages/">Messages</a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link" href="/admin_panel/logout/">Logout</a>
-                    </li>
-                    {% else %}
-                    <li class="nav-item">
-                        <a class="nav-link" href="/admin_panel/login/">Login</a>
-                    </li>
-                    {% endif %}
-                </ul>
-            </div>
-        </div>
-    </nav>
-
-    <div class="container">
-        {% if messages %}
-        <div class="messages">
-            {% for message in messages %}
-            <div class="alert alert-{{ message.tags }} alert-dismissible fade show" role="alert">
-                {{ message }}
-                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
-            </div>
-            {% endfor %}
-        </div>
-        {% endif %}
-
-        {% block content %}{% endblock %}
-    </div>
-
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
-    {% block extra_js %}{% endblock %}
-</body>
-</html>"""
-            
-            with open(base_template, 'w', encoding='utf-8') as f:
-                f.write(base_content)
-            
-            logger.info(f"Created base.html template")
-        
-        # Create or fix important templates
-        template_files = {
-            'authorize_session.html': """{% extends "base.html" %}
-{% load static %}
-
-{% block title %}Authorize Session{% endblock %}
-
-{% block content %}
-<div class="container mt-4">
-    <div class="card">
-        <div class="card-header bg-primary text-white">
-            <h4 class="mb-0">Authorize Session: {{ session.phone }}</h4>
-        </div>
-        <div class="card-body">
-            <div class="alert alert-info">
-                Please tap the button below to open the Telegram bot and complete the authorization.
-            </div>
-            
-            <form method="post">
-                {% csrf_token %}
-                <div class="text-center">
-                    <h5 class="mb-3">Open Telegram Bot to authorize:</h5>
-                    <a href="{{ deep_link }}" class="btn btn-lg btn-primary" target="_blank">
-                        <i class="fa fa-telegram"></i> Open Telegram Bot
-                    </a>
-                </div>
-            </form>
-            
-            <div class="alert alert-light mt-4">
-                After you authorize via the Telegram bot, return to this page and check the status.
-            </div>
-            
-            <div class="mt-4 text-center">
-                <a href="{% url 'admin_panel:sessions_list' %}" class="btn btn-secondary">
-                    <i class="fa fa-arrow-left"></i> Back to Sessions List
-                </a>
-                <button onclick="location.reload()" class="btn btn-success">
-                    <i class="fa fa-refresh"></i> Refresh Status
-                </button>
-            </div>
-        </div>
-    </div>
-</div>
-{% endblock %}""",
-            'sessions_list.html': """{% extends "base.html" %}
-{% load static %}
-
-{% block title %}Telegram Sessions{% endblock %}
-
-{% block content %}
-<div class="container mt-4">
-    <div class="d-flex justify-content-between align-items-center mb-4">
-        <h1>Telegram Sessions</h1>
-        <a href="{% url 'admin_panel:create_session' %}" class="btn btn-primary">
-            <i class="fa fa-plus"></i> Add New Session
-        </a>
-    </div>
-
-    <div class="card">
-        <div class="card-header bg-primary text-white">
-            <h4 class="mb-0">Available Sessions</h4>
-        </div>
-        <div class="card-body">
-            {% if sessions %}
-            <div class="table-responsive">
-                <table class="table table-hover">
-                    <thead>
-                        <tr>
-                            <th>Phone</th>
-                            <th>Username</th>
-                            <th>Status</th>
-                            <th>Actions</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {% for session in sessions %}
-                        <tr>
-                            <td>{{ session.phone }}</td>
-                            <td>{{ session.username|default:"Not logged in" }}</td>
-                            <td>
-                                {% if session.is_authorized %}
-                                <span class="badge bg-success">Authorized</span>
-                                {% else %}
-                                <span class="badge bg-warning">Not authorized</span>
-                                {% endif %}
-                            </td>
-                            <td>
-                                <div class="btn-group">
-                                    {% if not session.is_authorized %}
-                                    <a href="{% url 'admin_panel:authorize_session' session.id %}" class="btn btn-sm btn-primary">
-                                        <i class="fa fa-key"></i> Authorize
-                                    </a>
-                                    {% endif %}
-                                    <a href="{% url 'admin_panel:delete_session' session.id %}" class="btn btn-sm btn-danger">
-                                        <i class="fa fa-trash"></i> Delete
-                                    </a>
-                                </div>
-                            </td>
-                        </tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
-            </div>
-            {% else %}
-            <div class="alert alert-info">
-                No Telegram sessions found. Please add a new session.
-            </div>
-            {% endif %}
-        </div>
-    </div>
-</div>
-{% endblock %}""",
-            'create_session.html': """{% extends "base.html" %}
-{% load static %}
-
-{% block title %}Create New Session{% endblock %}
-
-{% block content %}
-<div class="container mt-4">
-    <div class="card">
-        <div class="card-header bg-primary text-white">
-            <h4 class="mb-0">Create New Telegram Session</h4>
-        </div>
-        <div class="card-body">
-            <form method="post">
-                {% csrf_token %}
-                <div class="mb-3">
-                    <label for="phone" class="form-label">Phone Number</label>
-                    <input type="text" class="form-control" id="phone" name="phone" required placeholder="+380123456789">
-                    <div class="form-text text-muted">Enter the phone number in international format with country code</div>
-                </div>
-                
-                <div class="mt-4">
-                    <a href="{% url 'admin_panel:sessions_list' %}" class="btn btn-secondary">
-                        <i class="fa fa-arrow-left"></i> Back to Sessions
-                    </a>
-                    <button type="submit" class="btn btn-primary">
-                        <i class="fa fa-save"></i> Create Session
-                    </button>
-                </div>
-            </form>
-        </div>
-    </div>
-</div>
-{% endblock %}"""
-        }
-        
-        # Create or update templates
-        for filename, content in template_files.items():
-            template_path = admin_templates_dir / filename
-            if not template_path.exists():
-                with open(template_path, 'w', encoding='utf-8') as f:
-                    f.write(content)
-                logger.info(f"Created {filename}")
-            else:
-                # Check if template needs to be updated (e.g., missing deep_link)
-                with open(template_path, 'r', encoding='utf-8') as f:
-                    existing_content = f.read()
-                
-                if filename == 'authorize_session.html' and 'deep_link' not in existing_content:
-                    with open(template_path, 'w', encoding='utf-8') as f:
-                        f.write(content)
-                    logger.info(f"Updated {filename} with deep_link support")
-        
-        return True
-    except Exception as e:
-        logger.error(f"Error fixing templates: {e}")
-        logger.error(traceback.format_exc())
-        return False
-
-def fix_views():
-    """Fix issues with Django views"""
-    try:
-        views_path = os.path.join('admin_panel', 'views.py')
-        
-        if not os.path.exists(views_path):
-            logger.error(f"Views file not found: {views_path}")
-            return False
-        
-        with open(views_path, 'r', encoding='utf-8') as f:
-            content = f.read()
-        
-        # Fix session list view if needed
-        sessions_list_match = re.search(r'def sessions_list[^}]*?}', content, re.DOTALL)
-        if sessions_list_match and 'try:' not in sessions_list_match.group(0):
-            # Add error handling
-            original_func = sessions_list_match.group(0)
-            fixed_func = re.sub(
-                r'def sessions_list\((.*?)\):(.*?)return render\((.*?)\)',
-                r'def sessions_list(\1):\n    try:\2return render(\3)\n    except Exception as e:\n        messages.error(request, f"Error fetching sessions: {e}")\n        return render(request, "admin_panel/sessions_list.html", {"sessions": []})',
-                original_func,
-                flags=re.DOTALL
-            )
-            
-            content = content.replace(original_func, fixed_func)
-            logger.info("Fixed sessions_list view to handle exceptions")
-        
-        # Fix authorize_session_view if needed
-        authorize_match = re.search(r'def authorize_session_view[^}]*?}', content, re.DOTALL)
-        if authorize_match and 'deep_link' in authorize_match.group(0):
-            # Check if using environment variable for bot username
-            if 'os.environ.get' not in authorize_match.group(0):
-                # Fix the deep_link generation
-                original_func = authorize_match.group(0)
-                
-                # Make sure we import os if needed
-                if 'import os' not in content:
-                    content = "import os\n" + content
-                
-                fixed_func = re.sub(
-                    r'(bot_username\s*=\s*)([^=\n]*?)(\s*?[\r\n])',
-                    r'\1os.environ.get("BOT_USERNAME", "chan_parsing_mon_bot")\3',
-                    original_func
-                )
-                
-                content = content.replace(original_func, fixed_func)
-                logger.info("Fixed authorize_session_view to use environment variable for bot username")
-        
-        # Write the updated content
-        with open(views_path, 'w', encoding='utf-8') as f:
-            f.write(content)
-        
-        logger.info(f"[OK] Updated {views_path}")
-        
-        return True
-    except Exception as e:
-        logger.error(f"Error fixing views: {e}")
-        logger.error(traceback.format_exc())
-        return False
-
-def fix_integration():
-    """Fix integration between bot, parser, and web interface"""
-    try:
-        # Fix bot handlers
-        bot_files = [
-            Path('tg_bot/handlers/user.py'),
-            Path('tg_bot/handlers/admin.py'),
-            Path('tg_bot/handlers/common.py'),
-            Path('tg_bot/handlers.py')
-        ]
-        
-        for bot_file in bot_files:
-            if bot_file.exists():
-                logger.info(f"Checking bot handlers in {bot_file}")
-                
-                with open(bot_file, 'r', encoding='utf-8') as f:
-                    content = f.read()
-                
-                # Fix session authorization handler
-                if 'authorize_session' in content:
-                    auth_handler = re.search(r'async def (\w+_authorize\w*|authorize\w*|cmd_auth\w*).*?}', content, re.DOTALL)
-                    if auth_handler and 'auth_token' not in auth_handler.group(0):
-                        original_handler = auth_handler.group(0)
-                        
-                        # Add auth token extraction
-                        fixed_handler = re.sub(
-                            r'(async def \w+\(.*?\):)',
-                            r'\1\n    # Extract auth token from command\n    auth_token = None\n    if message.text and len(message.text.split()) > 1:\n        auth_token = message.text.split()[1]',
-                            original_handler
-                        )
-                        
-                        content = content.replace(original_handler, fixed_handler)
-                        logger.info(f"Fixed authorization handler in {bot_file}")
-                
-                # Fix add session handler
-                if 'add_session' in content or 'new_session' in content:
-                    add_handler = re.search(r'async def (\w+_add_session|add_session\w*|new_session\w*).*?}', content, re.DOTALL)
-                    if add_handler and 'phone' in add_handler.group(0) and 'message.text' not in add_handler.group(0):
-                        original_handler = add_handler.group(0)
-                        
-                        # Add phone extraction
-                        fixed_handler = re.sub(
-                            r'(async def \w+\(.*?\):)',
-                            r'\1\n    # Get phone from message\n    if not message.text:\n        await message.answer("Please provide a valid phone number")\n        return\n    \n    phone = message.text.strip()\n    if not phone.startswith("+"):\n        phone = "+" + phone',
-                            original_handler
-                        )
-                        
-                        content = content.replace(original_handler, fixed_handler)
-                        logger.info(f"Fixed add session handler in {bot_file}")
-                
-                # Update the file if changed
-                with open(bot_file, 'w', encoding='utf-8') as f:
-                    f.write(content)
-        
-        # Fix parser
-        parser_files = [
-            Path('parser/main.py'),
-            Path('parser/parser.py'),
-            Path('run_parser.py')
-        ]
-        
-        for parser_file in parser_files:
-            if parser_file.exists():
-                logger.info(f"Checking parser in {parser_file}")
-                
-                with open(parser_file, 'r', encoding='utf-8') as f:
-                    content = f.read()
-                
-                # Ensure Django setup code is present
-                if 'django.setup()' not in content:
-                    setup_code = """
-# Set up Django
-import os
-import django
-os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'core.settings')
-django.setup()
-"""
-                    # Find a good place to insert
-                    if 'import' in content:
-                        # After the imports
-                        import_section = re.search(r'((?:^import .*?\n)+)', content, re.MULTILINE)
-                        if import_section:
-                            content = content.replace(import_section.group(0), import_section.group(0) + setup_code)
-                        else:
-                            # Just add to the top
-                            content = setup_code + content
-                    else:
-                        # Just add to the top
-                        content = setup_code + content
-                    
-                    logger.info(f"Added Django setup code to {parser_file}")
-                
-                # Make sure TelegramSession model is imported
-                if 'from admin_panel.models import' not in content and ('TelegramSession' in content or 'Channel' in content):
-                    import_code = """
-from admin_panel.models import TelegramSession, Channel
-"""
-                    # Find a good place to insert
-                    if 'import' in content:
-                        # After the imports
-                        last_import = re.search(r'^import .*?$', content, re.MULTILINE | re.DOTALL)
-                        if last_import:
-                            content = content.replace(last_import.group(0), last_import.group(0) + import_code)
-                        else:
-                            # Just add to the top
-                            content = import_code + content
-                    else:
-                        # Just add to the top
-                        content = import_code + content
-                    
-                    logger.info(f"Added model imports to {parser_file}")
-                
-                # Update the file if changed
-                with open(parser_file, 'w', encoding='utf-8') as f:
-                    f.write(content)
-        
-        logger.info("[OK] Fixed integration issues")
-        return True
-    except Exception as e:
-        logger.error(f"Error fixing integration: {e}")
-        logger.error(traceback.format_exc())
-        return False
-
-def initialize_database():
-    """Create initial database objects if needed"""
-    try:
+def check_install_dependencies():
+    """Check and install missing dependencies"""
+    logger.info("Checking and installing dependencies...")
+    missing_packages = []
+    
+    # List of required packages
+    required_packages = [
+        'django',
+        'aiogram',
+        'psycopg2-binary',
+        'dj-database-url',
+        'whitenoise',
+        'telethon',
+        'qrcode',
+        'pillow',
+        'requests',
+        'async-timeout'
+    ]
+    
+    # Check each package
+    for package in required_packages:
         try:
-            # Import models
-            from admin_panel.models import BotSettings, TelegramSession, Category, Channel
-            
-            # Create default BotSettings if none exist
-            if not BotSettings.objects.exists():
-                BotSettings.objects.create(
-                    bot_token=os.environ.get('BOT_TOKEN', '8102516142:AAFTsVXXujHHKoX2KZGqZXBHPBznfgh7kg0'),
-                    bot_username=os.environ.get('BOT_USERNAME', 'chan_parsing_mon_bot'),
-                    bot_name='Telegram Channel Parser',
-                    menu_style='buttons'
-                )
-                logger.info("Created default BotSettings")
-            else:
-                # Update existing BotSettings with current token
-                settings = BotSettings.objects.first()
-                settings.bot_token = os.environ.get('BOT_TOKEN', '8102516142:AAFTsVXXujHHKoX2KZGqZXBHPBznfgh7kg0')
-                settings.bot_username = os.environ.get('BOT_USERNAME', 'chan_parsing_mon_bot')
-                settings.save()
-                logger.info("Updated existing BotSettings")
-            
-            # Create default Category if none exist
-            if not Category.objects.exists():
-                Category.objects.create(
-                    name='Default',
-                    description='Default category for channels'
-                )
-                logger.info("Created default Category")
-            
-            logger.info("[OK] Database initialized with default objects")
+            importlib.import_module(package)
+            logger.info(f"Package {package} is already installed")
+        except ImportError:
+            logger.warning(f"Package {package} is missing")
+            missing_packages.append(package)
+    
+    # Install missing packages
+    if missing_packages:
+        logger.warning(f"Installing missing packages: {', '.join(missing_packages)}")
+        try:
+            subprocess.check_call([sys.executable, "-m", "pip", "install"] + missing_packages)
+            logger.info("All missing packages have been installed")
             return True
         except Exception as e:
-            logger.error(f"Error initializing database: {e}")
-            logger.error(traceback.format_exc())
+            logger.error(f"Error installing packages: {e}")
             return False
+    return True
+
+def fix_migrations_sql():
+    """Fix SQL syntax in migration files"""
+    logger.info("Fixing SQL syntax in migration files...")
+    
+    try:
+        # Get migration directories
+        migration_dirs = [
+            os.path.join('admin_panel', 'migrations'),
+        ]
+        
+        fixed_count = 0
+        for migrations_dir in migration_dirs:
+            if not os.path.exists(migrations_dir):
+                logger.warning(f"Migrations directory not found: {migrations_dir}")
+                continue
+                
+            for migration_file in os.listdir(migrations_dir):
+                if not migration_file.endswith('.py'):
+                    continue
+                    
+                full_path = os.path.join(migrations_dir, migration_file)
+                with open(full_path, 'r', encoding='utf-8') as f:
+                    content = f.read()
+                
+                # Fix incorrect DO 1 BEGIN syntax in SQL
+                if 'DO 1 BEGIN' in content:
+                    new_content = content.replace('DO 1 BEGIN', 'DO $$ BEGIN')
+                    new_content = new_content.replace('END 1;', 'END $$;')
+                    
+                    with open(full_path, 'w', encoding='utf-8') as f:
+                        f.write(new_content)
+                    
+                    fixed_count += 1
+                    logger.info(f"Fixed SQL syntax in {full_path}")
+        
+        if fixed_count > 0:
+            logger.info(f"Fixed SQL syntax in {fixed_count} migration files")
+        else:
+            logger.info("No SQL syntax issues found in migration files")
+        
+        return True
     except Exception as e:
-        logger.error(f"Unexpected error in initialize_database: {e}")
+        logger.error(f"Error fixing migrations: {e}")
         logger.error(traceback.format_exc())
         return False
 
-def restart_services():
-    """Restart all services"""
+def fix_database_connection():
+    """Fix database connection issues"""
+    logger.info("Fixing database connection...")
+    
     try:
-        services = {
-            'run.py': 'Run all services',
-            'direct_bot_runner.py': 'Telegram bot',
-            'run_bot.py': 'Telegram bot',
-            'run_parser.py': 'Parser',
-            'manage.py': 'Django server'
-        }
+        # Setup Django
+        os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'core.settings')
         
-        # Check which services are available
-        available_services = {}
-        for script, name in services.items():
-            script_path = Path(script)
-            if script_path.exists():
-                available_services[script_path] = name
-        
-        if not available_services:
-            logger.error("No service scripts found")
-            return False
-        
-        # Kill any existing processes
-        kill_existing_processes()
-        
-        # Restart services
-        if Path('run.py') in available_services:
-            # Use run.py to start all services
-            logger.info("Starting all services using run.py")
-            
-            flags = 0
-            if sys.platform == "win32":
-                flags = subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS
-            
-            subprocess.Popen(
-                [sys.executable, 'run.py'],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                creationflags=flags if sys.platform == "win32" else 0,
-                start_new_session=True if sys.platform != "win32" else False
-            )
+        # Check if DATABASE_URL is set and valid
+        database_url = os.environ.get('DATABASE_URL', '')
+        if database_url and ('postgres' in database_url or 'sqlite' in database_url):
+            logger.info(f"Using database URL: {database_url.split('@')[0]}...")
         else:
-            # Start individual services
-            for script_path, name in available_services.items():
-                logger.info(f"Starting {name} using {script_path}")
-                
-                flags = 0
-                if sys.platform == "win32":
-                    flags = subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS
-                
-                if script_path.name == 'manage.py':
-                    # Django server
-                    subprocess.Popen(
-                        [sys.executable, script_path, 'runserver', '0.0.0.0:8080'],
-                        stdout=subprocess.DEVNULL,
-                        stderr=subprocess.DEVNULL,
-                        creationflags=flags if sys.platform == "win32" else 0,
-                        start_new_session=True if sys.platform != "win32" else False
-                    )
-                else:
-                    # Other service
-                    subprocess.Popen(
-                        [sys.executable, script_path],
-                        stdout=subprocess.DEVNULL,
-                        stderr=subprocess.DEVNULL,
-                        creationflags=flags if sys.platform == "win32" else 0,
-                        start_new_session=True if sys.platform != "win32" else False
-                    )
+            # Check for Railway PostgreSQL environment variables
+            pghost = os.environ.get('PGHOST')
+            pgport = os.environ.get('PGPORT')
+            pgdatabase = os.environ.get('PGDATABASE')
+            pguser = os.environ.get('PGUSER')
+            pgpassword = os.environ.get('PGPASSWORD')
+            
+            if all([pghost, pgport, pgdatabase, pguser, pgpassword]):
+                # Construct DATABASE_URL
+                database_url = f"postgresql://{pguser}:{pgpassword}@{pghost}:{pgport}/{pgdatabase}"
+                os.environ['DATABASE_URL'] = database_url
+                logger.info(f"Set DATABASE_URL from PG* environment variables")
+            else:
+                # Default to SQLite
+                db_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'db.sqlite3')
+                database_url = f"sqlite:///{db_path}"
+                os.environ['DATABASE_URL'] = database_url
+                logger.info(f"No database configuration found, defaulting to SQLite at {db_path}")
         
-        logger.info("[OK] All services restarted")
+        # Initialize Django
+        import django
+        django.setup()
+        
+        # Test database connection
+        from django.db import connection
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT 1")
+            result = cursor.fetchone()
+            
+        if result and result[0] == 1:
+            logger.info("Database connection successful")
+            return True
+        else:
+            logger.error("Database connection test failed")
+            return False
+    except Exception as e:
+        logger.error(f"Error fixing database connection: {e}")
+        logger.error(traceback.format_exc())
+        return False
+
+def ensure_bot_environment():
+    """Ensure bot environment variables are set"""
+    logger.info("Setting up bot environment...")
+    
+    try:
+        # Check and set BOT_TOKEN
+        bot_token = os.environ.get('BOT_TOKEN', '')
+        if not bot_token or len(bot_token) < 30:
+            # Try to get from config
+            try:
+                from tg_bot.config import TOKEN_BOT
+                if TOKEN_BOT and len(TOKEN_BOT) > 30:
+                    os.environ['BOT_TOKEN'] = TOKEN_BOT
+                    logger.info(f"Set BOT_TOKEN from config.py: {TOKEN_BOT[:8]}...")
+                else:
+                    # Use hardcoded token
+                    os.environ['BOT_TOKEN'] = "8102516142:AAFTsVXXujHHKoX2KZGqZXBHPBznfgh7kg0"
+                    logger.info("Set BOT_TOKEN to hardcoded value")
+            except ImportError:
+                # Use hardcoded token
+                os.environ['BOT_TOKEN'] = "8102516142:AAFTsVXXujHHKoX2KZGqZXBHPBznfgh7kg0"
+                logger.info("Set BOT_TOKEN to hardcoded value (config.py not found)")
+        else:
+            logger.info(f"Using existing BOT_TOKEN: {bot_token[:8]}...")
+        
+        # Check and set BOT_USERNAME
+        bot_username = os.environ.get('BOT_USERNAME', '')
+        if not bot_username:
+            # Set default
+            os.environ['BOT_USERNAME'] = "chan_parsing_mon_bot"
+            logger.info("Set BOT_USERNAME to default value")
+        
+        # Check and set API_ID and API_HASH for Telegram client
+        api_id = os.environ.get('API_ID', '')
+        api_hash = os.environ.get('API_HASH', '')
+        
+        if not api_id or not api_hash:
+            # Set defaults
+            os.environ['API_ID'] = "19840544"
+            os.environ['API_HASH'] = "c839f28bad345082329ec086fca021fa"
+            logger.info("Set API_ID and API_HASH to default values")
+        
         return True
     except Exception as e:
-        logger.error(f"Error restarting services: {e}")
+        logger.error(f"Error setting up bot environment: {e}")
         logger.error(traceback.format_exc())
         return False
 
 def main():
     """Main function to fix all issues"""
-    logger.info("=== Starting fix all issues ===")
+    logger.info("=== Starting comprehensive fix script ===")
     
-    # Kill existing processes
-    kill_existing_processes()
+    # Check and install dependencies
+    check_install_dependencies()
     
-    # Fix database issues
-    logger.info("Fixing database issues...")
-    fix_database_issues()
+    # Fix database connection
+    fix_database_connection()
     
-    # Fix templates
-    logger.info("Fixing templates...")
-    fix_templates()
+    # Fix migrations
+    fix_migrations_sql()
     
-    # Fix views
-    logger.info("Fixing views...")
-    fix_views()
+    # Ensure bot environment variables
+    ensure_bot_environment()
     
-    # Fix integration
-    logger.info("Fixing integration issues...")
-    fix_integration()
+    # Run session fix script
+    run_fix_script('fix_session_migration.py', 'Telegram session model fix')
     
-    # Initialize database
-    logger.info("Initializing database...")
-    initialize_database()
+    # Run admin query fix script
+    run_fix_script('fix_admin_query.py', 'Admin query fix')
     
-    # Restart services
-    logger.info("Restarting services...")
-    restart_services()
+    # Run token check script
+    run_fix_script('token_check.py', 'Bot token check')
     
-    logger.info("=== Fix all issues completed ===")
-    logger.info("All services have been restarted. Please check if everything is working correctly.")
+    # Apply migrations if needed
+    try:
+        logger.info("Applying migrations...")
+        os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'core.settings')
+        import django
+        django.setup()
+        from django.core.management import call_command
+        call_command('migrate', interactive=False)
+        logger.info("Migrations applied successfully")
+    except Exception as e:
+        logger.error(f"Error applying migrations: {e}")
     
+    logger.info("=== Fix script completed ===")
     return True
 
 if __name__ == "__main__":
     try:
-        main()
+        success = main()
+        sys.exit(0 if success else 1)
     except Exception as e:
-        logger.error(f"Unexpected error: {e}")
-        logger.error(traceback.format_exc())
-    sys.exit(0) 
+        logger.critical(f"Unhandled error: {e}")
+        logger.critical(traceback.format_exc())
+        sys.exit(1) 

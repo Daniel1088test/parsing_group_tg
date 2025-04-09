@@ -103,7 +103,18 @@ async def manage_channels(message: types.Message, channels_data: dict):
     # Get channels from the database
     @sync_to_async
     def get_channels():
-        return list(Channel.objects.select_related('session').all())
+        """Get all channels from the database"""
+        try:
+            # Try using select_related first
+            try:
+                return list(Channel.objects.select_related('session').all())
+            except Exception as e:
+                logger.error(f"Error with select_related query: {e}")
+                # Fallback to simple query without select_related
+                return list(Channel.objects.all())
+        except Exception as e:
+            logger.error(f"Error getting channels: {e}")
+            return []
     
     channels = await get_channels()
     

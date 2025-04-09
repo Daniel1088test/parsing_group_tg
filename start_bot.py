@@ -211,6 +211,14 @@ def main():
     except Exception as e:
         logger.error(f"Error fixing TelegramSession model: {e}")
     
+    # Fix admin queries
+    try:
+        logger.info("Fixing admin queries...")
+        import fix_admin_query
+        fix_admin_query.main()
+    except Exception as e:
+        logger.error(f"Error fixing admin queries: {e}")
+    
     # Check database
     logger.info("Checking database...")
     db_ok = check_database()

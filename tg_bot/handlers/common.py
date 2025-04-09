@@ -1,11 +1,19 @@
-from aiogram import Router, F
+from aiogram import Bot, Dispatcher, Router, F, types
 from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, BufferedInputFile
 from aiogram.filters import Command
+from aiogram.fsm.context import FSMContext
 from tg_bot.keyboards.main_menu import main_menu_keyboard
 from tg_bot.config import ADMIN_ID, WEB_SERVER_HOST, WEB_SERVER_PORT
 from admin_panel.models import Channel, Category
 from asgiref.sync import sync_to_async
-import qrcode
+try:
+    import qrcode
+    from qrcode.image.pil import PilImage
+    QR_CODE_AVAILABLE = True
+except ImportError:
+    QR_CODE_AVAILABLE = False
+    import logging
+    logging.warning("qrcode module not installed. QR code generation will be disabled.")
 from io import BytesIO
 
 router = Router()
@@ -165,4 +173,57 @@ async def send_qr_code(callback_query):
         await callback_query.answer()
     except Exception as e:
         await callback_query.message.answer(f"Error creating the QR code: {str(e)}")
-        await callback_query.answer("Failed to create the QR code") 
+        await callback_query.answer("Failed to create the QR code")
+
+async def send_qr(message: Message, url: str) -> None:
+    """
+    Send a QR code for a given URL.
+    """
+    try:
+        # Check if QR code generation is available
+        if not QR_CODE_AVAILABLE:
+            await message.answer(f"QR code generation is not available. Please visit the URL directly: {url}")
+            return
+            
+        # Create a QR code
+        qr = qrcode.QRCode(
+            version=1,
+            error_correction=qrcode.constants.ERROR_CORRECT_L,
+            box_size=10,
+            border=4,
+        )
+        qr.add_data(url)
+        qr.make(fit=True)
+
+        img = qr.make_image(fill_color="black", back_color="white")
+
+        # Save the image to a BytesIO object
+        bio = BytesIO()
+        img.save(bio, 'PNG')
+        bio.seek(0)
+
+        # Send the image
+        await message.answer_photo(
+            photo=BufferedInputFile(
+                file=bio.getvalue(),
+                filename="qr.png"
+            ),
+            caption=f"Here's the QR code for: {url}"
+        )
+    except Exception as e:
+        logging.error(f"Error sending QR code: {e}")
+        await message.answer(f"Failed to generate QR code. Please use the direct link: {url}")
+
+# Handle /site command for mobile users
+@router.message(Command("site"))
+async def site_command(message: Message) -> None:
+    """
+    Send site URL with QR code.
+    """
+    site_url = "https://parsinggrouptg-production.up.railway.app"
+    
+    # Send site URL with QR code
+    await message.answer(f"Website URL: {site_url}")
+    
+    # Try to send QR code
+    await send_qr(message, site_url) 
