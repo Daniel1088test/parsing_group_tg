@@ -8,11 +8,6 @@ class TelegramSessionManager(models.Manager):
     This ensures compatibility when updating an older database
     """
     def get_queryset(self):
-        """Safe manager for TelegramSession that handles missing columns"""
-        qs = super().get_queryset().only(
-            "id", "phone", "is_active", "session_file", "created_at", "updated_at"
-        )
-        return qs
         qs = super().get_queryset()
         return qs
 

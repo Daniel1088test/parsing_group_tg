@@ -6,7 +6,7 @@
 <div class="container mt-4">
     {% if schema_error %}
     <div class="alert alert-danger">
-        <i class="fas fa-exclamation-triangle"></i> <strong>Database Schema Error:</strong> The database is missing the session_name column.
+        <i class="fas fa-exclamation-triangle"></i> <strong>Database Schema Error:</strong> The database is missing required columns (session_name or is_bot).
         <hr>
         <p>Please fix the database schema with the button below:</p>
         <form method="post" action="{% url 'sessions_list' %}">

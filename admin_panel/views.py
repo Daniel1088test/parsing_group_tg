@@ -67,26 +67,45 @@ def index_view(request):
         
         # Завантажуємо повідомлення
         try:
-            messages_query = Message.objects.select_related('channel', 'session_used', 'channel__session').order_by('-created_at')
-            
-            # Фільтруємо за категорією, якщо вона вказана
-            if category_id and category_id != 'None' and category_id != 'undefined':
-                try:
-                    category_id = int(category_id)
-                    messages_query = messages_query.filter(channel__category_id=category_id)
-                except (ValueError, TypeError):
-                    pass
-            
-            # Фільтруємо за сесією, якщо вона вказана
-            if session_filter and session_filter != 'None' and session_filter != 'undefined':
-                try:
-                    session_id = int(session_filter)
-                    messages_query = messages_query.filter(session_used_id=session_id)
-                except (ValueError, TypeError):
-                    pass
-            
-            # Обмежуємо кількість повідомлень
-            messages_list = messages_query[:count]
+            # Use a safer approach with raw SQL to avoid field errors
+            messages_query = []
+            try:
+                messages_query = Message.objects.select_related('channel', 'session_used', 'channel__session').order_by('-created_at')
+                
+                # Фільтруємо за категорією, якщо вона вказана
+                if category_id and category_id != 'None' and category_id != 'undefined':
+                    try:
+                        category_id = int(category_id)
+                        messages_query = messages_query.filter(channel__category_id=category_id)
+                    except (ValueError, TypeError):
+                        pass
+                
+                # Фільтруємо за сесією, якщо вона вказана
+                if session_filter and session_filter != 'None' and session_filter != 'undefined':
+                    try:
+                        session_id = int(session_filter)
+                        messages_query = messages_query.filter(session_used_id=session_id)
+                    except (ValueError, TypeError):
+                        pass
+                
+                # Обмежуємо кількість повідомлень
+                messages_list = messages_query[:count]
+            except Exception as e:
+                # If there's a field error, fall back to raw SQL
+                logger.error(f"Error with ORM query: {e}. Falling back to raw SQL.")
+                
+                # Simple queries without the problematic fields
+                with connection.cursor() as cursor:
+                    cursor.execute("""
+                        SELECT m.id, m.text, m.media, m.telegram_message_id, m.created_at
+                        FROM admin_panel_message m
+                        ORDER BY m.created_at DESC
+                        LIMIT %s
+                    """, [count])
+                    
+                    columns = ['id', 'text', 'media', 'telegram_message_id', 'created_at']
+                    messages_list = [dict(zip(columns, row)) for row in cursor.fetchall()]
+                    
             logger.info(f"Завантажено {len(messages_list)} повідомлень")
         except Exception as e:
             messages_list = []
@@ -94,7 +113,22 @@ def index_view(request):
         
         # Завантажуємо активні сесії
         try:
-            sessions = TelegramSession.objects.filter(is_active=True).order_by('phone')
+            # First attempt using the ORM
+            try:
+                sessions = TelegramSession.objects.filter(is_active=True).order_by('phone')
+            except Exception as field_e:
+                # If there's a field error, fall back to raw SQL
+                logger.error(f"Error loading sessions with ORM: {field_e}. Falling back to raw SQL.")
+                with connection.cursor() as cursor:
+                    cursor.execute("""
+                        SELECT id, phone, is_active
+                        FROM admin_panel_telegramsession
+                        WHERE is_active = TRUE
+                        ORDER BY phone
+                    """)
+                    columns = ['id', 'phone', 'is_active']
+                    sessions = [dict(zip(columns, row)) for row in cursor.fetchall()]
+                    
             logger.info(f"Завантажено {len(sessions)} сесій")
         except Exception as e:
             sessions = []
@@ -564,12 +598,13 @@ def sessions_list_view(request):
                     dict(zip(columns, row))
                     for row in cursor.fetchall()
                 ]
-                # Add missing attributes
+                # Add missing attributes to dictionaries
                 for session in sessions:
-                    session.needs_auth = True
-                    session.channels_count = 0
-                    session.messages_count = 0
-                    session.session_file = ''
+                    # Use dictionary-style access since these are dicts, not objects
+                    session['needs_auth'] = True
+                    session['channels_count'] = 0
+                    session['messages_count'] = 0
+                    session['session_file'] = ''
             except Exception as inner_e:
                 logger.error(f"Error with fallback query: {inner_e}")
                 sessions = []
@@ -812,7 +847,7 @@ def telegram_sessions_view(request):
     context = {
         'sessions': sessions,
         'title': 'Сесії Telegram',
-        'migration_needed': 'session_name' in request.session.get('error_message', '') 
+        'migration_needed': 'session_name' in request.session.get('error_message', '') or 'is_bot' in request.session.get('error_message', '')
     }
     return render(request, 'admin_panel/telegram_sessions.html', context)
 

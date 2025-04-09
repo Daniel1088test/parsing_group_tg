@@ -9,6 +9,7 @@ https://docs.djangoproject.com/en/5.0/howto/deployment/wsgi/
 
 import os
 import sys
+import subprocess
 from pathlib import Path
 
 # Add project root to path to help with imports
@@ -25,6 +26,9 @@ def simple_health_check(environ, start_response):
         return [b'OK']
     return None
 
+# Global bot process variable
+bot_process = None
+
 try:
     os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'core.settings')
     from django.core.wsgi import get_wsgi_application
@@ -40,6 +44,16 @@ try:
         # Fix database schema issues
         call_command('fix_db_schema', '--quiet')
         logging.info("Database schema check completed during startup")
+        
+        # Start the bot process in the background
+        try:
+            logging.info("Starting Telegram bot process...")
+            bot_process = subprocess.Popen([sys.executable, 'run.py'], 
+                                        stdout=subprocess.PIPE, 
+                                        stderr=subprocess.STDOUT)
+            logging.info(f"Bot process started with PID: {bot_process.pid}")
+        except Exception as bot_error:
+            logging.error(f"Failed to start bot process: {bot_error}")
     except Exception as schema_fix_error:
         logging.error(f"Error fixing database schema during startup: {schema_fix_error}")
     

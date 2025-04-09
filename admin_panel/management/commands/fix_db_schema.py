@@ -22,6 +22,9 @@ class Command(BaseCommand):
         # Fix session_name column
         self.fix_session_name_column(quiet)
         
+        # Fix is_bot column
+        self.fix_is_bot_column(quiet)
+        
         if not quiet:
             self.stdout.write(self.style.SUCCESS('Database schema fixed successfully'))
     
@@ -63,5 +66,46 @@ class Command(BaseCommand):
             logger.error(f"Error adding session_name column: {e}")
             if not quiet:
                 self.stdout.write(self.style.ERROR(f'Error adding session_name column: {e}'))
+        finally:
+            cursor.close()
+            
+    def fix_is_bot_column(self, quiet):
+        """Add is_bot column if it doesn't exist"""
+        
+        # Check which database we're using
+        vendor = connection.vendor
+        cursor = connection.cursor()
+        
+        try:
+            if vendor == 'postgresql':
+                # PostgreSQL approach
+                cursor.execute("""
+                    SELECT column_name FROM information_schema.columns 
+                    WHERE table_name = 'admin_panel_telegramsession' 
+                    AND column_name = 'is_bot'
+                """)
+                if not cursor.fetchone():
+                    cursor.execute("""
+                        ALTER TABLE admin_panel_telegramsession 
+                        ADD COLUMN is_bot BOOLEAN DEFAULT FALSE
+                    """)
+                    if not quiet:
+                        self.stdout.write(self.style.SUCCESS('Added is_bot column to admin_panel_telegramsession'))
+            
+            elif vendor == 'sqlite':
+                # SQLite approach
+                cursor.execute("PRAGMA table_info(admin_panel_telegramsession)")
+                columns = [info[1] for info in cursor.fetchall()]
+                if 'is_bot' not in columns:
+                    cursor.execute("""
+                        ALTER TABLE admin_panel_telegramsession 
+                        ADD COLUMN is_bot BOOLEAN DEFAULT 0
+                    """)
+                    if not quiet:
+                        self.stdout.write(self.style.SUCCESS('Added is_bot column to admin_panel_telegramsession'))
+        except Exception as e:
+            logger.error(f"Error adding is_bot column: {e}")
+            if not quiet:
+                self.stdout.write(self.style.ERROR(f'Error adding is_bot column: {e}'))
         finally:
             cursor.close() 
