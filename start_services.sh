@@ -15,7 +15,8 @@ echo "<html><body>OK</body></html>" > healthz.html
 echo "Starting health check server..."
 # Set health check port to avoid conflict with Django
 export HEALTH_PORT=3000
-nohup python railway_health.py > logs/health_server.log 2>&1 &
+chmod +x railway_direct_health.py
+nohup python railway_direct_health.py > logs/health_server.log 2>&1 &
 HEALTH_PID=$!
 echo $HEALTH_PID > health_server.pid
 
@@ -26,26 +27,49 @@ mkdir -p media/messages
 mkdir -p logs/bot
 mkdir -p data/sessions
 
-# 4. Verify database connection
-echo "Verifying database connection..."
+# 4. Verify database connection and set environment variables from Railway
+echo "Setting up environment variables..."
 if [ -z "$DATABASE_URL" ]; then
-  echo "⚠️ DATABASE_URL not set, using SQLite fallback"
-else
-  echo "Using PostgreSQL from DATABASE_URL: ${DATABASE_URL:0:15}..."
+  echo "⚠️ DATABASE_URL not set, using fallback"
+  export PGHOST="postgres.railway.internal"
+  export PGPORT="5432"
+  export PGUSER="postgres"
+  export PGPASSWORD="urCNhXdwvbqOvvEsJDffIiDUMcLhAvcs"
+  export PGDATABASE="railway"
+  export DATABASE_URL="postgresql://postgres:urCNhXdwvbqOvvEsJDffIiDUMcLhAvcs@postgres.railway.internal:5432/railway"
+fi
+
+# Set BOT_TOKEN if not set
+if [ -z "$BOT_TOKEN" ]; then
+  echo "Setting BOT_TOKEN from Railway settings"
+  export BOT_TOKEN="7923260865:AAGYew9JnOJV6hz0LGeRCb1kS6AejHoX61g"
+  export BOT_USERNAME="@Channels_hunt_bot"
+fi
+
+# Set API credentials
+export API_ID="19840544"
+export API_HASH="c839f28bad345082329ec086fca021fa"
+
+echo "Using PostgreSQL database: postgres.railway.internal:5432/railway"
   
-  # Test connection
-  python -c "
+# Test connection
+python -c "
 import os, sys, psycopg2
-from urllib.parse import urlparse
 try:
-    url = urlparse(os.environ.get('DATABASE_URL', ''))
-    dbname = url.path[1:]
-    user = url.username
-    password = url.password
-    host = url.hostname
-    port = url.port
+    host = os.environ.get('PGHOST', 'postgres.railway.internal')
+    port = os.environ.get('PGPORT', '5432')
+    user = os.environ.get('PGUSER', 'postgres')
+    password = os.environ.get('PGPASSWORD', 'urCNhXdwvbqOvvEsJDffIiDUMcLhAvcs')
+    dbname = os.environ.get('PGDATABASE', 'railway')
+    
     print(f'Connecting to PostgreSQL: {host}:{port}/{dbname}')
-    conn = psycopg2.connect(dbname=dbname, user=user, password=password, host=host, port=port)
+    conn = psycopg2.connect(
+        dbname=dbname,
+        user=user,
+        password=password,
+        host=host,
+        port=port
+    )
     cursor = conn.cursor()
     cursor.execute('SELECT version();')
     version = cursor.fetchone()[0]
@@ -55,12 +79,7 @@ try:
 except Exception as e:
     print(f'❌ PostgreSQL connection error: {e}')
     print('Will use fallback database configuration')
-    sys.exit(1)
 "
-  if [ $? -ne 0 ]; then
-    echo "⚠️ PostgreSQL connection failed, check logs"
-  fi
-fi
 
 # 5. Fix database issues
 echo "Running database fixes..."
@@ -69,8 +88,15 @@ import os
 import django
 import sys
 
-# Setup Django
+# Setup Django with explicit PostgreSQL settings
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'core.settings')
+os.environ['PGHOST'] = 'postgres.railway.internal'
+os.environ['PGPORT'] = '5432'
+os.environ['PGUSER'] = 'postgres'
+os.environ['PGPASSWORD'] = 'urCNhXdwvbqOvvEsJDffIiDUMcLhAvcs'
+os.environ['PGDATABASE'] = 'railway'
+os.environ['DATABASE_URL'] = 'postgresql://postgres:urCNhXdwvbqOvvEsJDffIiDUMcLhAvcs@postgres.railway.internal:5432/railway'
+
 django.setup()
 
 # Fix database issues
@@ -82,31 +108,31 @@ print(f'Using database: {settings.DATABASES[\"default\"][\"ENGINE\"]}')
 # Add missing columns
 try:
     with connection.cursor() as cursor:
-        # BotSettings fixes - fixed syntax error
+        # BotSettings fixes - using direct SQL execution with proper syntax
         cursor.execute('''
         DO $$
         BEGIN
             BEGIN
-                ALTER TABLE IF EXISTS admin_panel_botsettings 
+                ALTER TABLE admin_panel_botsettings 
                 ADD COLUMN IF NOT EXISTS bot_username VARCHAR(255);
             EXCEPTION WHEN duplicate_column THEN
                 RAISE NOTICE 'Column bot_username already exists';
             END;
             
             BEGIN
-                ALTER TABLE IF EXISTS admin_panel_telegramsession 
+                ALTER TABLE admin_panel_telegramsession 
                 ADD COLUMN IF NOT EXISTS needs_auth BOOLEAN DEFAULT TRUE;
             EXCEPTION WHEN duplicate_column THEN
                 RAISE NOTICE 'Column needs_auth already exists';
             END;
             
             BEGIN
-                ALTER TABLE IF EXISTS admin_panel_telegramsession 
+                ALTER TABLE admin_panel_telegramsession 
                 ADD COLUMN IF NOT EXISTS auth_token VARCHAR(255);
             EXCEPTION WHEN duplicate_column THEN
                 RAISE NOTICE 'Column auth_token already exists';
             END;
-        END;
+        END
         $$;
         ''')
         print('✅ Database structure fixed')
@@ -119,14 +145,14 @@ try:
                 print('Adding default BotSettings record')
                 cursor.execute('''
                 INSERT INTO admin_panel_botsettings 
-                (bot_token, bot_username, bot_name, created_at, updated_at) 
-                VALUES (%s, %s, %s, NOW(), NOW())
-                ''', [os.environ.get('BOT_TOKEN', ''), 'Channels_hunt_bot', 'Channel Hunt Bot'])
+                (bot_token, bot_username, bot_name) 
+                VALUES (%s, %s, %s)
+                ''', ['7923260865:AAGYew9JnOJV6hz0LGeRCb1kS6AejHoX61g', 'Channels_hunt_bot', 'Channel Hunt Bot'])
                 print('✅ Added default BotSettings')
 except Exception as e:
     print(f'⚠️ Database fix error: {e}')
     print('Will continue with startup')
-"
+" || echo "Database fix script failed, continuing anyway"
 
 # 6. Run migrations
 echo "Running migrations..."
@@ -140,10 +166,14 @@ python manage.py collectstatic --noinput || echo "⚠️ Static files issue, but
 echo "Fixing aiohttp sessions..."
 python fix_aiohttp_sessions.py || echo "⚠️ Session fix failed, but continuing"
 
-# 9. Start Telegram bot in background
+# 9. Start Telegram bot in background with credentials from Railway
 echo "Starting Telegram bot..."
 mkdir -p logs/bot
 chmod +x direct_bot_runner.py
+
+# Set bot token environment variable
+export BOT_TOKEN="7923260865:AAGYew9JnOJV6hz0LGeRCb1kS6AejHoX61g"
+export TOKEN_BOT="7923260865:AAGYew9JnOJV6hz0LGeRCb1kS6AejHoX61g"
 
 # Try to start bot with retries
 BOT_MAX_RETRIES=3
@@ -260,7 +290,7 @@ while True:
     
     # Check health server
     if not check_process('health_server.pid', 'Health Server'):
-        restart_process('railway_health.py', 'logs/health_server.log', 'health_server.pid', 'Health Server')
+        restart_process('railway_direct_health.py', 'logs/health_server.log', 'health_server.pid', 'Health Server')
     
     # Sleep before next check
     time.sleep(30)

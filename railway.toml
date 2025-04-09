@@ -1,13 +1,13 @@
 [build]
 builder = "NIXPACKS"
-buildCommand = "chmod +x railway_fix.sh railway_health.py start_services.sh && python manage.py collectstatic --noinput"
+buildCommand = "chmod +x railway_fix.sh railway_health.py start_services.sh direct_bot_runner.py railway_direct_health.py && python manage.py collectstatic --noinput"
 
 [deploy]
 startCommand = "bash start_services.sh"
 healthcheckPath = "/health.html"
 healthcheckTimeout = 300
 restartPolicyType = "ON_FAILURE"
-healthcheckInterval = 15
+healthcheckInterval = 5
 
 [phases.setup]
-nixPkgs = ["python311", "postgresql", "gcc"] 
+nixPkgs = ["python311", "postgresql", "gcc", "lsof", "netcat", "procps"] 
