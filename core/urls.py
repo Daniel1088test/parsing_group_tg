@@ -326,6 +326,10 @@ urlpatterns = [
     path('ping/', simple_health_check),
     path('api/bot/status/', simple_bot_status),
     path('media/<path:path>', simple_serve_media),
+    
+    # Add Django auth URLs
+    path('accounts/login/', lambda r: HttpResponse("Login", status=302, headers={"Location": "/admin_panel/login/"})),
+    path('accounts/logout/', lambda r: HttpResponse("Logout", status=302, headers={"Location": "/admin_panel/logout/"})),
 ]
 
 # Додаємо статичні файли тільки якщо налаштування визначено
