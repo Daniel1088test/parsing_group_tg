@@ -1,1 +1,5 @@
-<?xml version="1.0" encoding="UTF-8" standalone="no"?><svg width="300" height="200" xmlns="http://www.w3.org/2000/svg"><rect width="298" height="198" x="1" y="1" fill="#f0f0f0" stroke="#c8c8c8" stroke-width="2"/><text x="150" y="110" font-family="Arial" font-size="24" text-anchor="middle" fill="#646464">VIDEO</text></svg> 
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<svg width="300" height="200" xmlns="http://www.w3.org/2000/svg">
+  <rect width="298" height="198" x="1" y="1" fill="#f0f0f0" stroke="#c8c8c8" stroke-width="2"/>
+  <text x="150" y="110" font-family="Arial" font-size="24" text-anchor="middle" fill="#646464">VIDEO</text>
+</svg>
