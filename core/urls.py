@@ -34,9 +34,10 @@ except ImportError:
 from django.views.static import serve
 from django.views.generic.base import RedirectView
 try:
-    from .views import serve_media
+    from .views import serve_media, railway_index_view
 except ImportError:
     serve_media = None
+    railway_index_view = None
 from django.views.generic import TemplateView
 import subprocess
 try:
@@ -363,33 +364,33 @@ if settings.DEBUG:
 urlpatterns = [
     path('admin/', admin.site.urls),
     path('admin_panel/', include('admin_panel.urls')),
-    path('health/', health_check),
-    path('healthz/', health_check),
-    path('ping/', health_check),
-    path('health.html', health_check),
-    path('healthz.html', health_check),
-    path('bot/', include('tg_bot.urls')),
     
-    # Static files (for development)
-    path('media/<path:path>', serve_media),
-    path('static/<path:path>', serve, {'document_root': settings.STATIC_ROOT}),
-    
-    # Fix root path to show index view
-    path('', index_view, name='index'),
+    # Fix root path to show index view as the FIRST priority
+    path('', railway_index_view if railway_index_view else index_view, name='index'),
     
     # Auth URLs
     path('login/', login_view, name='login'),
     path('register/', register_view, name='register'),
     path('logout/', logout_view, name='logout'),
     
-    # Add health check endpoints for Railway
-    re_path(r'^/?health$', health_check),
-    re_path(r'^/?healthz$', health_check),
+    # Static files (for development)
+    path('media/<path:path>', serve_media),
+    path('static/<path:path>', serve, {'document_root': settings.STATIC_ROOT}),
+    
+    # Add health check endpoints for Railway 
+    path('health/', health_check),
+    path('healthz/', health_check),
+    path('ping/', health_check),
+    path('health.html', health_check),
+    path('healthz.html', health_check),
     re_path(r'^_health/?$', health_check),  # Railway specific format
     path('api/bot/status/', bot_status_api),
-    
-    # Catch-all for health checks with query params
-    re_path(r'^$', lambda r: health_check(r) if 'health' in r.GET or 'healthcheck' in r.GET else index_view(r)),
+    path('bot/', include('tg_bot.urls')),
+]
+
+# Add health check with query params WITHOUT overriding index view
+urlpatterns += [
+    path('check/', lambda r: health_check(r)),
 ]
 
 # Fix URL patterns by removing leading slashes (to fix W002 warnings)

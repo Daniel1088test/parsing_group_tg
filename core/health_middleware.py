@@ -42,6 +42,10 @@ class HealthCheckMiddleware:
         logger.info("HealthCheckMiddleware initialized")
     
     def __call__(self, request):
+        # Skip the root URL so the index view works properly
+        if request.path == '' or request.path == '/':
+            return self.get_response(request)
+            
         # Check if this is a health check request
         path = request.path.lstrip('/')
         

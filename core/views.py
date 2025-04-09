@@ -101,3 +101,62 @@ def serve_media(request, path):
     
     # If all else fails, return 404
     return HttpResponse(f"Media file not found: {path}", status=404)
+
+# Wrapper view for index to handle Railway environment
+def railway_index_view(request):
+    """Special index view for Railway deployment"""
+    try:
+        # First try the normal index view
+        from admin_panel.views import index_view
+        return index_view(request)
+    except Exception as e:
+        import logging
+        logger = logging.getLogger('railway')
+        logger.error(f"Error in index view: {e}")
+        
+        # Fallback to a simple response
+        from django.shortcuts import render
+        
+        # Try to render the index template directly
+        try:
+            return render(request, 'admin_panel/index.html')
+        except Exception as template_error:
+            logger.error(f"Error rendering template: {template_error}")
+            
+            # Ultimate fallback - render a basic HTML page
+            from django.http import HttpResponse
+            html = '''
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <title>Telegram Channel Parser</title>
+                <meta charset="UTF-8">
+                <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+                <style>
+                    body { padding: 20px; }
+                    .card { margin-top: 20px; }
+                </style>
+            </head>
+            <body>
+                <div class="container">
+                    <div class="row">
+                        <div class="col-md-8 offset-md-2">
+                            <h1 class="text-primary mt-5">Telegram Channel Parser</h1>
+                            <div class="card">
+                                <div class="card-header">
+                                    Status
+                                </div>
+                                <div class="card-body">
+                                    <p class="card-text">Bot is running. Please go to the admin panel to manage channels.</p>
+                                    <a href="/admin_panel/" class="btn btn-primary">Go to Admin Panel</a>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+            </body>
+            </html>
+            '''
+            return HttpResponse(html)
