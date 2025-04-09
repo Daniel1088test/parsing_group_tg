@@ -1,6 +1,6 @@
 from aiogram import Router, F, types
 from aiogram.filters import Command
-from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove
+from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove, InlineKeyboardMarkup, InlineKeyboardButton
 from admin_panel.models import TelegramSession
 from tg_bot.config import API_ID, API_HASH
 from tg_bot.auth_telethon import input_code, input_password
@@ -195,3 +195,55 @@ async def handle_2fa_password(message: types.Message):
             delattr(message.from_user, 'auth_phone')
         if hasattr(message.from_user, 'auth_session_id'):
             delattr(message.from_user, 'auth_session_id')
+
+async def process_telegram_sessions(message):
+    """Process telegram sessions for the current user"""
+    try:
+        # Get all available sessions
+        sessions = await get_telegram_sessions()
+        
+        # No sessions available
+        if not sessions:
+            await message.answer("У вас немає доступних сесій Telegram. Додайте нову сесію.")
+            return
+        
+        # Make the keyboard
+        keyboard = InlineKeyboardMarkup(row_width=1)
+        
+        # Add a button for each session
+        for session in sessions:
+            # Check if session has is_authorized field and modify the button text accordingly
+            try:
+                auth_status = "(Авторизовано)" if session.is_authorized else "(Не авторизовано)"
+            except:
+                # If field does not exist or there's an error, don't show auth status
+                auth_status = ""
+            
+            status = "(Активна)" if session.is_active else "(Неактивна)"
+            button_text = f"{session.phone} {status} {auth_status}"
+            
+            # Create button
+            keyboard.add(InlineKeyboardButton(
+                text=button_text,
+                callback_data=f"session:{session.id}"
+            ))
+        
+        # Add button to add new session
+        keyboard.add(InlineKeyboardButton(
+            text="➕ Додати нову сесію",
+            callback_data="add_session"
+        ))
+        
+        # Send message with keyboard
+        await message.answer("Ваші сесії Telegram:", reply_markup=keyboard)
+    except Exception as e:
+        logger.error(f"Error in process_telegram_sessions: {e}")
+        await message.answer("Помилка при обробці сесій Telegram. Спробуйте пізніше.")
+        
+        # Try to create a simpler keyboard if there was an error
+        keyboard = InlineKeyboardMarkup()
+        keyboard.add(InlineKeyboardButton(
+            text="➕ Додати нову сесію",
+            callback_data="add_session"
+        ))
+        await message.answer("Додайте нову сесію:", reply_markup=keyboard)

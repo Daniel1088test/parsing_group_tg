@@ -203,6 +203,14 @@ def main():
     except Exception as e:
         logger.error(f"Error checking token: {e}")
     
+    # Fix TelegramSession model
+    try:
+        logger.info("Fixing TelegramSession model...")
+        import fix_session_migration
+        fix_session_migration.main()
+    except Exception as e:
+        logger.error(f"Error fixing TelegramSession model: {e}")
+    
     # Check database
     logger.info("Checking database...")
     db_ok = check_database()

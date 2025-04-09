@@ -6,6 +6,7 @@ import os
 import logging
 from tg_bot.config import FILE_JSON
 from admin_panel.models import Channel, Category
+import traceback
 
 logger = logging.getLogger('middleware')
 
@@ -26,6 +27,7 @@ class ChannelsDataMiddleware(BaseMiddleware):
                 logger.debug(f"Received {len(channels_data)} channels in middleware")
         except Exception as e:
             logger.error(f"Error getting channel data: {e}")
+            logger.error(traceback.format_exc())
         
         # add data to the handler context
         data["channels_data"] = channels_data
