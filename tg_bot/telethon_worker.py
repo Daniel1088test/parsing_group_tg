@@ -315,9 +315,45 @@ async def download_media(client, message, media_dir):
 
 async def save_message_to_data(message, channel, queue, category_id=None, client=None, session=None):
     """
-    saving the message and sending information to the queue
+    save message to data and queue
     """
-    try:        
+    try:
+        # Filter out unwanted content (VPN ads, spam, etc)
+        message_text = message.message.lower() if message.message else ""
+                        
+        # Blacklist for common spam/unwanted content
+        blacklist = [
+            "@speeeeedvpnbot",
+            "vpn прямо в telegram",
+            "speeeedvpn",
+            "start -> начать пробный период",
+            "поддерживаются все устройства",
+            "абсолютно бесплатно",
+            "ios/android/windows/mac",
+            "youtube instagram",
+            "vpn 🚀", 
+            "быстрый, и стабильный",
+            "стабильный 🔒 vpn",
+            "откройте vpn",
+            "быстрый, и стабильный 🔒"
+        ]
+                        
+        # Check if message contains any blacklisted content
+        is_blacklisted = any(phrase.lower() in message_text for phrase in blacklist)
+                        
+        if is_blacklisted:
+            logger.warning(f"Skipping blacklisted VPN ad message {message.id} from channel {getattr(channel, 'title', channel)}")
+            return None
+
+        # Get channel information
+        channel_id = None
+        if hasattr(message.peer_id, 'channel_id'):
+            channel_id = message.peer_id.channel_id
+        elif hasattr(channel, 'channel_id'):
+            channel_id = channel.channel_id
+        elif hasattr(channel, 'id'):
+            channel_id = channel.id
+        
         # data about media
         media_type = None
         media_file = None
@@ -406,7 +442,6 @@ async def save_message_to_data(message, channel, queue, category_id=None, client
         
         # get the channel name
         channel_name = getattr(channel, 'title', None) or getattr(channel, 'name', 'Unknown channel')
-        channel_id = getattr(message.peer_id, 'channel_id', None)
         
         if not channel_id:
             logger.warning(f"No channel_id in message {message.id} from {channel_name}")

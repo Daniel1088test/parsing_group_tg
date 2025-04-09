@@ -122,6 +122,29 @@ class TelegramParser:
                         # Check if message already exists
                         if Message.objects.filter(message_id=message.id, channel=channel).exists():
                             continue
+                        
+                        # Filter out unwanted content (VPN ads, etc.)
+                        message_text = message.message.lower() if message.message else ""
+                        
+                        # Create a blacklist of text fragments that identify spam/unwanted content
+                        blacklist = [
+                            "@speeeeedvpnbot",
+                            "vpn прямо в telegram",
+                            "speeeedvpn",
+                            "start -> начать пробный период",
+                            "поддерживаются все устройства",
+                            "абсолютно бесплатно",
+                            "ios/android/windows/mac",
+                            "youtube instagram",
+                            "vpn 🚀"
+                        ]
+                        
+                        # Check if message contains any blacklisted content
+                        is_blacklisted = any(phrase.lower() in message_text for phrase in blacklist)
+                        
+                        if is_blacklisted:
+                            logger.warning(f"Skipping blacklisted message {message.id} from channel {channel.name}")
+                            continue
                             
                         # Create new message
                         new_message = Message(
