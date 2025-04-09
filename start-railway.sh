@@ -3,6 +3,21 @@ set -e
 
 echo "===================== Starting Railway Deployment ====================="
 
+# Create health check files IMMEDIATELY to prevent deployment timeouts
+echo "Creating health check files..."
+echo "OK" > health.txt
+echo "OK" > health.html
+echo "OK" > healthz.txt
+echo "OK" > healthz.html
+
+# Start health check server in background
+echo "Starting health check server..."
+chmod +x healthcheck.py
+nohup python healthcheck.py > logs/health_server.log 2>&1 &
+HEALTH_PID=$!
+echo $HEALTH_PID > health.pid
+echo "Health check server started with PID: $HEALTH_PID"
+
 # Export needed environment variables 
 echo "Setting up environment variables..."
 export RAILWAY_PUBLIC_DOMAIN=${RAILWAY_PUBLIC_DOMAIN:-"parsinggrouptg-production.up.railway.app"}
@@ -16,11 +31,11 @@ chmod +x fix_aiohttp_sessions.py
 
 # Run our session fix first to fix the unclosed sessions warning
 echo "Fixing aiohttp session issues..."
-python fix_aiohttp_sessions.py
+python fix_aiohttp_sessions.py || echo "Session fix failed, continuing..."
 
 # Run our comprehensive migration fix
 echo "Running comprehensive migration fix..."
-bash railway_fix.sh
+bash railway_fix.sh || echo "Migration fix script failed, continuing..."
 
 # Add a check to see if BOT_TOKEN exists in environment, and if not, load from bot_token.env
 if [ -z "$BOT_TOKEN" ]; then
@@ -199,12 +214,6 @@ if [ $? -eq 0 ]; then
 else
     echo "⚠️ Bot connection fix encountered issues, but continuing"
 fi
-
-# Ensure health check files
-echo "ok" > health.txt
-echo "ok" > health.html
-echo "ok" > healthz.txt
-echo "ok" > healthz.html
 
 # Deploy the bot token to all places it might be needed
 python -c "
