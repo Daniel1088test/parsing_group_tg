@@ -215,8 +215,8 @@ try:
         except Exception as e:
             logger.error(f"Error deleting webhook: {e}")
         
-        # We don't need to re-register the /start command as it's already in common_router
-        # This was overriding the proper handler with a simplified version without keyboard
+        # Start a heartbeat task to log bot status periodically
+        asyncio.create_task(heartbeat_task())
         
         # start polling
         logger.info("Starting to receive updates...")
@@ -234,6 +234,26 @@ try:
             logger.error(traceback.format_exc())
         finally:
             logger.info("Bot stopped")
+    
+    async def heartbeat_task():
+        """Log periodic heartbeat to show the bot is still running"""
+        counter = 0
+        while True:
+            try:
+                await asyncio.sleep(60)  # Log every minute
+                counter += 1
+                logger.info(f"Bot heartbeat - Still running (uptime: {counter} minutes)")
+                
+                # Every 10 minutes, log more detailed status
+                if counter % 10 == 0:
+                    try:
+                        bot_info = await bot.get_me()
+                        logger.info(f"Bot status check: {bot_info.username} is active")
+                    except Exception as e:
+                        logger.error(f"Error during status check: {e}")
+            except Exception as e:
+                logger.error(f"Error in heartbeat task: {e}")
+                # Continue even after errors
     
     if __name__ == "__main__":
         try:

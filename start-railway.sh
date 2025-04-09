@@ -188,6 +188,68 @@ COMBINED_PID=$!
 echo $COMBINED_PID > combined.pid
 echo "Combined services started with PID: $COMBINED_PID"
 
+# Direct bot launch for more reliability
+echo "Starting Telegram bot directly for extra reliability..."
+mkdir -p logs/bot
+nohup python -c "
+import os, sys, asyncio, logging
+
+# Configure logging for direct bot launch
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler('logs/bot/direct_bot.log'),
+        logging.StreamHandler()
+    ]
+)
+logger = logging.getLogger('direct_bot_starter')
+
+# Set up environment
+os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'core.settings')
+import django
+django.setup()
+
+# Start the bot
+async def run_bot():
+    try:
+        from tg_bot.bot import main, bot
+        from aiogram.types import BotCommand, BotCommandScopeDefault
+        
+        # Set up commands
+        commands = [
+            BotCommand(command='start', description='Start the bot and show main menu'),
+            BotCommand(command='menu', description='Show the main menu'),
+            BotCommand(command='help', description='Show help'),
+            BotCommand(command='authorize', description='Start authorization process')
+        ]
+        
+        try:
+            await bot.set_my_commands(commands=commands, scope=BotCommandScopeDefault())
+            logger.info('Bot commands registered successfully')
+        except Exception as e:
+            logger.error(f'Error setting bot commands: {e}')
+        
+        logger.info('Starting bot main loop')
+        await main()
+    except Exception as e:
+        logger.error(f'Critical error in bot: {e}')
+        import traceback
+        logger.error(traceback.format_exc())
+
+# Run the bot with asyncio
+try:
+    logger.info('Initializing direct bot process')
+    asyncio.run(run_bot())
+except Exception as e:
+    logger.error(f'Fatal error running bot: {e}')
+    import traceback
+    logger.error(traceback.format_exc())
+" > logs/bot/direct_bot_output.log 2>&1 &
+DIRECT_BOT_PID=$!
+echo $DIRECT_BOT_PID > direct_bot.pid
+echo "Direct bot process started with PID: $DIRECT_BOT_PID"
+
 # Use existing healthcheck.py script
 if [ -f "healthcheck.py" ]; then
     echo "Starting health check server..."
@@ -202,17 +264,41 @@ fi
 # Give services a moment to start up
 sleep 5
 
-# Verify bot is running
-ps -ef | grep -i "run_bot" | grep -v grep
-if [ $? -eq 0 ]; then
-    echo "✅ Bot process is running!"
+# Verify bot is running - check both standard and direct processes
+echo "Checking if bot processes are running..."
+ps -ef | grep -i "python" | grep -v grep
+
+# Verify direct bot specifically 
+if ps -p $DIRECT_BOT_PID > /dev/null; then
+    echo "✅ Direct bot process is running with PID: $DIRECT_BOT_PID"
 else
-    echo "⚠️ Bot process not detected, attempting to start it directly..."
-    nohup python run_bot.py > logs/bot_direct.log 2>&1 &
-    BOT_PID=$!
-    echo $BOT_PID > bot_direct.pid
-    echo "Direct bot process started with PID: $BOT_PID"
+    echo "⚠️ Direct bot process failed to start or terminated"
+    cat logs/bot/direct_bot_output.log | tail -n 20
 fi
+
+# Verify the combined services
+if ps -p $COMBINED_PID > /dev/null; then
+    echo "✅ Combined services process is running with PID: $COMBINED_PID"
+else 
+    echo "⚠️ Combined services process failed to start or terminated"
+    cat logs/combined_services.log | tail -n 20
+fi
+
+# Extra bot launch as fallback if both others failed
+if ! (ps -p $DIRECT_BOT_PID > /dev/null || ps -ef | grep -i "run_bot" | grep -v grep > /dev/null); then
+    echo "⚠️⚠️ No bot processes detected, launching emergency backup bot..."
+    nohup python run_bot.py > logs/bot/emergency_bot.log 2>&1 &
+    EMERGENCY_BOT_PID=$!
+    echo $EMERGENCY_BOT_PID > emergency_bot.pid
+    echo "Emergency bot process started with PID: $EMERGENCY_BOT_PID"
+fi
+
+# Start the bot monitor in daemon mode to keep bot alive
+echo "Starting bot monitor daemon..."
+nohup python manage.py monitor_bot --daemon > logs/bot_monitor.log 2>&1 &
+MONITOR_PID=$!
+echo $MONITOR_PID > bot_monitor.pid
+echo "Bot monitor started with PID: $MONITOR_PID"
 
 # Start Django server in foreground (this keeps the Railway process alive)
 echo "Starting Django server on 0.0.0.0:$PORT..."
