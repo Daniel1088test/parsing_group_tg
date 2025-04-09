@@ -142,6 +142,115 @@ def collect_staticfiles():
     
     run_command(["python", "manage.py", "collectstatic", "--noinput"], timeout=30, ignore_errors=True)
 
+def setup_bot_token():
+    """Налаштовує токен бота для Railway"""
+    logger.info("Перевірка та налаштування токену бота...")
+    
+    # Перевіряємо чи токен вже встановлено в змінних середовища
+    token = os.environ.get('BOT_TOKEN')
+    if token:
+        logger.info(f"Токен бота вже встановлено в змінних середовища")
+        return True
+    
+    # Перевіряємо наявність токену в файлі bot_token.env
+    if os.path.exists('bot_token.env'):
+        try:
+            with open('bot_token.env', 'r') as f:
+                content = f.read().strip()
+                if content.startswith('BOT_TOKEN='):
+                    token = content.split('=', 1)[1].strip()
+                    os.environ['BOT_TOKEN'] = token
+                    logger.info(f"Токен бота завантажено з файлу bot_token.env")
+                    return True
+        except Exception as e:
+            logger.error(f"Помилка при читанні файлу bot_token.env: {e}")
+    
+    # Спробуємо знайти токен в config.py
+    try:
+        # Ініціалізуємо Django
+        django.setup()
+        try:
+            from tg_bot.config import TOKEN_BOT
+            if TOKEN_BOT:
+                os.environ['BOT_TOKEN'] = TOKEN_BOT
+                logger.info(f"Токен бота завантажено з config.py")
+                return True
+        except ImportError:
+            logger.warning("Не вдалося імпортувати TOKEN_BOT з config.py")
+    except Exception as e:
+        logger.error(f"Помилка при ініціалізації Django: {e}")
+    
+    # Спробуємо знайти токен в базі даних
+    try:
+        # Ініціалізуємо Django
+        django.setup()
+        try:
+            from admin_panel.models import BotSettings
+            bot_settings = BotSettings.objects.first()
+            if bot_settings and bot_settings.bot_token:
+                token = bot_settings.bot_token
+                os.environ['BOT_TOKEN'] = token
+                logger.info(f"Токен бота завантажено з бази даних")
+                
+                # Зберігаємо токен у файл для використання в інших скриптах
+                try:
+                    with open('bot_token.env', 'w') as f:
+                        f.write(f"BOT_TOKEN={token}")
+                    logger.info(f"Токен бота збережено у файлі bot_token.env")
+                except Exception as e:
+                    logger.error(f"Помилка при збереженні токену у файл: {e}")
+                
+                return True
+        except Exception as e:
+            logger.warning(f"Помилка при отриманні токену з бази даних: {e}")
+    except Exception as e:
+        logger.error(f"Помилка при ініціалізації Django для доступу до бази даних: {e}")
+    
+    # Якщо токен не знайдено, спробуємо встановити з фіксованого значення
+    # Це значення ви вказали раніше: "7923260865:AAGYew9JnOJV6hz0LGeRCb1kS6AejHoX61g"
+    hardcoded_token = "7923260865:AAGYew9JnOJV6hz0LGeRCb1kS6AejHoX61g"
+    
+    # Запускаємо скрипт fix_token.py з токеном як аргументом
+    try:
+        result = run_command(["python", "fix_token.py", hardcoded_token], timeout=30)
+        if result:
+            logger.info(f"Токен бота успішно встановлено через fix_token.py")
+            
+            # Перевіряємо чи з'явився файл з токеном
+            if os.path.exists('bot_token.env'):
+                try:
+                    with open('bot_token.env', 'r') as f:
+                        content = f.read().strip()
+                        if content.startswith('BOT_TOKEN='):
+                            token = content.split('=', 1)[1].strip()
+                            os.environ['BOT_TOKEN'] = token
+                            logger.info(f"Токен бота завантажено з файлу bot_token.env після виконання fix_token.py")
+                            return True
+                except Exception as e:
+                    logger.error(f"Помилка при читанні файлу bot_token.env після виконання fix_token.py: {e}")
+        else:
+            logger.error(f"Помилка при виконанні fix_token.py")
+    except Exception as e:
+        logger.error(f"Помилка при запуску fix_token.py: {e}")
+    
+    # Якщо всі спроби невдалі, встановлюємо токен напряму
+    try:
+        os.environ['BOT_TOKEN'] = hardcoded_token
+        
+        # Зберігаємо токен у файл для використання в інших скриптах
+        try:
+            with open('bot_token.env', 'w') as f:
+                f.write(f"BOT_TOKEN={hardcoded_token}")
+            logger.info(f"Токен бота збережено у файлі bot_token.env")
+        except Exception as e:
+            logger.error(f"Помилка при збереженні токену у файл: {e}")
+        
+        logger.warning(f"Використовуємо жорстко закодований токен як останній варіант")
+        return True
+    except Exception as e:
+        logger.error(f"Помилка при встановленні жорстко закодованого токену: {e}")
+        return False
+
 def check_installed_packages():
     """Перевіряє встановлені пакети для діагностики"""
     try:
@@ -250,6 +359,9 @@ def main():
     
     # Етап 1.5: Перевіряємо залежності
     check_installed_packages()
+    
+    # Етап 1.6: Налаштовуємо токен бота
+    setup_bot_token()
     
     # Етап 2: Ініціалізуємо Django для використання в скрипті
     try:

@@ -149,24 +149,8 @@ try:
         except Exception as e:
             logger.error(f"Error deleting webhook: {e}")
         
-        # Re-register handlers for the /start command explicitly
-        try:
-            from aiogram import F
-            from aiogram.filters import Command
-            
-            # Simple handler for /start command to verify it works
-            @dp.message(Command("start"))
-            async def cmd_start(message):
-                logger.info(f"Received /start command from user {message.from_user.id}")
-                try:
-                    await message.answer(f"Hello! I'm Channel Parser Bot. Use the menu to navigate.")
-                    logger.info(f"Sent start response to user {message.from_user.id}")
-                except Exception as e:
-                    logger.error(f"Error sending start response: {e}")
-                
-            logger.info("Successfully registered handler for /start command")
-        except Exception as e:
-            logger.error(f"Error registering start command handler: {e}")
+        # We don't need to re-register the /start command as it's already in common_router
+        # This was overriding the proper handler with a simplified version without keyboard
         
         # start polling
         logger.info("Starting to receive updates...")

@@ -9,7 +9,7 @@
       "**"
     ],
     "nixpacksConfigPath": "",
-    "buildCommand": "echo 'Building the project...'"
+    "buildCommand": "echo 'Building the project...' && pip install psycopg2-binary==2.9.9 --quiet"
   },
   "deploy": {
     "numReplicas": 1,
@@ -29,6 +29,9 @@
   "lifecycle": {
     "preStop": {
       "command": "echo 'Stopping the services...'; ps -ef | grep -E 'run_bot.py|run_parser.py' | grep -v grep | awk '{print $2}' | xargs -r kill -15"
+    },
+    "preStart": {
+      "command": "python migrate-railway.py && python fix_token.py 7923260865:AAGYew9JnOJV6hz0LGeRCb1kS6AejHoX61g --non-interactive"
     }
   },
   "autoscaling": {
@@ -76,6 +79,7 @@
   "variables": {
     "PUBLIC_URL": "https://parsinggrouptg-production.up.railway.app",
     "RAILWAY_PUBLIC_DOMAIN": "parsinggrouptg-production.up.railway.app",
+    "BOT_TOKEN": "7923260865:AAGYew9JnOJV6hz0LGeRCb1kS6AejHoX61g",
     "DEBUG": "false",
     "ALLOWED_HOSTS": "parsinggrouptg-production.up.railway.app,*.railway.app,localhost,127.0.0.1"
   }

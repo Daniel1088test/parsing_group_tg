@@ -10,6 +10,7 @@ from datetime import datetime
 import sys
 import threading
 import time
+import subprocess
 
 # Configure logging for the entire project
 logging.basicConfig(
@@ -27,6 +28,35 @@ message_queue = None
 running = True
 bot_proc = None
 parser_proc = None
+
+# Load bot token from environment or file
+def ensure_bot_token():
+    if 'BOT_TOKEN' not in os.environ or not os.environ['BOT_TOKEN']:
+        # Try to get token from bot_token.env file
+        if os.path.exists('bot_token.env'):
+            with open('bot_token.env', 'r') as f:
+                content = f.read().strip()
+                if content.startswith('BOT_TOKEN='):
+                    token = content.split('=', 1)[1].strip()
+                    os.environ['BOT_TOKEN'] = token
+                    logger.info(f"Loaded BOT_TOKEN from bot_token.env file")
+                    return True
+                
+        # Try to get token from config.py
+        try:
+            from tg_bot.config import TOKEN_BOT
+            if TOKEN_BOT:
+                os.environ['BOT_TOKEN'] = TOKEN_BOT
+                logger.info(f"Loaded BOT_TOKEN from config.py")
+                return True
+        except Exception as e:
+            logger.error(f"Error loading token from config.py: {e}")
+            
+        # Token not found
+        logger.error("BOT_TOKEN not set and couldn't be loaded from files!")
+        return False
+    
+    return True
 
 # Setup Django
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'core.settings')
@@ -99,6 +129,12 @@ signal.signal(signal.SIGTERM, signal_handler)
 def start_bot():
     """Start the Telegram bot in a separate process"""
     global bot_proc
+    
+    # First ensure we have a bot token
+    if not ensure_bot_token():
+        logger.error("Cannot start bot without a valid BOT_TOKEN")
+        return None
+    
     try:
         import subprocess
         logger.info("Starting Telegram bot process...")
@@ -124,6 +160,9 @@ def start_bot():
             [sys.executable, '-c', 'import asyncio; import os; os.environ.setdefault("DJANGO_SETTINGS_MODULE", "core.settings"); import django; django.setup(); from tg_bot.bot import main; asyncio.run(main())']
         ]
         
+        # Prepare environment with explicit BOT_TOKEN
+        env = os.environ.copy()
+        
         # Try each method until one works
         for i, method in enumerate(methods):
             logger.info(f"Trying bot start method {i+1}")
@@ -132,7 +171,7 @@ def start_bot():
                 method,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
-                env=os.environ.copy()  # Ensure environment variables are passed
+                env=env  # Ensure environment variables are passed
             )
             
             # Give it a moment to initialize
@@ -171,11 +210,14 @@ def start_parser():
             except:
                 pass
         
+        # Prepare environment with explicit variables
+        env = os.environ.copy()
+        
         parser_proc = subprocess.Popen(
             [sys.executable, 'run_parser.py'],
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
-            env=os.environ.copy()  # Ensure environment variables are passed
+            env=env  # Ensure environment variables are passed
         )
         
         # Give it a moment to initialize
@@ -201,8 +243,8 @@ def monitor_processes():
     global running, bot_proc, parser_proc
     
     # Debug the environment variables
-    logger.info(f"BOT_TOKEN: {'Set' if 'BOT_TOKEN' in os.environ else 'Not set'}")
-    logger.info(f"DATABASE_URL: {'Set' if 'DATABASE_URL' in os.environ else 'Not set'}")
+    logger.info(f"BOT_TOKEN: {'Set' if 'BOT_TOKEN' in os.environ and os.environ['BOT_TOKEN'] else 'Not set'}")
+    logger.info(f"DATABASE_URL: {'Set' if 'DATABASE_URL' in os.environ and os.environ['DATABASE_URL'] else 'Not set'}")
     
     # Time tracking for restart cooldown
     last_bot_restart = 0
@@ -235,6 +277,9 @@ def monitor_processes():
 
 if __name__ == "__main__":
     logger.info("Starting combined services...")
+    
+    # Make sure we have a bot token
+    ensure_bot_token()
     
     # Start the bot
     bot_proc = start_bot()
