@@ -11,19 +11,27 @@ import logging
 import traceback
 import subprocess
 from datetime import datetime
+import asyncio
 
 # Налаштування логування
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    datefmt='%Y-%m-%d %H:%M:%S'
+    datefmt='%Y-%m-%d %H:%M:%S',
+    filename='bot_logs.txt',
+    filemode='a'
 )
-logger = logging.getLogger('bot_launcher')
+logger = logging.getLogger('run_bot')
 
 # Ініціалізація Django
 import django
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'core.settings')
-django.setup()
+try:
+    django.setup()
+    logger.info("Django successfully initialized")
+except Exception as e:
+    logger.error(f"Error initializing Django: {e}")
+    logger.error(traceback.format_exc())
 
 # Імпорт моделей Django
 from admin_panel.models import BotSettings
@@ -102,7 +110,6 @@ def check_bot_token():
 def validate_bot_token():
     """Validates that the bot token is valid by attempting to connect to the Telegram API"""
     try:
-        import asyncio
         from aiogram import Bot
         
         async def check_token():
@@ -277,5 +284,83 @@ def main():
         except KeyboardInterrupt:
             break
 
+# Try to import with retry logic
+max_retries = 3
+retry_delay = 2  # seconds
+
+def import_with_retry(max_attempts=max_retries, delay=retry_delay):
+    """Import bot modules with retry logic"""
+    attempt = 0
+    last_error = None
+    
+    while attempt < max_attempts:
+        try:
+            from tg_bot.bot import main, bot, dp
+            from aiogram.types import BotCommand, BotCommandScopeDefault
+            return main, bot, dp, BotCommand, BotCommandScopeDefault
+        except Exception as e:
+            attempt += 1
+            last_error = e
+            logger.warning(f"Import attempt {attempt} failed: {e}")
+            time.sleep(delay)
+    
+    # If we get here, all attempts failed
+    logger.error(f"Failed to import bot modules after {max_attempts} attempts. Last error: {last_error}")
+    raise last_error
+
+async def setup_bot_commands(bot, commands_list):
+    """Set up bot commands with retry logic"""
+    max_attempts = 3
+    attempt = 0
+    
+    while attempt < max_attempts:
+        try:
+            await bot.set_my_commands(commands=commands_list, scope=BotCommandScopeDefault())
+            logger.info("Bot commands successfully set up")
+            return True
+        except Exception as e:
+            attempt += 1
+            logger.warning(f"Failed to set bot commands attempt {attempt}: {e}")
+            if attempt < max_attempts:
+                time.sleep(2)
+    
+    logger.error(f"Failed to set bot commands after {max_attempts} attempts")
+    return False
+
+async def run():
+    try:
+        # Import main function with retry
+        main, bot, dp, BotCommand, BotCommandScopeDefault = import_with_retry()
+        
+        # Set up default commands
+        commands = [
+            BotCommand(command="start", description="Start the bot and show main menu"),
+            BotCommand(command="menu", description="Show the main menu"),
+            BotCommand(command="help", description="Show help information"),
+            BotCommand(command="authorize", description="Start authorization process")
+        ]
+        
+        try:
+            await setup_bot_commands(bot, commands)
+        except Exception as cmd_error:
+            logger.error(f"Error setting bot commands: {cmd_error}")
+        
+        # Run the bot
+        logger.info("Starting the bot")
+        await main()
+    except Exception as e:
+        logger.error(f"Error in run_bot.py: {e}")
+        logger.error(traceback.format_exc())
+        if "Bad Request: can't parse entities" in str(e):
+            logger.error("Possible message formatting issue. Check message text for valid markup.")
+        raise
+
 if __name__ == "__main__":
-    main() 
+    try:
+        asyncio.run(run())
+    except KeyboardInterrupt:
+        logger.info("Bot stopped by keyboard interrupt")
+    except Exception as e:
+        logger.error(f"Unhandled exception in run_bot.py: {e}")
+        logger.error(traceback.format_exc())
+        sys.exit(1) 

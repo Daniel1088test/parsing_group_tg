@@ -62,12 +62,9 @@ RUN chmod +x migrate-railway.py run_bot.py run_parser.py start-railway.sh run.py
 # Test database connectivity before starting
 RUN echo "Testing database connection during build..." && \
     python -c "import sys; \
-    try: \
-        import psycopg2; \
-        print('✓ psycopg2 is properly installed'); \
-    except ImportError: \
-        print('✗ psycopg2 import failed!'); \
-        sys.exit(1);" || \
+import psycopg2; \
+print('✓ psycopg2 is properly installed'); \
+" || \
     echo "Warning: psycopg2 test failed, but continuing build"
 
 # Run the application

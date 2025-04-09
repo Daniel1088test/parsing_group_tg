@@ -41,11 +41,33 @@ pip install psycopg2-binary==2.9.9 --no-cache-dir
 
 # Test database connection properly
 echo "Testing database connection..."
-python -c "import os, sys; try: import psycopg2; db_url = os.environ.get('DATABASE_URL'); print('✓ psycopg2 is properly installed'); conn = psycopg2.connect(db_url) if db_url else None; cursor = conn.cursor() if conn else None; cursor.execute('SELECT 1') if cursor else None; print('✓ Database connection successful') if cursor else print('⚠️ No DATABASE_URL provided'); cursor.close() if cursor else None; conn.close() if conn else None; except Exception as e: print(f'✗ Database error: {e}'); sys.exit(1);" || echo "Warning: Database test failed, but continuing"
+python -c "
+import os, sys
+try:
+    import psycopg2
+    print('✓ psycopg2 is properly installed')
+    db_url = os.environ.get('DATABASE_URL')
+    if db_url:
+        conn = psycopg2.connect(db_url)
+        cursor = conn.cursor()
+        cursor.execute('SELECT 1')
+        print('✓ Database connection successful')
+        cursor.close()
+        conn.close()
+    else:
+        print('⚠️ No DATABASE_URL provided')
+except Exception as e:
+    print(f'✗ Database error: {e}')
+    sys.exit(1)
+" || echo "Warning: Database test failed, but continuing"
 
 # Run enhanced migration script for Railway
 echo "Running migrations with enhanced error handling..."
 python migrate-railway.py
+
+# Force database migrations
+echo "Ensuring database tables exist..."
+python manage.py migrate --noinput
 
 # Ensure media directories exist
 echo "Ensuring media directories exist..."
