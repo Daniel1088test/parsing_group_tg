@@ -193,6 +193,14 @@ def main():
     logger.info("Checking and installing dependencies...")
     check_and_install_dependencies()
     
+    # Fix model fields (comprehensive fix)
+    try:
+        logger.info("Fixing all model fields...")
+        import fix_multiple_fields
+        fix_multiple_fields.main()
+    except Exception as e:
+        logger.error(f"Error fixing model fields: {e}")
+    
     # Check token
     try:
         logger.info("Checking bot token...")
@@ -202,22 +210,6 @@ def main():
             logger.warning("Could not validate any bot token, but continuing anyway")
     except Exception as e:
         logger.error(f"Error checking token: {e}")
-    
-    # Fix TelegramSession model
-    try:
-        logger.info("Fixing TelegramSession model...")
-        import fix_session_migration
-        fix_session_migration.main()
-    except Exception as e:
-        logger.error(f"Error fixing TelegramSession model: {e}")
-    
-    # Fix admin queries
-    try:
-        logger.info("Fixing admin queries...")
-        import fix_admin_query
-        fix_admin_query.main()
-    except Exception as e:
-        logger.error(f"Error fixing admin queries: {e}")
     
     # Check database
     logger.info("Checking database...")

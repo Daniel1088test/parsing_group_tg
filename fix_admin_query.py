@@ -40,37 +40,59 @@ def fix_channel_session_query():
                     SELECT 1 
                     FROM information_schema.tables 
                     WHERE table_name = 'admin_panel_channel' 
-                    AND table_name = 'admin_panel_telegramsession'
                 """)
                 if not cursor.fetchone():
-                    logger.warning("Required tables don't exist yet. Skipping relationship fix.")
+                    logger.warning("Channel table doesn't exist yet. Skipping relationship fix.")
+                    return True
+                
+                cursor.execute("""
+                    SELECT 1 
+                    FROM information_schema.tables 
+                    WHERE table_name = 'admin_panel_telegramsession'
+                """)
+                if not cursor.fetchone():
+                    logger.warning("TelegramSession table doesn't exist yet. Skipping relationship fix.")
                     return True
             except Exception as e:
                 logger.warning(f"Error checking tables: {e}")
-                # Continue anyway
+                # Continue anyway since this might be a SQLite database that doesn't support this query
             
-            # Get channel session IDs that don't have corresponding TelegramSession
+            # Try a simpler approach that works in both PostgreSQL and SQLite
             try:
-                cursor.execute("""
-                    SELECT c.id, c.session_id 
-                    FROM admin_panel_channel c
-                    LEFT JOIN admin_panel_telegramsession t ON c.session_id = t.id
-                    WHERE c.session_id IS NOT NULL AND t.id IS NULL
-                """)
-                invalid_sessions = cursor.fetchall()
+                # Check if the session_id column exists in the channel table
+                try:
+                    cursor.execute("SELECT session_id FROM admin_panel_channel LIMIT 1")
+                except Exception as column_error:
+                    logger.warning(f"session_id column doesn't exist in Channel model: {column_error}")
+                    return True
                 
-                # Set those session_id values to NULL
-                if invalid_sessions:
-                    logger.info(f"Found {len(invalid_sessions)} channels with invalid session_id values")
-                    for channel_id, session_id in invalid_sessions:
-                        try:
-                            cursor.execute(
-                                "UPDATE admin_panel_channel SET session_id = NULL WHERE id = %s",
-                                [channel_id]
-                            )
-                            logger.info(f"Fixed channel {channel_id} (invalid session_id {session_id})")
-                        except Exception as update_error:
-                            logger.error(f"Error updating channel {channel_id}: {update_error}")
+                # Get all channel session_id values
+                cursor.execute("SELECT id, session_id FROM admin_panel_channel WHERE session_id IS NOT NULL")
+                channels_with_sessions = cursor.fetchall()
+                
+                if not channels_with_sessions:
+                    logger.info("No channels with assigned sessions found")
+                    return True
+                
+                # Get all session IDs
+                cursor.execute("SELECT id FROM admin_panel_telegramsession")
+                valid_session_ids = [row[0] for row in cursor.fetchall()]
+                
+                # Find channels with invalid session IDs
+                invalid_channels = []
+                for channel_id, session_id in channels_with_sessions:
+                    if session_id not in valid_session_ids:
+                        invalid_channels.append((channel_id, session_id))
+                
+                # Fix invalid references
+                if invalid_channels:
+                    logger.info(f"Found {len(invalid_channels)} channels with invalid session_id values")
+                    for channel_id, session_id in invalid_channels:
+                        cursor.execute(
+                            "UPDATE admin_panel_channel SET session_id = NULL WHERE id = ?",
+                            [channel_id]
+                        )
+                        logger.info(f"Fixed channel {channel_id} (invalid session_id {session_id})")
                 else:
                     logger.info("No channels with invalid session_id values found")
             except Exception as e:

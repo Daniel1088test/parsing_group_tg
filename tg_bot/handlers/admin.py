@@ -158,7 +158,17 @@ async def channel_callback_handler(call: types.CallbackQuery, channels_data: dic
         # Get all channels to update the keyboard
         @sync_to_async
         def get_all_channels_with_session():
-            return list(Channel.objects.select_related('session').all())
+            try:
+                # Try with select_related including session
+                try:
+                    return list(Channel.objects.select_related('session').all())
+                except Exception as e:
+                    logger.error(f"Error fetching channels with sessions: {e}")
+                    # Fallback without select_related
+                    return list(Channel.objects.all())
+            except Exception as e:
+                logger.error(f"Error fetching channels: {e}")
+                return []
         
         channels = await get_all_channels_with_session()
         
@@ -188,18 +198,47 @@ async def edit_channel_start(call: types.CallbackQuery, state: FSMContext, chann
     @sync_to_async
     def get_channel_by_id_with_data(channel_id):
         try:
-            channel = Channel.objects.select_related('session', 'category').get(id=channel_id)
-            return {
+            try:
+                # Try with select_related first
+                channel = Channel.objects.select_related('session', 'category').get(id=channel_id)
+            except Exception as e:
+                logger.error(f"Error getting channel with select_related: {e}")
+                # Fallback to basic query without select_related
+                channel = Channel.objects.get(id=channel_id)
+            
+            # Build channel data with safe access to related objects
+            data = {
                 "id": channel.id,
                 "name": channel.name,
                 "url": channel.url,
                 "category_id": channel.category_id,
-                "category_name": channel.category.name if channel.category else None,
+                "category_name": None,  # Default value
                 "is_active": channel.is_active,
-                "session_id": channel.session.id if channel.session else None,
-                "session_phone": channel.session.phone if channel.session else None
+                "session_id": None,     # Default value
+                "session_phone": None   # Default value
             }
+            
+            # Safely get category name
+            try:
+                if hasattr(channel, 'category') and channel.category:
+                    data["category_name"] = channel.category.name
+            except Exception as cat_err:
+                logger.error(f"Error accessing category name: {cat_err}")
+            
+            # Safely get session info
+            try:
+                if hasattr(channel, 'session') and channel.session:
+                    data["session_id"] = channel.session.id
+                    data["session_phone"] = channel.session.phone
+            except Exception as sess_err:
+                logger.error(f"Error accessing session info: {sess_err}")
+            
+            return data
         except Channel.DoesNotExist:
+            logger.error(f"Channel with ID {channel_id} does not exist")
+            return None
+        except Exception as e:
+            logger.error(f"Error getting channel data: {e}")
             return None
     
     channel_data = await get_channel_by_id_with_data(channel_id)
@@ -259,7 +298,17 @@ async def process_edit_channel_name(message: types.Message, state: FSMContext):
     # Get categories with session info asynchronously
     @sync_to_async
     def get_ordered_categories_with_session():
-        return list(Category.objects.select_related('session').all().order_by('id'))
+        try:
+            # First try with select_related including session
+            try:
+                return list(Category.objects.select_related('session').all().order_by('id'))
+            except Exception as e:
+                logger.error(f"Error fetching categories with session: {e}")
+                # Fallback without select_related
+                return list(Category.objects.all().order_by('id'))
+        except Exception as e:
+            logger.error(f"Error fetching categories: {e}")
+            return []
     
     categories = await get_ordered_categories_with_session()
     user_data = await state.get_data()
@@ -332,7 +381,18 @@ async def process_edit_channel_category(message: types.Message, state: FSMContex
     # Get available sessions for selection
     @sync_to_async
     def get_active_sessions():
-        return list(TelegramSession.objects.filter(is_active=True).order_by('phone'))
+        try:
+            # Try to filter active sessions
+            try:
+                # Safely handle fields that might be missing
+                return list(TelegramSession.objects.filter(is_active=True).order_by('phone'))
+            except Exception as field_error:
+                logger.error(f"Error filtering active sessions: {field_error}")
+                # Fallback to all sessions
+                return list(TelegramSession.objects.all().order_by('phone'))
+        except Exception as e:
+            logger.error(f"Error fetching sessions: {e}")
+            return []
     
     # Get current session info
     @sync_to_async
@@ -479,7 +539,17 @@ async def update_channel_with_data(message: types.Message, state: FSMContext, ch
         # Get all channels to update the keyboard
         @sync_to_async
         def get_all_channels_with_session():
-            return list(Channel.objects.select_related('session').all())
+            try:
+                # Try with select_related including session
+                try:
+                    return list(Channel.objects.select_related('session').all())
+                except Exception as e:
+                    logger.error(f"Error fetching channels with sessions: {e}")
+                    # Fallback without select_related
+                    return list(Channel.objects.all())
+            except Exception as e:
+                logger.error(f"Error fetching channels: {e}")
+                return []
         
         channels = await get_all_channels_with_session()
         
@@ -519,13 +589,34 @@ async def category_callback_handler(call: types.CallbackQuery, channels_data: di
     @sync_to_async
     def get_category_info(category_id):
         try:
-            category = Category.objects.select_related('session').get(id=category_id)
-            return {
+            try:
+                # Try with select_related first
+                category = Category.objects.select_related('session').get(id=category_id)
+            except Exception as e:
+                logger.error(f"Error fetching category with select_related: {e}")
+                # Fallback to basic query
+                category = Category.objects.get(id=category_id)
+            
+            # Build info dict with safe access to session
+            info = {
                 'name': category.name,
-                'session': category.session.phone if category.session else None
+                'session': None  # Default value
             }
+            
+            # Safely get session info if available
+            try:
+                if hasattr(category, 'session') and category.session:
+                    info['session'] = category.session.phone
+            except Exception as sess_err:
+                logger.error(f"Error accessing session for category {category_id}: {sess_err}")
+            
+            return info
         except Category.DoesNotExist:
+            logger.warning(f"Category with ID {category_id} not found")
             return {'name': "Unknown category", 'session': None}
+        except Exception as e:
+            logger.error(f"Error getting category info for ID {category_id}: {e}")
+            return {'name': "Error", 'session': None}
     
     category_info = await get_category_info(category_id)
     
@@ -589,10 +680,20 @@ async def manage_categories(message: types.Message, channels_data: dict):
     """
     # Get categories with session info
     @sync_to_async
-    def get_categories_with_sessions():
-        return list(Category.objects.select_related('session').all().order_by('id'))
+    def get_ordered_categories_with_session():
+        try:
+            # First try with select_related including session
+            try:
+                return list(Category.objects.select_related('session').all().order_by('id'))
+            except Exception as e:
+                logger.error(f"Error fetching categories with session: {e}")
+                # Fallback without select_related
+                return list(Category.objects.all().order_by('id'))
+        except Exception as e:
+            logger.error(f"Error fetching categories: {e}")
+            return []
     
-    categories = await get_categories_with_sessions()
+    categories = await get_ordered_categories_with_session()
     keyboard = await prepare_categories_keyboard(channels_data, categories)
     
     await message.answer("Select a category (🔑 indicates categories with linked session):", 
@@ -654,7 +755,18 @@ async def process_edit_category_name(message: types.Message, state: FSMContext, 
     # Get available sessions for selection
     @sync_to_async
     def get_active_sessions():
-        return list(TelegramSession.objects.filter(is_active=True).order_by('phone'))
+        try:
+            # Try to filter active sessions
+            try:
+                # Safely handle fields that might be missing
+                return list(TelegramSession.objects.filter(is_active=True).order_by('phone'))
+            except Exception as field_error:
+                logger.error(f"Error filtering active sessions: {field_error}")
+                # Fallback to all sessions
+                return list(TelegramSession.objects.all().order_by('phone'))
+        except Exception as e:
+            logger.error(f"Error fetching sessions: {e}")
+            return []
     
     # Get current session info
     @sync_to_async
@@ -909,8 +1021,19 @@ async def process_channel_category(message: types.Message, state: FSMContext, ch
     # Get available sessions for selection
     @sync_to_async
     def get_active_sessions():
-        return list(TelegramSession.objects.filter(is_active=True).order_by('phone'))
-        
+        try:
+            # Try to filter active sessions
+            try:
+                # Safely handle fields that might be missing
+                return list(TelegramSession.objects.filter(is_active=True).order_by('phone'))
+            except Exception as field_error:
+                logger.error(f"Error filtering active sessions: {field_error}")
+                # Fallback to all sessions
+                return list(TelegramSession.objects.all().order_by('phone'))
+        except Exception as e:
+            logger.error(f"Error fetching sessions: {e}")
+            return []
+    
     sessions = await get_active_sessions()
     
     if sessions:
@@ -1015,7 +1138,17 @@ async def create_channel_with_data(message: types.Message, state: FSMContext, ch
     # Get channels with session preloaded for keyboard
     @sync_to_async
     def get_all_channels_with_session():
-        return list(Channel.objects.select_related('session').all())
+        try:
+            # Try with select_related including session
+            try:
+                return list(Channel.objects.select_related('session').all())
+            except Exception as e:
+                logger.error(f"Error fetching channels with sessions: {e}")
+                # Fallback without select_related
+                return list(Channel.objects.all())
+        except Exception as e:
+            logger.error(f"Error fetching channels: {e}")
+            return []
 
     result = await create_channel_in_db(channel_name, channel_link, category_id, session_id)
     channel, category, session_info = result
@@ -1120,7 +1253,17 @@ async def process_remove_channel_input(message: types.Message, state: FSMContext
     # get the updated list of channels
     @sync_to_async
     def get_all_channels_with_session():
-        return list(Channel.objects.select_related('session').all())
+        try:
+            # Try with select_related including session
+            try:
+                return list(Channel.objects.select_related('session').all())
+            except Exception as e:
+                logger.error(f"Error fetching channels with sessions: {e}")
+                # Fallback without select_related
+                return list(Channel.objects.all())
+        except Exception as e:
+            logger.error(f"Error fetching channels: {e}")
+            return []
     
     channels = await get_all_channels_with_session()
     keyboard = await prepare_channels_keyboard(channels)

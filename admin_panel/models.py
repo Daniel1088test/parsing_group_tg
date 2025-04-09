@@ -49,17 +49,18 @@ class TelegramSession(models.Model):
     password = models.CharField(max_length=255, blank=True, null=True)
     session_data = models.TextField(blank=True, null=True, help_text="Encoded session data for persistent storage")
     auth_token = models.CharField(max_length=255, blank=True, null=True, help_text="Token for authorizing this session via bot")
-    needs_auth = models.BooleanField(default=True, help_text="Indicates if this session needs manual authentication")
+    username = models.CharField(max_length=255, blank=True, null=True)
+    phone_code_hash = models.CharField(max_length=255, blank=True, null=True)
+    needs_auth = models.BooleanField(default=True, help_text="Indicates if this session needs to be authorized")
     session_file = models.CharField(max_length=255, blank=True, null=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
-    last_activity = models.DateTimeField(auto_now=True, verbose_name="Останні зміни")
     
     def __str__(self):
         status = "Active" if self.is_active else "Inactive"
         auth_status = " (Needs Auth)" if self.needs_auth else ""
         auth_status = " (Authorized)" if self.is_authorized else auth_status
-        return f"{self.phone} - {status}{auth_status} {'(Бот)' if self.is_bot else ''}"
+        return f"{self.phone} - {status}{auth_status} {'(Bot)' if self.is_bot else ''}"
     
     class Meta:
         verbose_name = "Telegram сесія"

@@ -6,6 +6,7 @@ import os
 import sys
 import django
 import logging
+import traceback
 
 # Configure logging
 logging.basicConfig(
@@ -23,40 +24,59 @@ from django.db import connection
 from django.db.utils import ProgrammingError, OperationalError
 
 def fix_session_table():
-    """Add is_authorized field to TelegramSession model"""
+    """Add missing fields to TelegramSession model"""
     with connection.cursor() as cursor:
         try:
-            # Check if field exists
+            # Check if is_authorized field exists
             try:
                 cursor.execute("SELECT is_authorized FROM admin_panel_telegramsession LIMIT 1")
-                logger.info("is_authorized field already exists, no action needed")
-                return True
+                logger.info("is_authorized field already exists")
             except (ProgrammingError, OperationalError) as e:
-                logger.info(f"Field does not exist: {e}")
-                pass
-            
-            # Add the field
-            logger.info("Adding is_authorized field to admin_panel_telegramsession table...")
-            
-            # PostgreSQL syntax
-            try:
-                cursor.execute("ALTER TABLE admin_panel_telegramsession ADD COLUMN is_authorized BOOLEAN DEFAULT FALSE")
-                logger.info("Successfully added field using PostgreSQL syntax")
-                return True
-            except Exception as pg_e:
-                logger.warning(f"PostgreSQL ALTER failed: {pg_e}")
+                logger.info(f"Field is_authorized does not exist: {e}")
+                # Add the field
+                logger.info("Adding is_authorized field to admin_panel_telegramsession table...")
                 
-                # SQLite syntax
+                # PostgreSQL syntax
                 try:
-                    cursor.execute("ALTER TABLE admin_panel_telegramsession ADD COLUMN is_authorized BOOLEAN DEFAULT 0")
-                    logger.info("Successfully added field using SQLite syntax")
-                    return True
-                except Exception as sqlite_e:
-                    logger.error(f"SQLite ALTER failed: {sqlite_e}")
+                    cursor.execute("ALTER TABLE admin_panel_telegramsession ADD COLUMN is_authorized BOOLEAN DEFAULT FALSE")
+                    logger.info("Successfully added is_authorized field using PostgreSQL syntax")
+                except Exception as pg_e:
+                    logger.warning(f"PostgreSQL ALTER failed for is_authorized: {pg_e}")
                     
-            return False
+                    # SQLite syntax
+                    try:
+                        cursor.execute("ALTER TABLE admin_panel_telegramsession ADD COLUMN is_authorized BOOLEAN DEFAULT 0")
+                        logger.info("Successfully added is_authorized field using SQLite syntax")
+                    except Exception as sqlite_e:
+                        logger.error(f"SQLite ALTER failed for is_authorized: {sqlite_e}")
+            
+            # Check if last_activity field exists
+            try:
+                cursor.execute("SELECT last_activity FROM admin_panel_telegramsession LIMIT 1")
+                logger.info("last_activity field already exists")
+            except (ProgrammingError, OperationalError) as e:
+                logger.info(f"Field last_activity does not exist: {e}")
+                # Add the field
+                logger.info("Adding last_activity field to admin_panel_telegramsession table...")
+                
+                # PostgreSQL syntax
+                try:
+                    cursor.execute("ALTER TABLE admin_panel_telegramsession ADD COLUMN last_activity TIMESTAMP WITH TIME ZONE DEFAULT NOW()")
+                    logger.info("Successfully added last_activity field using PostgreSQL syntax")
+                except Exception as pg_e:
+                    logger.warning(f"PostgreSQL ALTER failed for last_activity: {pg_e}")
+                    
+                    # SQLite syntax
+                    try:
+                        cursor.execute("ALTER TABLE admin_panel_telegramsession ADD COLUMN last_activity TIMESTAMP DEFAULT CURRENT_TIMESTAMP")
+                        logger.info("Successfully added last_activity field using SQLite syntax")
+                    except Exception as sqlite_e:
+                        logger.error(f"SQLite ALTER failed for last_activity: {sqlite_e}")
+            
+            return True
         except Exception as e:
             logger.error(f"Error fixing session table: {e}")
+            logger.error(traceback.format_exc())
             return False
 
 def create_migration_file():
