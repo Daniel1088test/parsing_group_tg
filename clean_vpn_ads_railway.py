@@ -145,7 +145,7 @@ def update_bot_token():
     """Оновлює токен бота в усіх необхідних місцях"""
     # Новий токен бота
     new_token = "8102516142:AAFTsVXXujHHKoX2KZGqZXBHPBznfgh7kg0"
-    new_username = "chan_parsing_mon_bot"
+    new_username = "channel_pars_mode_bot"
     
     try:
         # 1. Оновлюємо в базі даних
