@@ -111,7 +111,7 @@ def fix_migrations():
                 logger.info("Applying direct SQL fixes to database structure...")
                 try:
                     cursor.execute("""
-                    DO $$
+                    DO
                     BEGIN
                         BEGIN
                             ALTER TABLE admin_panel_telegramsession DROP COLUMN IF EXISTS needs_auth;
@@ -156,8 +156,7 @@ def fix_migrations():
                         EXCEPTION WHEN duplicate_column THEN
                             RAISE NOTICE 'Column default_api_hash already exists';
                         END;
-                    END
-                    $$;
+                    END;
                     """)
                     logger.info("Direct SQL structure fixes completed")
                 except Exception as e:

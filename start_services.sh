@@ -85,74 +85,65 @@ except Exception as e:
 echo "Running database fixes..."
 python -c "
 import os
-import django
 import sys
+import django
+import traceback
+from django.db import connection
 
-# Setup Django with explicit PostgreSQL settings
+# Setup Django
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'core.settings')
-os.environ['PGHOST'] = 'postgres.railway.internal'
-os.environ['PGPORT'] = '5432'
-os.environ['PGUSER'] = 'postgres'
-os.environ['PGPASSWORD'] = 'urCNhXdwvbqOvvEsJDffIiDUMcLhAvcs'
-os.environ['PGDATABASE'] = 'railway'
-os.environ['DATABASE_URL'] = 'postgresql://postgres:urCNhXdwvbqOvvEsJDffIiDUMcLhAvcs@postgres.railway.internal:5432/railway'
-
 django.setup()
 
-# Fix database issues
-from django.db import connection
 from django.conf import settings
-
 print(f'Using database: {settings.DATABASES[\"default\"][\"ENGINE\"]}')
 
-# Add missing columns
+# Get cursor
+cursor = connection.cursor()
+
 try:
-    with connection.cursor() as cursor:
-        # BotSettings fixes - using direct SQL execution with proper syntax
-        cursor.execute('''
-        DO $$
+    # Apply fixed syntax for PostgreSQL DO block
+    cursor.execute(\"\"\"
+    DO
+    $$
+    BEGIN
         BEGIN
-            BEGIN
-                ALTER TABLE admin_panel_botsettings 
-                ADD COLUMN IF NOT EXISTS bot_username VARCHAR(255);
-            EXCEPTION WHEN duplicate_column THEN
-                RAISE NOTICE 'Column bot_username already exists';
-            END;
-            
-            BEGIN
-                ALTER TABLE admin_panel_telegramsession 
-                ADD COLUMN IF NOT EXISTS needs_auth BOOLEAN DEFAULT TRUE;
-            EXCEPTION WHEN duplicate_column THEN
-                RAISE NOTICE 'Column needs_auth already exists';
-            END;
-            
-            BEGIN
-                ALTER TABLE admin_panel_telegramsession 
-                ADD COLUMN IF NOT EXISTS auth_token VARCHAR(255);
-            EXCEPTION WHEN duplicate_column THEN
-                RAISE NOTICE 'Column auth_token already exists';
-            END;
-        END
-        $$;
-        ''')
-        print('✅ Database structure fixed')
+            ALTER TABLE admin_panel_telegramsession DROP COLUMN IF EXISTS needs_auth;
+        EXCEPTION WHEN undefined_column THEN
+            RAISE NOTICE 'Column needs_auth does not exist, skipping';
+        END;
         
-        # Check for BotSettings entry
-        if 'admin_panel_botsettings' in connection.introspection.table_names():
-            cursor.execute('SELECT COUNT(*) FROM admin_panel_botsettings')
-            count = cursor.fetchone()[0]
-            if count == 0:
-                print('Adding default BotSettings record')
-                cursor.execute('''
-                INSERT INTO admin_panel_botsettings 
-                (bot_token, bot_username, bot_name) 
-                VALUES (%s, %s, %s)
-                ''', ['7923260865:AAGYew9JnOJV6hz0LGeRCb1kS6AejHoX61g', 'Channels_hunt_bot', 'Channel Hunt Bot'])
-                print('✅ Added default BotSettings')
+        BEGIN
+            ALTER TABLE admin_panel_telegramsession ADD COLUMN IF NOT EXISTS needs_auth BOOLEAN DEFAULT TRUE;
+        EXCEPTION WHEN duplicate_column THEN
+            RAISE NOTICE 'Column needs_auth already exists';
+        END;
+        
+        BEGIN
+            ALTER TABLE admin_panel_telegramsession ADD COLUMN IF NOT EXISTS auth_token VARCHAR(255) DEFAULT NULL;
+        EXCEPTION WHEN duplicate_column THEN
+            RAISE NOTICE 'Column auth_token already exists';
+        END;
+        
+        -- Fix BotSettings table
+        BEGIN
+            ALTER TABLE admin_panel_botsettings ADD COLUMN IF NOT EXISTS bot_username VARCHAR(255) NULL;
+        EXCEPTION WHEN duplicate_column THEN
+            RAISE NOTICE 'Column bot_username already exists';
+        END;
+        
+        BEGIN
+            ALTER TABLE admin_panel_botsettings ADD COLUMN IF NOT EXISTS bot_name VARCHAR(255) NULL;
+        EXCEPTION WHEN duplicate_column THEN
+            RAISE NOTICE 'Column bot_name already exists';
+        END;
+    END
+    $$;
+    \"\"\")
+    print('✅ Direct SQL fixes applied successfully')
 except Exception as e:
-    print(f'⚠️ Database fix error: {e}')
+    print(f'⚠️ Database fix error: {str(e)}')
     print('Will continue with startup')
-" || echo "Database fix script failed, continuing anyway"
+" || echo "SQL fix attempted with Python"
 
 # 6. Run migrations
 echo "Running migrations..."

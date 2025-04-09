@@ -326,6 +326,10 @@ urlpatterns = [
     path('ping/', simple_health_check),
     path('health.html', simple_health_check),  # Add direct root health.html handling
     path('healthz.html', simple_health_check),  # Add direct root healthz.html handling
+    # Add direct checks for Railway at the root path (higher priority)
+    re_path(r'^/?$', lambda r: HttpResponse("OK", content_type="text/plain") if 'healthcheck' in r.GET else HttpResponse("Admin Panel", status=302, headers={"Location": "/admin_panel/"})),
+    re_path(r'^/_health/?$', simple_health_check),  # Railway may use this path
+    re_path(r'^/health/?$', simple_health_check),  # Alternative format
     path('api/bot/status/', simple_bot_status),
     path('media/<path:path>', simple_serve_media),
     

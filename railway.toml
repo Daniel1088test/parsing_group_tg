@@ -1,13 +1,29 @@
 [build]
 builder = "NIXPACKS"
-buildCommand = "chmod +x railway_fix.sh railway_health.py start_services.sh direct_bot_runner.py railway_direct_health.py && python manage.py collectstatic --noinput"
+buildCommand = "echo 'Building application...'"
 
 [deploy]
 startCommand = "bash start_services.sh"
 healthcheckPath = "/health.html"
 healthcheckTimeout = 300
 restartPolicyType = "ON_FAILURE"
-healthcheckInterval = 5
+restartPolicyMaxRetries = 5
+
+[metrics]
+port = 3000
+path = "/metrics"
+
+[[services]]
+name = "web"
+port = 8080
+protocol = "http"
+internal = false
+
+[[services]]
+name = "health"
+port = 3000
+protocol = "http"
+internal = false
 
 [phases.setup]
 nixPkgs = ["python311", "postgresql", "gcc", "lsof", "netcat", "procps"] 

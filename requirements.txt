@@ -1,12 +1,12 @@
 # Django and REST Framework
-Django==4.2.10
+Django>=5.0.1
 djangorestframework==3.14.0
 django-cors-headers==4.3.1
 django-filter==23.5
 dj-database-url==2.3.0
 
 # Database - Ensure psycopg2 is installed
-psycopg2-binary==2.9.9
+psycopg2-binary>=2.9.9
 psycopg2==2.9.9  # Add regular psycopg2 as well in case binary doesn't work
 
 # Telegram API
@@ -15,12 +15,12 @@ python-telegram-bot==20.7
 cryptg==0.4.0  # TGCrypto alternative, helps with faster downloads
 
 # Web server and deployment
-gunicorn==21.2.0
-whitenoise==6.6.0
+gunicorn>=21.2.0
+whitenoise>=6.6.0
 
 # Utilities
 Pillow==10.1.0
-python-dotenv==1.0.0
+python-dotenv>=1.0.0
 requests>=2.0.0
 urllib3==2.0.7
 asgiref==3.7.2
@@ -37,7 +37,7 @@ pytz==2023.3
 aiofiles~=23.2.1
 aiogram==3.2.0
 aiohappyeyeballs==2.6.1
-aiohttp==3.11.14
+aiohttp==3.9.1
 aiosignal==1.3.2
 annotated-types==0.7.0
 attrs==25.3.0
@@ -81,3 +81,5 @@ django-csp==3.7
 # Removing problematic gevent and using alternative packages
 # gevent==22.10.2 - Incompatible with Python 3.12
 eventlet==0.35.2
+
+telethon>=1.34.0
