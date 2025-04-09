@@ -73,6 +73,15 @@ def run_bot():
         # First try running tg_bot/bot.py directly
         bot_path = os.path.join(os.path.dirname(__file__), 'tg_bot', 'bot.py')
         
+        # Check if BOT_TOKEN is set
+        current_token = os.environ.get('BOT_TOKEN', '')
+        if not current_token or len(current_token) < 30:
+            logger.warning(f"BOT_TOKEN environment variable is either not set or suspiciously short: '{current_token}'")
+            logger.warning("Setting BOT_TOKEN explicitly to the known good token")
+            os.environ['BOT_TOKEN'] = "8102516142:AAFTsVXXujHHKoX2KZGqZXBHPBznfgh7kg0"
+        else:
+            logger.info(f"Using BOT_TOKEN from environment: {current_token[:8]}...")
+        
         if os.path.exists(bot_path):
             logger.info(f"Starting bot using {bot_path}")
             import importlib.util
@@ -183,6 +192,16 @@ def main():
     # Check and install dependencies
     logger.info("Checking and installing dependencies...")
     check_and_install_dependencies()
+    
+    # Check token
+    try:
+        logger.info("Checking bot token...")
+        import token_check
+        token_valid = token_check.main()
+        if not token_valid:
+            logger.warning("Could not validate any bot token, but continuing anyway")
+    except Exception as e:
+        logger.error(f"Error checking token: {e}")
     
     # Check database
     logger.info("Checking database...")

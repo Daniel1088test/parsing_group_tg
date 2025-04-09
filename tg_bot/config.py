@@ -28,11 +28,15 @@
 # DATA_FOLDER = os.path.join(BASE_DIR, 'data') # Добавили
 # MESSAGES_FOLDER = os.path.join(DATA_FOLDER, 'messages') # Добавили
 import os
-API_HASH = "c839f28bad345082329ec086fca021fa"  # Замените на свой API hash!
-API_ID = "19840544"  # Замените на свой API id!
-TOKEN_BOT = "7923260865:AAGWm7t0Zz2PqFPI5PldEVwrOC4HZ_5oP0c"  # Замените на токен своего бота!
-ADMIN_ID = 574349489  # ID адміністратора у форматі числа!
-BOT_USERNAME = "@Channels_hunt_bot"
+
+# Get variables from environment with fallbacks
+API_HASH = os.environ.get('API_HASH', "c839f28bad345082329ec086fca021fa")
+API_ID = os.environ.get('API_ID', "19840544") 
+
+# Use the latest token - make sure this is the correct one!
+TOKEN_BOT = os.environ.get('BOT_TOKEN', "8102516142:AAFTsVXXujHHKoX2KZGqZXBHPBznfgh7kg0")
+ADMIN_ID = int(os.environ.get('ADMIN_ID', "574349489"))
+BOT_USERNAME = os.environ.get('BOT_USERNAME', "chan_parsing_mon_bot")
 # Путь к файлу с данными о каналах
 FILE_JSON = 'file.json'
 
