@@ -1,68 +1,59 @@
+# import os
+# API_HASH = "8981176be8754bcd6dbfdb4d9f499b57"  # Замените на свой API hash!
+# API_ID = "20662346"  # Замените на свой API id!
+# TOKEN_BOT = "7896267673:AAFkPv6ro2aIBnlTgXOmzEKVvLo6TRbw-xI"  # Замените на токен своего бота!
+# ADMIN_ID = 7265248372  # Замените на свой айди!
+# BOT_USERNAME = "@Parsingwordpress_bot"
+# # Путь к файлу с данными о каналах
+# FILE_JSON = 'file.json'
+
+# #yoi=20662346
+# #yoi=8981176be8754bcd6dbfdb4d9f499b57
+
+# # Путь к файлу с категориями
+# CATEGORIES_JSON = 'categories.json'
+
+# # Максимальное количество сообщений в папке data
+# MAX_MESSAGES = 100000
+
+# WEB_SERVER_HOST = "108.181.154.114"
+# WEB_SERVER_PORT = 5432
+# SECRET_KEY = '/QoXhzTJkyhzSKccxR+XV0pf4T2zqLfXzPlSwegi6Cs='  # Секретный ключ для Flask. Сгенерируйте случайную строку!
+# ADMIN_USERNAME = 'Daniel11'  # Логин админа для входа на сайт
+# ADMIN_PASSWORD = '8044$Daniel'  # Пароль админа для входа на сайт
+
+
+# # Папки
+# BASE_DIR = os.path.dirname(__file__) # Добавили
+# DATA_FOLDER = os.path.join(BASE_DIR, 'data') # Добавили
+# MESSAGES_FOLDER = os.path.join(DATA_FOLDER, 'messages') # Добавили
 import os
+API_HASH = "c839f28bad345082329ec086fca021fa"  # Замените на свой API hash!
+API_ID = "19840544"  # Замените на свой API id!
+TOKEN_BOT = "7923260865:AAGWm7t0Zz2PqFPI5PldEVwrOC4HZ_5oP0c"  # Замените на токен своего бота!
+ADMIN_ID = 574349489  # ID адміністратора у форматі числа!
+BOT_USERNAME = "@Channels_hunt_bot"
+# Путь к файлу с данными о каналах
+FILE_JSON = 'file.json'
 
-# Get variables from environment with fallbacks
-API_HASH = os.environ.get('API_HASH', "c839f28bad345082329ec086fca021fa")
-API_ID = os.environ.get('API_ID', "19840544") 
-TOKEN_BOT = os.environ.get('BOT_TOKEN', "8102516142:AAFTsVXXujHHKoX2KZGqZXBHPBznfgh7kg0")
-ADMIN_ID = int(os.environ.get('ADMIN_ID', "574349489"))
-BOT_USERNAME = os.environ.get('BOT_USERNAME', "chan_parsing_mon_bot")
+#yoi=20662346
+#yoi=8981176be8754bcd6dbfdb4d9f499b57
 
-# File paths
-FILE_JSON = 'file.json'  # Channel data file
-CATEGORIES_JSON = 'categories.json'  # Categories file
+# Путь к файлу с категориями
+CATEGORIES_JSON = 'categories.json'
 
-# Message limits
+# Максимальное количество сообщений в папке data
 MAX_MESSAGES = 100000
+# Виправлено формат WEB_SERVER_HOST
+WEB_SERVER_HOST = "127.0.0.1"
+WEB_SERVER_HOST2 = "108.181.154.114"
+WEB_SERVER_PORT = 8000
+SECRET_KEY = '/QoXhzTJkyhzSKccxR+XV0pf4T2zqLfXzPlSwegi6Cs='  # Секретный ключ для Flask. Сгенерируйте случайную строку!
+ADMIN_USERNAME = 'DAndy'  # Логин админа для входа на сайт
+ADMIN_PASSWORD = 'Remoreid19976'  # Пароль админа для входа на сайт
 
-# Server configuration
-WEB_SERVER_HOST = os.environ.get('WEB_SERVER_HOST', "127.0.0.1")  # Internal server host
-WEB_SERVER_PORT = os.environ.get('WEB_SERVER_PORT', "8080")  # Internal server port
-WEB_SERVER_HOST2 = os.environ.get('WEB_SERVER_HOST2', "0.0.0.0")  # Use 0.0.0.0 for Railway binding
 
-# Railway environment variables
-RAILWAY_PUBLIC_DOMAIN = os.environ.get('RAILWAY_PUBLIC_DOMAIN', 'parsinggrouptg-production.up.railway.app')
-RAILWAY_TCP_PROXY_DOMAIN = os.environ.get('RAILWAY_TCP_PROXY_DOMAIN', 'postgres.railway.internal')
-RAILWAY_TCP_PROXY_PORT = os.environ.get('RAILWAY_TCP_PROXY_PORT', '5432')
-
-# Public URL for the bot
-# Default to RAILWAY_PUBLIC_DOMAIN if available, otherwise hardcoded URL
-if os.environ.get('PUBLIC_URL'):
-    PUBLIC_URL = os.environ.get('PUBLIC_URL')
-elif os.environ.get('RAILWAY_STATIC_URL'):
-    PUBLIC_URL = f"https://{os.environ.get('RAILWAY_STATIC_URL')}"
-elif os.environ.get('RAILWAY_PUBLIC_DOMAIN'):
-    PUBLIC_URL = f"https://{os.environ.get('RAILWAY_PUBLIC_DOMAIN')}"
-else:
-    PUBLIC_URL = "https://parsinggrouptg-production.up.railway.app"
-
-# Always ensure URL starts with https://
-if not PUBLIC_URL.startswith('http'):
-    PUBLIC_URL = f"https://{PUBLIC_URL}"
-
-print(f"Bot will use PUBLIC_URL: {PUBLIC_URL}")
-
-# Database configuration from Railway
-DATABASE_URL = os.environ.get('DATABASE_URL', '')
-PGHOST = os.environ.get('PGHOST', 'localhost')  # Changed from postgres.railway.internal
-PGPORT = os.environ.get('PGPORT', '5432')
-PGDATABASE = os.environ.get('PGDATABASE', 'railway')
-PGUSER = os.environ.get('PGUSER', 'postgres')
-PGPASSWORD = os.environ.get('PGPASSWORD', '')
-
-# Check if we're running on Railway
-IS_RAILWAY = os.environ.get('RAILWAY_ENVIRONMENT') is not None or os.environ.get('RAILWAY_SERVICE_NAME') is not None
-
-# Security configuration
-SECRET_KEY = os.environ.get('SECRET_KEY', '/QoXhzTJkyhzSKccxR+XV0pf4T2zqLfXzPlSwegi6Cs=')
-ADMIN_USERNAME = os.environ.get('ADMIN_USERNAME', 'DAndy')
-ADMIN_PASSWORD = os.environ.get('ADMIN_PASSWORD', 'Remoreid19976')
-
-# Directory structure - use absolute paths
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-DATA_FOLDER = os.path.join(BASE_DIR, 'data')
-MESSAGES_FOLDER = os.path.join(DATA_FOLDER, 'messages')
-SESSIONS_DIR = os.path.join(DATA_FOLDER, 'sessions')
-
-# Create necessary directories
-for directory in [DATA_FOLDER, MESSAGES_FOLDER, SESSIONS_DIR]:
-    os.makedirs(directory, exist_ok=True)
+# Папки
+BASE_DIR = os.path.dirname(__file__) # Добавили
+DATA_FOLDER = os.path.join(BASE_DIR, 'data') # Добавили
+MESSAGES_FOLDER = os.path.join(DATA_FOLDER, 'messages') # Добавили

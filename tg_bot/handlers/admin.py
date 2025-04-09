@@ -13,18 +13,16 @@ import logging
 from asgiref.sync import async_to_sync, sync_to_async
 from admin_panel import models
 from admin_panel.models import Channel, Category, TelegramSession
-import traceback
 
 # Налаштування логування
 logger = logging.getLogger('admin_operations')
 
-# Створюємо роутери
-admin_router = Router()
+router = Router()
 
 # create a synchronous function, which we will then wrap in async
 def _create_category(name):
     from admin_panel.models import Category
-    return Category.objects.create(name=name, description='', is_active=True)
+    return Category.objects.create(name=name)
 
 def _get_category_id(name):
     from admin_panel.models import Category
@@ -97,7 +95,7 @@ class SessionLinkStates(StatesGroup):
     waiting_for_session = State()
     waiting_for_category = State()
 
-@admin_router.message(F.text == "📎 List of channels", F.from_user.id == ADMIN_ID)
+@router.message(F.text == "📎 List of channels", F.from_user.id == ADMIN_ID)
 async def manage_channels(message: types.Message, channels_data: dict):
     """
     View the list of channels and manage them
@@ -120,7 +118,7 @@ async def manage_channels(message: types.Message, channels_data: dict):
     keyboard = await prepare_channels_keyboard(channels)
     await message.answer("Select a channel (🔑 indicates channels with linked session):", reply_markup=keyboard)
 
-@admin_router.callback_query(F.data.startswith("channel_"), F.from_user.id == ADMIN_ID)
+@router.callback_query(F.data.startswith("channel_"), F.from_user.id == ADMIN_ID)
 async def channel_callback_handler(call: types.CallbackQuery, channels_data: dict):
     """
     Handler for clicking on the channel button
@@ -169,7 +167,7 @@ async def channel_callback_handler(call: types.CallbackQuery, channels_data: dic
     else:
         await call.answer("Channel not found!")
 
-@admin_router.callback_query(F.data.startswith("edit_channel_"), F.from_user.id == ADMIN_ID)
+@router.callback_query(F.data.startswith("edit_channel_"), F.from_user.id == ADMIN_ID)
 async def edit_channel_start(call: types.CallbackQuery, state: FSMContext, channels_data: dict):
     """
     Start the process of editing a channel
@@ -217,7 +215,7 @@ async def edit_channel_start(call: types.CallbackQuery, state: FSMContext, chann
     else:
         await call.answer("Channel not found!")
 
-@admin_router.message(EditChannelStates.waiting_for_channel_link, F.text, F.from_user.id == ADMIN_ID)
+@router.message(EditChannelStates.waiting_for_channel_link, F.text, F.from_user.id == ADMIN_ID)
 async def process_edit_channel_link(message: types.Message, state: FSMContext):
     """
     get a new channel link
@@ -236,7 +234,7 @@ async def process_edit_channel_link(message: types.Message, state: FSMContext):
     await message.answer("Enter a new channel name or click /skip to leave the current name:")
     await state.set_state(EditChannelStates.waiting_for_channel_name)
 
-@admin_router.message(EditChannelStates.waiting_for_channel_name, F.text, F.from_user.id == ADMIN_ID)
+@router.message(EditChannelStates.waiting_for_channel_name, F.text, F.from_user.id == ADMIN_ID)
 async def process_edit_channel_name(message: types.Message, state: FSMContext):
     """
     get a new channel name
@@ -272,7 +270,7 @@ async def process_edit_channel_name(message: types.Message, state: FSMContext):
     await message.answer(category_text)
     await state.set_state(EditChannelStates.waiting_for_channel_category)
 
-@admin_router.message(EditChannelStates.waiting_for_channel_category, F.text, F.from_user.id == ADMIN_ID)
+@router.message(EditChannelStates.waiting_for_channel_category, F.text, F.from_user.id == ADMIN_ID)
 async def process_edit_channel_category(message: types.Message, state: FSMContext, channels_data: dict):
     """
     get a new channel category and proceed to session selection
@@ -354,7 +352,7 @@ async def process_edit_channel_category(message: types.Message, state: FSMContex
         await message.answer("No active sessions found. The channel will keep its current session setting.")
         await update_channel_with_data(message, state, channels_data, None, True)
 
-@admin_router.message(EditChannelStates.waiting_for_channel_session, F.text, F.from_user.id == ADMIN_ID)
+@router.message(EditChannelStates.waiting_for_channel_session, F.text, F.from_user.id == ADMIN_ID)
 async def process_edit_channel_session(message: types.Message, state: FSMContext, channels_data: dict):
     """
     get the new channel session and save the data
@@ -492,7 +490,7 @@ async def update_channel_with_data(message: types.Message, state: FSMContext, ch
     
     await state.clear()
 
-@admin_router.callback_query(F.data.startswith("category_"), F.from_user.id == ADMIN_ID)
+@router.callback_query(F.data.startswith("category_"), F.from_user.id == ADMIN_ID)
 async def category_callback_handler(call: types.CallbackQuery, channels_data: dict):
     """
     Handler for clicking on the category button
@@ -534,7 +532,7 @@ async def category_callback_handler(call: types.CallbackQuery, channels_data: di
     )
     await call.answer()
 
-@admin_router.callback_query(F.data == "back")
+@router.callback_query(F.data == "back")
 async def handle_back(callback: types.CallbackQuery, state: FSMContext, channels_data: dict = None):
     """
     Universal handler for back button clicks
@@ -573,7 +571,7 @@ async def handle_back(callback: types.CallbackQuery, state: FSMContext, channels
         await callback.message.edit_text("Operation cancelled.")
         await callback.message.answer("Main menu:", reply_markup=main_menu_keyboard)
 
-@admin_router.message(F.text == "📍 Categories menu", F.from_user.id == ADMIN_ID)
+@router.message(F.text == "📍 Categories menu", F.from_user.id == ADMIN_ID)
 async def manage_categories(message: types.Message, channels_data: dict):
     """
     manage the list of categories
@@ -589,7 +587,7 @@ async def manage_categories(message: types.Message, channels_data: dict):
     await message.answer("Select a category (🔑 indicates categories with linked session):", 
                          reply_markup=keyboard)
 
-@admin_router.callback_query(F.data.startswith("edit_category_"), F.from_user.id == ADMIN_ID)
+@router.callback_query(F.data.startswith("edit_category_"), F.from_user.id == ADMIN_ID)
 async def edit_category_start(call: types.CallbackQuery, state: FSMContext):
     """
     start the process of editing a category
@@ -630,7 +628,7 @@ async def edit_category_start(call: types.CallbackQuery, state: FSMContext):
     else:
         await call.answer("Category not found!")
 
-@admin_router.message(EditCategoryStates.waiting_for_category_name, F.text, F.from_user.id == ADMIN_ID)
+@router.message(EditCategoryStates.waiting_for_category_name, F.text, F.from_user.id == ADMIN_ID)
 async def process_edit_category_name(message: types.Message, state: FSMContext, channels_data: dict):
     """
     get a new category name and proceed to session selection
@@ -676,7 +674,7 @@ async def process_edit_category_name(message: types.Message, state: FSMContext, 
         await message.answer("No active sessions found. The category will keep its current session setting.")
         await update_category_with_data(message, state, channels_data, None, True)
 
-@admin_router.message(EditCategoryStates.waiting_for_category_session, F.text, F.from_user.id == ADMIN_ID)
+@router.message(EditCategoryStates.waiting_for_category_session, F.text, F.from_user.id == ADMIN_ID)
 async def process_edit_category_session(message: types.Message, state: FSMContext, channels_data: dict):
     """
     get the new category session and save the data
@@ -797,7 +795,7 @@ async def update_category_with_data(message: types.Message, state: FSMContext, c
     
     await state.clear()
 
-@admin_router.callback_query(F.data == "add_channel", F.from_user.id == ADMIN_ID)
+@router.callback_query(F.data == "add_channel", F.from_user.id == ADMIN_ID)
 async def add_channel_start(call: types.CallbackQuery, state: FSMContext):
     """
     start the process of adding a channel
@@ -806,7 +804,7 @@ async def add_channel_start(call: types.CallbackQuery, state: FSMContext):
     await state.set_state(AddChannelStates.waiting_for_channel_link)
     await call.answer()
 
-@admin_router.message(AddChannelStates.waiting_for_channel_link, F.text, F.from_user.id == ADMIN_ID)
+@router.message(AddChannelStates.waiting_for_channel_link, F.text, F.from_user.id == ADMIN_ID)
 async def process_channel_link(message: types.Message, state: FSMContext, channels_data: dict):
     """
     get a channel link from the user
@@ -826,7 +824,7 @@ async def process_channel_link(message: types.Message, state: FSMContext, channe
     else:
         await message.answer("Incorrect channel link. Enter a link in the format 'https://t.me/username':")
 
-@admin_router.message(AddChannelStates.waiting_for_channel_name, F.text, F.from_user.id == ADMIN_ID)
+@router.message(AddChannelStates.waiting_for_channel_name, F.text, F.from_user.id == ADMIN_ID)
 async def process_channel_name(message: types.Message, state: FSMContext, channels_data: dict):
     """
     get a channel name from the user
@@ -861,7 +859,7 @@ async def process_channel_name(message: types.Message, state: FSMContext, channe
     await message.answer(categories_text)
     await state.set_state(AddChannelStates.waiting_for_channel_category)
 
-@admin_router.message(AddChannelStates.waiting_for_channel_category, F.text, F.from_user.id == ADMIN_ID)
+@router.message(AddChannelStates.waiting_for_channel_category, F.text, F.from_user.id == ADMIN_ID)
 async def process_channel_category(message: types.Message, state: FSMContext, channels_data: dict):
     """
     get the channel category and save the data
@@ -923,7 +921,7 @@ async def process_channel_category(message: types.Message, state: FSMContext, ch
         await message.answer("No active sessions found. The channel will use the default session.")
         await create_channel_with_data(message, state, channels_data, None)
 
-@admin_router.message(AddChannelStates.waiting_for_channel_session, F.text, F.from_user.id == ADMIN_ID)
+@router.message(AddChannelStates.waiting_for_channel_session, F.text, F.from_user.id == ADMIN_ID)
 async def process_channel_session(message: types.Message, state: FSMContext, channels_data: dict):
     """
     get the channel session and save the data
@@ -1032,7 +1030,7 @@ async def prepare_channels_keyboard(channels, category_id=None):
     keyboard = await sync_to_async(get_channels_keyboard)(channels, category_id)
     return keyboard
 
-@admin_router.callback_query(F.data == "remove_channel", F.from_user.id == ADMIN_ID)
+@router.callback_query(F.data == "remove_channel", F.from_user.id == ADMIN_ID)
 async def remove_channel_start(call: types.CallbackQuery, state: FSMContext):
     """
     start the process of deleting a channel
@@ -1066,7 +1064,7 @@ async def remove_channel_start(call: types.CallbackQuery, state: FSMContext):
     await state.set_state(RemoveChannelState.waiting_for_input)
     await call.answer()
 
-@admin_router.message(RemoveChannelState.waiting_for_input, F.text, F.from_user.id == ADMIN_ID)
+@router.message(RemoveChannelState.waiting_for_input, F.text, F.from_user.id == ADMIN_ID)
 async def process_remove_channel_input(message: types.Message, state: FSMContext):
     """
     process the user's input for deleting a channel
@@ -1123,7 +1121,7 @@ async def process_remove_channel_input(message: types.Message, state: FSMContext
     
     await state.clear()
 
-@admin_router.callback_query(F.data == "add_category", F.from_user.id == ADMIN_ID)
+@router.callback_query(F.data == "add_category", F.from_user.id == ADMIN_ID)
 async def add_category_start(call: types.CallbackQuery, state: FSMContext):
     """
     start the process of adding a category
@@ -1132,7 +1130,7 @@ async def add_category_start(call: types.CallbackQuery, state: FSMContext):
     await state.set_state(AddCategoryStates.waiting_for_category_name)
     await call.answer()
 
-@admin_router.message(AddCategoryStates.waiting_for_category_name, F.text, F.from_user.id == ADMIN_ID)
+@router.message(AddCategoryStates.waiting_for_category_name, F.text, F.from_user.id == ADMIN_ID)
 async def process_category_name(message: types.Message, state: FSMContext, channels_data: dict, bot: Bot):
     """
     get a category name from the user and proceed to session selection
@@ -1166,7 +1164,7 @@ async def process_category_name(message: types.Message, state: FSMContext, chann
         await message.answer("No active sessions found. The category will not be linked to any session.")
         await create_category_with_data(message, state, channels_data, None)
 
-@admin_router.message(AddCategoryStates.waiting_for_category_session, F.text, F.from_user.id == ADMIN_ID)
+@router.message(AddCategoryStates.waiting_for_category_session, F.text, F.from_user.id == ADMIN_ID)
 async def process_category_session(message: types.Message, state: FSMContext, channels_data: dict, bot: Bot):
     """
     get the category session and save the data
@@ -1221,9 +1219,7 @@ async def create_category_with_data(message: types.Message, state: FSMContext, c
     def create_category_in_db(name, session_id):
         try:
             category_data = {
-                'name': name,
-                'description': '',  # Додаємо порожній рядок як значення за замовчуванням
-                'is_active': True   # Явно встановлюємо значення is_active
+                'name': name
             }
             
             if session_id:
@@ -1240,7 +1236,6 @@ async def create_category_with_data(message: types.Message, state: FSMContext, c
             return category.id, session_info
         except Exception as e:
             logger.error(f"Error creating the category '{name}': {e}")
-            logger.error(traceback.format_exc())
             return None, ""
 
     result = await create_category_in_db(category_name, session_id)
@@ -1265,7 +1260,7 @@ async def create_category_with_data(message: types.Message, state: FSMContext, c
         await message.answer("❌ Error adding the category.")
         await state.clear()
 
-@admin_router.callback_query(F.data == "remove_category", F.from_user.id == ADMIN_ID)
+@router.callback_query(F.data == "remove_category", F.from_user.id == ADMIN_ID)
 async def remove_category_start(call: types.CallbackQuery, state: FSMContext, channels_data: dict):
     """
     start the process of deleting a category
@@ -1297,7 +1292,7 @@ async def remove_category_start(call: types.CallbackQuery, state: FSMContext, ch
     await state.set_state(RemoveCategoryStates.waiting_for_category_id)
     await call.answer()
 
-@admin_router.message(RemoveCategoryStates.waiting_for_category_id, F.text, F.from_user.id == ADMIN_ID)
+@router.message(RemoveCategoryStates.waiting_for_category_id, F.text, F.from_user.id == ADMIN_ID)
 async def process_remove_category_id(message: types.Message, state: FSMContext, channels_data: dict, bot: Bot):
     """
     get a category ID from the user and delete it
@@ -1367,12 +1362,12 @@ async def process_remove_category_id(message: types.Message, state: FSMContext, 
     await message.answer("The category has been deleted successfully, changes saved.", reply_markup=main_menu_keyboard)
 
 # example of a simple admin command (for checking the bot's functionality)
-@admin_router.message(Command("ping"), F.from_user.id == ADMIN_ID)
+@router.message(Command("ping"), F.from_user.id == ADMIN_ID)
 async def admin_ping(message: types.Message):
     await message.answer("Pong!")
 
 # add the /stop command for stopping the bot
-@admin_router.message(Command("stop"), F.from_user.id == ADMIN_ID)
+@router.message(Command("stop"), F.from_user.id == ADMIN_ID)
 async def cmd_stop(message: types.Message, bot: Bot):
     await message.answer("Stopping the bot...")
     # use gradual shutdown
@@ -1385,7 +1380,7 @@ def is_admin(user_id: int) -> bool:
     return user_id == ADMIN_ID
 
 # Only allow admin to use these commands
-@admin_router.message(F.from_user.id == ADMIN_ID, Command("link_session"))
+@router.message(F.from_user.id == ADMIN_ID, Command("link_session"))
 async def cmd_link_session(message: types.Message, state: FSMContext):
     """Command to link a session to a channel or category"""
     # Get all channels
@@ -1409,7 +1404,7 @@ async def cmd_link_session(message: types.Message, state: FSMContext):
     
     await state.set_state(SessionLinkStates.waiting_for_channel)
 
-@admin_router.callback_query(SessionLinkStates.waiting_for_channel, F.data.startswith("channel_"))
+@router.callback_query(SessionLinkStates.waiting_for_channel, F.data.startswith("channel_"))
 async def select_channel_for_link(callback: types.CallbackQuery, state: FSMContext):
     """Handler for channel selection for session linking"""
     channel_id = callback.data.split("_")[1]
@@ -1487,7 +1482,7 @@ async def prepare_back_button():
     
     return await create_button()
 
-@admin_router.callback_query(SessionLinkStates.waiting_for_session, F.data.startswith("session_"))
+@router.callback_query(SessionLinkStates.waiting_for_session, F.data.startswith("session_"))
 async def link_session_to_channel(callback: types.CallbackQuery, state: FSMContext):
     """Handler for session selection and linking to channel"""
     # Parse session_id and channel_id from callback data
@@ -1517,7 +1512,7 @@ async def link_session_to_channel(callback: types.CallbackQuery, state: FSMConte
     
     await state.clear()
 
-@admin_router.callback_query(SessionLinkStates.waiting_for_session, F.data.startswith("unlink_session_"))
+@router.callback_query(SessionLinkStates.waiting_for_session, F.data.startswith("unlink_session_"))
 async def unlink_session_from_channel(callback: types.CallbackQuery, state: FSMContext):
     """Handler for unlinking session from channel"""
     # Parse channel_id from callback data
@@ -1542,7 +1537,7 @@ async def unlink_session_from_channel(callback: types.CallbackQuery, state: FSMC
     await state.clear()
 
 # Command to link session to category
-@admin_router.message(F.from_user.id == ADMIN_ID, Command("link_category"))
+@router.message(F.from_user.id == ADMIN_ID, Command("link_category"))
 async def cmd_link_category(message: types.Message, state: FSMContext):
     """Command to link a session to a category"""
     # Get all categories
@@ -1566,7 +1561,7 @@ async def cmd_link_category(message: types.Message, state: FSMContext):
     
     await state.set_state(SessionLinkStates.waiting_for_category)
 
-@admin_router.callback_query(SessionLinkStates.waiting_for_category, F.data.startswith("category_"))
+@router.callback_query(SessionLinkStates.waiting_for_category, F.data.startswith("category_"))
 async def select_category_for_link(callback: types.CallbackQuery, state: FSMContext):
     """Handler for category selection for session linking"""
     category_id = callback.data.split("_")[1]
@@ -1634,7 +1629,7 @@ async def select_category_for_link(callback: types.CallbackQuery, state: FSMCont
     
     await state.set_state(SessionLinkStates.waiting_for_session)
 
-@admin_router.callback_query(SessionLinkStates.waiting_for_session, F.data.startswith("cat_session_"))
+@router.callback_query(SessionLinkStates.waiting_for_session, F.data.startswith("cat_session_"))
 async def link_session_to_category(callback: types.CallbackQuery, state: FSMContext):
     """Handler for session selection and linking to category"""
     # Parse session_id and category_id from callback data
@@ -1664,7 +1659,7 @@ async def link_session_to_category(callback: types.CallbackQuery, state: FSMCont
     
     await state.clear()
 
-@admin_router.callback_query(SessionLinkStates.waiting_for_session, F.data.startswith("unlink_cat_session_"))
+@router.callback_query(SessionLinkStates.waiting_for_session, F.data.startswith("unlink_cat_session_"))
 async def unlink_session_from_category(callback: types.CallbackQuery, state: FSMContext):
     """Handler for unlinking session from category"""
     # Parse category_id from callback data

@@ -1,138 +1,197 @@
-"""
-Main entry point for the Telegram Bot and Telethon Parser.
-"""
-import os
-import sys
+import asyncio
 import logging
-import subprocess
-import time
-import signal
-from pathlib import Path
+import sys
+import json
+import os
+from multiprocessing import Process, Queue
 
-# Configure logging
+from aiogram import Bot, Dispatcher
+from aiogram.fsm.storage.memory import MemoryStorage
+from aiogram.utils.token import validate_token
+
+from tg_bot.config import (
+    TOKEN_BOT, FILE_JSON, CATEGORIES_JSON, ADMIN_ID,
+    WEB_SERVER_PORT, WEB_SERVER_HOST, DATA_FOLDER, MESSAGES_FOLDER
+)
+from tg_bot.handlers import start, admin
+from tg_bot.telethon_worker import telethon_worker_process
+from tg_bot.auth_telethon import authorize_telethon
+
+
+# enable logging with more detailed formatting
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    datefmt='%Y-%m-%d %H:%M:%S',
+    handlers=[
+        logging.StreamHandler(stream=sys.stdout)
+    ]
 )
-logger = logging.getLogger('tg_bot.main')
 
-# Add the project root to the Python path
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+logger = logging.getLogger(__name__)
 
-# Set environment variable for Django
-os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'core.settings')
+# initialize bot and dispatcher
+try:
+    if not validate_token(TOKEN_BOT):
+        logger.error("Invalid bot token. Check settings.")
+        sys.exit(1)
+    bot = Bot(token=TOKEN_BOT)
+except Exception as e:
+    logger.error(f"Error creating bot: {e}")
+    sys.exit(1)
 
-# Paths to the bot and parser scripts
-BOT_SCRIPT = os.path.join(os.path.dirname(__file__), 'bot.py')
-PARSER_SCRIPT = os.path.join(os.path.dirname(__file__), '..', 'run_parser.py')
+storage = MemoryStorage()
+dp = Dispatcher(storage=storage)
 
-class ProcessManager:
-    """Manages child processes for the bot and parser."""
+# queue for passing messages from Telethon to main process
+message_queue = Queue()
+
+# flag for stopping bot
+stop_event = asyncio.Event()
+
+# global variables for processes
+telethon_process = None
+web_process = None
+
+# check if required folders and files exist
+def check_required_files():
+    # check if data folder exists
+    if not os.path.exists(DATA_FOLDER):
+        os.makedirs(DATA_FOLDER)
+        logger.info(f"Created folder {DATA_FOLDER}")
     
-    def __init__(self):
-        self.processes = {}
-        self.running = True
-        
-    def start_process(self, name, script_path):
-        """Start a Python process."""
-        try:
-            logger.info(f"Starting {name} process...")
-            process = subprocess.Popen(
-                [sys.executable, script_path],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-                bufsize=1
-            )
-            self.processes[name] = process
-            logger.info(f"{name} process started (PID: {process.pid})")
-            return process
-        except Exception as e:
-            logger.error(f"Failed to start {name}: {e}")
-            return None
-            
-    def monitor_processes(self):
-        """Monitor and restart processes if they crash."""
-        while self.running:
-            for name, process in list(self.processes.items()):
-                # Check if process is still running
-                return_code = process.poll()
-                if return_code is not None:
-                    logger.warning(f"{name} process exited with code {return_code}")
-                    
-                    # Read any output from the process
-                    stdout, stderr = process.communicate()
-                    if stdout:
-                        logger.info(f"{name} stdout: {stdout}")
-                    if stderr:
-                        logger.error(f"{name} stderr: {stderr}")
-                    
-                    # Restart the process if it's supposed to be running
-                    if self.running:
-                        logger.info(f"Restarting {name} process...")
-                        script_path = BOT_SCRIPT if name == "bot" else PARSER_SCRIPT
-                        self.processes[name] = self.start_process(name, script_path)
-            
-            # Short sleep to prevent CPU overuse
-            time.sleep(1)
+    # check if messages folder exists
+    if not os.path.exists(MESSAGES_FOLDER):
+        os.makedirs(MESSAGES_FOLDER)
+        logger.info(f"Created folder {MESSAGES_FOLDER}")
     
-    def stop_all(self):
-        """Stop all running processes."""
-        logger.info("Stopping all processes...")
-        self.running = False
-        
-        for name, process in self.processes.items():
-            try:
-                logger.info(f"Stopping {name} process (PID: {process.pid})...")
-                process.terminate()
-                # Give it a moment to terminate gracefully
-                process.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                logger.warning(f"{name} process didn't terminate gracefully, killing...")
-                process.kill()
-            except Exception as e:
-                logger.error(f"Error stopping {name} process: {e}")
-        
-        logger.info("All processes stopped")
-
-def signal_handler(sig, frame):
-    """Handle termination signals."""
-    logger.info(f"Received signal {sig}, shutting down...")
-    if process_manager:
-        process_manager.stop_all()
-    sys.exit(0)
-
-# Global process manager
-process_manager = None
-
-if __name__ == "__main__":
-    # Set up signal handlers
-    signal.signal(signal.SIGINT, signal_handler)
-    signal.signal(signal.SIGTERM, signal_handler)
+    # check if file.json exists
+    if not os.path.exists(FILE_JSON):
+        with open(FILE_JSON, 'w', encoding='utf-8') as f:
+            json.dump({}, f, indent=4)
+        logger.info(f"Created file {FILE_JSON}")
     
-    logger.info("Starting Telegram Bot and Parser services...")
+    # check if categories.json exists
+    if not os.path.exists(CATEGORIES_JSON):
+        with open(CATEGORIES_JSON, 'w', encoding='utf-8') as f:
+            json.dump({"0": {"name": "За замовчуванням"}}, f, indent=4, ensure_ascii=False)
+        logger.info(f"Created file {CATEGORIES_JSON}")
+
+async def on_startup(bot: Bot):
+    global telethon_process, web_process
+    
+    # check required files and folders
+    check_required_files()
+
+    logger.info("Bot started")
+    try:
+        # read data from JSON files
+        with open(FILE_JSON, 'r', encoding='utf-8') as f:
+            channels_data = json.load(f)
+        with open(CATEGORIES_JSON, 'r', encoding='utf-8') as f:
+            categories_data = json.load(f)
+        # pass data from file.json and categories.json to handlers
+        dp["channels_data"] = channels_data
+        dp["categories"] = categories_data
+    except Exception as e:
+        logger.error(f"Error loading JSON data: {e}")
+        # initialize empty data if failed to load
+        dp["channels_data"] = {}
+        dp["categories"] = {}
+
+    try:
+        # authorize Telethon (before starting process)
+        await authorize_telethon()
+
+        # start Telethon in separate process
+        telethon_process = Process(target=telethon_worker_process, args=(message_queue,))
+        telethon_process.daemon = True  # terminate process when main process ends
+        telethon_process.start()
+        logger.info("Telethon process started")
+
+       
+        asyncio.create_task(process_messages(message_queue))
+    except Exception as e:
+        logger.error(f"Error starting processes: {e}")
+
+async def on_shutdown(bot: Bot):
+    global telethon_process, web_process
+
+    logger.info("Stopping bot...")
+    # signalize the need to stop
+    stop_event.set()
     
     try:
-        # Create process manager
-        process_manager = ProcessManager()
-        
-        # Start the bot and parser
-        bot_process = process_manager.start_process("bot", BOT_SCRIPT)
-        parser_process = process_manager.start_process("parser", PARSER_SCRIPT)
-        
-        # Monitor the processes
-        process_manager.monitor_processes()
-        
-    except KeyboardInterrupt:
-        logger.info("Interrupted by user")
+        await bot.session.close()
     except Exception as e:
-        logger.error(f"Error in main process: {e}")
-        import traceback
-        logger.error(traceback.format_exc())
+        logger.error(f"Error closing bot session: {e}")
+
+    # stop Telethon process
+    if telethon_process:
+        try:
+            telethon_process.terminate()  # force terminate process
+            telethon_process.join(timeout=5)  # wait for process to finish with timeout
+            if telethon_process.is_alive():
+                logger.warning("Telethon process not finished correctly, forced stop")
+                telethon_process.kill()
+        except Exception as e:
+            logger.error(f"Error stopping Telethon process: {e}")
+
+    # stop  process
+    if web_process:
+        try:
+            web_process.terminate()
+            web_process.join(timeout=5)
+            if web_process.is_alive():
+                logger.warning("Web server not finished correctly, forced stop")
+                web_process.kill()
+        except Exception as e:
+            logger.error(f"Error stopping web server: {e}")
+    
+    logger.info("Bot stopped")
+
+async def process_messages(queue):
+    """
+    process messages received from queue from Telethon.
+    """
+    logger.info("Started processing messages from queue")
+    while not stop_event.is_set():
+        if queue.empty():
+            await asyncio.sleep(1)
+            if stop_event.is_set():
+                break
+        else:
+            try:
+                message_info = queue.get_nowait()
+                if message_info and 'message_data' in message_info:
+                    message_data = message_info['message_data']
+                    logger.info(f"Received message from Telethon: {message_data}")
+
+                  
+            except Exception as e:
+                logger.error(f"Error processing message: {e}")
+    logger.info("Processing messages from queue completed")
+
+async def run_bot_forever():
+    # register startup/shutdown handlers
+    dp.startup.register(on_startup)
+    dp.shutdown.register(on_shutdown)
+
+    # register routers
+    dp.include_router(start.router)
+    dp.include_router(admin.router)
+
+    # handle exceptions in dispatcher
+    try:
+        await dp.start_polling(bot)
+    except Exception as e:
+        logger.error(f"Error in bot work: {e}")
     finally:
-        # Ensure all processes are stopped
-        if process_manager:
-            process_manager.stop_all()
-        
-        logger.info("Exiting")
+        logger.info("Bot work completed")
+
+if __name__ == '__main__':
+    try:
+        asyncio.run(run_bot_forever())
+    except (KeyboardInterrupt, SystemExit):
+        logger.info("Bot stopped by user or system")
+    except Exception as e:
+        logger.error(f"Unexpected error: {e}")

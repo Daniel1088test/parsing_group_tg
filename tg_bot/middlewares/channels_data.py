@@ -43,24 +43,15 @@ class ChannelsDataMiddleware(BaseMiddleware):
         
         @sync_to_async
         def get_all_channels():
-            try:
-                channels = {}
-                for channel in Channel.objects.all():
-                    channels[str(channel.id)] = {
-                        "Group_Name": channel.name,
-                        "Invite_link": channel.url,
-                        "category": str(channel.category_id) if channel.category_id else "0",
-                        "Work": "True" if channel.is_active else "False"
-                    }
-                return channels
-            except Exception as e:
-                logger.error(f"Database error in get_all_channels: {e}")
-                return {}
+            channels = {}
+            for channel in Channel.objects.all():
+                channels[str(channel.id)] = {
+                    "Group_Name": channel.name,
+                    "Invite_link": channel.url,
+                    "category": str(channel.category_id) if channel.category_id else "0",
+                    "Work": "True" if channel.is_active else "False"
+                }
+            return channels
         
-        try:
-            channels_data = await get_all_channels()
-        except Exception as e:
-            logger.error(f"Error in get_channels_from_db: {e}")
-            channels_data = {}
-            
+        channels_data = await get_all_channels()
         return channels_data 
