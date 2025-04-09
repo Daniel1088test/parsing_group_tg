@@ -96,8 +96,35 @@ def start_bot():
         from tg_bot.bot import main
         
         try:
-            asyncio.run(main())
-            return True
+            # Create a separate process for the bot to keep it running
+            import subprocess
+            
+            # Run the bot in a new process so it doesn't block this script
+            bot_process = subprocess.Popen(
+                [sys.executable, '-c', 'import asyncio; from tg_bot.bot import main; asyncio.run(main())'],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT
+            )
+            
+            # Check if process started properly
+            if bot_process.poll() is None:
+                logger.info(f"Bot успішно запущено в окремому процесі (PID: {bot_process.pid})")
+                
+                # Give it a moment to initialize
+                time.sleep(5)
+                
+                # Check again if it's still running after 5 seconds
+                if bot_process.poll() is None:
+                    logger.info("Bot продовжує працювати після 5 секунд ініціалізації")
+                    return True
+                else:
+                    return_code = bot_process.poll()
+                    output, _ = bot_process.communicate()
+                    logger.error(f"Bot завершився передчасно з кодом {return_code}. Вивід: {output.decode('utf-8', errors='ignore')}")
+            else:
+                logger.error("Bot не запустився належним чином")
+                return False
+                
         except Exception as e:
             logger.error(f"Помилка запуску бота через asyncio: {e}")
             # Продовжуємо до наступного методу
@@ -109,19 +136,32 @@ def start_bot():
         logger.info("Запускаємо бота через підпроцес")
         bot_script = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'tg_bot', 'bot.py')
         
-        result = subprocess.run(
+        # Run the bot script in a persistent way
+        bot_process = subprocess.Popen(
             [sys.executable, bot_script],
-            capture_output=True,
-            text=True,
-            check=False
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT
         )
         
-        if result.returncode != 0:
-            logger.error(f"Бот завершився з помилкою: {result.stderr}")
-            return False
+        # Check if process started properly
+        if bot_process.poll() is None:
+            logger.info(f"Bot успішно запущено через підпроцес (PID: {bot_process.pid})")
+            
+            # Give it a moment to initialize
+            time.sleep(5)
+            
+            # Check again if it's still running after 5 seconds
+            if bot_process.poll() is None:
+                logger.info("Bot продовжує працювати після 5 секунд ініціалізації")
+                return True
+            else:
+                return_code = bot_process.poll()
+                output, _ = bot_process.communicate()
+                logger.error(f"Bot завершився передчасно з кодом {return_code}. Вивід: {output.decode('utf-8', errors='ignore')}")
         else:
-            logger.info("Бот успішно запущено через підпроцес")
-            return True
+            logger.error("Bot не запустився належним чином")
+            return False
+            
     except Exception as e:
         logger.error(f"Помилка запуску бота через підпроцес: {e}")
         logger.error(traceback.format_exc())

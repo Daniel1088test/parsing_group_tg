@@ -1,5 +1,5 @@
 from aiogram import Router, F
-from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, BufferedInputFile
+from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, BufferedInputFile, CallbackQuery
 from aiogram.filters import Command
 from tg_bot.keyboards.main_menu import main_menu_keyboard, get_main_menu_keyboard
 from tg_bot.config import ADMIN_ID, WEB_SERVER_HOST, WEB_SERVER_PORT
@@ -12,66 +12,84 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.fsm.context import FSMContext
 
+# Configure logging
+logger = logging.getLogger(__name__)
+
 # Створюємо роутер
 router = Router()
 
+# Handler for /start command with improved reliability
 @router.message(Command("start"))
 async def cmd_start(message: Message):
-    # Get bot settings
-    settings = await sync_to_async(BotSettings.get_settings)()
-    
-    # Get the appropriate keyboard based on settings
-    dynamic_keyboard = await get_main_menu_keyboard()
-    
-    # Check if the message contains a start parameter
-    args = message.text.split()
-    if len(args) > 1:
-        start_param = args[1]
+    """Handler for /start command"""
+    try:
+        user_id = message.from_user.id
+        username = message.from_user.username or "unknown"
+        logger.info(f"Received /start command from user {user_id} (@{username})")
         
-        # Check if it's an authorization token
-        if start_param.startswith('auth_'):
-            # Extract session_id from auth_{session_id}_{timestamp}
-            try:
-                parts = start_param.split('_')
-                if len(parts) >= 3:
-                    session_id = int(parts[1])
-                    
-                    # Look up the session in the database
-                    session = await sync_to_async(lambda: TelegramSession.objects.filter(id=session_id).first())()
-                    
-                    if session and session.auth_token == start_param:
-                        # Start Telethon authorization
-                        await message.answer(
-                            f"Starting authorization for session ID {session_id} ({session.phone}).\n"
-                            f"Please follow the instructions to authenticate."
-                        )
+        # Get bot settings
+        settings = await sync_to_async(BotSettings.get_settings)()
+        
+        # Get the appropriate keyboard based on settings
+        dynamic_keyboard = await get_main_menu_keyboard()
+        
+        # Check if the message contains a start parameter
+        args = message.text.split()
+        if len(args) > 1:
+            start_param = args[1]
+            
+            # Check if it's an authorization token
+            if start_param.startswith('auth_'):
+                # Extract session_id from auth_{session_id}_{timestamp}
+                try:
+                    parts = start_param.split('_')
+                    if len(parts) >= 3:
+                        session_id = int(parts[1])
                         
-                        # Import Telethon auth function
-                        from tg_bot.auth_telethon import create_session_file
+                        # Look up the session in the database
+                        session = await sync_to_async(lambda: TelegramSession.objects.filter(id=session_id).first())()
                         
-                        # Start the authorization process
-                        await message.answer(
-                            settings.auth_guide_text or 
-                            "For authorization in Telethon, I need your phone number.\n"
-                            "Please enter your phone number in the format +380XXXXXXXXX:\n"
-                            "⚠️ IMPORTANT: You must use a regular user account, NOT a bot!"
-                        )
-                        
-                        # Start the interactive session
-                        await message.answer("Please enter your phone number:")
-                        
-                        # Store auth info in user data
-                        await sync_to_async(lambda: setattr(message.from_user, 'auth_session_id', session_id))()
-                        return
-            except Exception as e:
-                logging.error(f"Error processing auth token: {e}")
-    
-    # If no auth parameter or auth failed, show normal start message
-    await message.answer(
-        settings.welcome_message or "Welcome! I am a bot for channel parsing.\n"
-        "Select an option from the menu below:",
-        reply_markup=dynamic_keyboard
-    )
+                        if session and session.auth_token == start_param:
+                            # Start Telethon authorization
+                            await message.answer(
+                                f"Starting authorization for session ID {session_id} ({session.phone}).\n"
+                                f"Please follow the instructions to authenticate."
+                            )
+                            
+                            # Import Telethon auth function
+                            from tg_bot.auth_telethon import create_session_file
+                            
+                            # Start the authorization process
+                            await message.answer(
+                                settings.auth_guide_text or 
+                                "For authorization in Telethon, I need your phone number.\n"
+                                "Please enter your phone number in the format +380XXXXXXXXX:\n"
+                                "⚠️ IMPORTANT: You must use a regular user account, NOT a bot!"
+                            )
+                            
+                            # Start the interactive session
+                            await message.answer("Please enter your phone number:")
+                            
+                            # Store auth info in user data
+                            await sync_to_async(lambda: setattr(message.from_user, 'auth_session_id', session_id))()
+                            return
+                except Exception as e:
+                    logging.error(f"Error processing auth token: {e}")
+        
+        # If no auth parameter or auth failed, show normal start message
+        await message.answer(
+            settings.welcome_message or "Welcome! I am a bot for channel parsing.\n"
+            "Select an option from the menu below:",
+            reply_markup=dynamic_keyboard
+        )
+        logger.info(f"Sent welcome message to user {user_id}")
+    except Exception as e:
+        logger.error(f"Error handling /start command: {e}")
+        # Try sending a simple message as fallback
+        try:
+            await message.answer("Привіт! Бот запущено.")
+        except Exception as fallback_error:
+            logger.error(f"Failed to send fallback message: {fallback_error}")
 
 @router.message(F.text == "📎 List of channels")
 async def list_channels(message: Message):
@@ -310,3 +328,42 @@ async def handle_auth_telethon_command(message: Message):
     # Start the authorization process directly
     from tg_bot.handlers.session import start_auth
     await start_auth(message)
+
+# Catch-all handler for any messages
+@router.message()
+async def handle_all_messages(message: Message):
+    """Handler for all other messages"""
+    try:
+        user_id = message.from_user.id
+        logger.info(f"Received message from user {user_id}: {message.text[:50]}")
+        
+        # Send a helpful message about commands
+        response_text = (
+            "Щоб почати роботу, використовуйте команду /start\n"
+            "Якщо у вас виникли проблеми, зв'яжіться з адміністратором."
+        )
+        
+        await message.answer(response_text)
+    except Exception as e:
+        logger.error(f"Error handling message: {e}")
+
+# Create a fallback router to catch any unhandled messages
+fallback_router = Router()
+
+@fallback_router.message()
+async def fallback_handler(message: Message):
+    """Fallback handler for any unhandled messages"""
+    try:
+        logger.info(f"Fallback handler called for message from user {message.from_user.id}")
+        await message.answer("Я не зрозумів цю команду. Спробуйте /start для початку роботи.")
+    except Exception as e:
+        logger.error(f"Error in fallback handler: {e}")
+
+@fallback_router.callback_query()
+async def fallback_callback(callback: CallbackQuery):
+    """Fallback handler for any unhandled callback queries"""
+    try:
+        logger.info(f"Fallback handler called for callback from user {callback.from_user.id}")
+        await callback.answer("Ця кнопка більше не активна. Спробуйте /start для оновлення меню.")
+    except Exception as e:
+        logger.error(f"Error in fallback callback handler: {e}")

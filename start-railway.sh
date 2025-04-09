@@ -24,6 +24,7 @@ chmod +x migrate-railway.py
 chmod +x run_bot.py
 chmod +x run_parser.py
 chmod +x run.py
+chmod +x set_bot_token.py
 
 # Install psycopg2 explicitly to ensure database connectivity
 echo "Installing psycopg2 for database connectivity..."
@@ -54,6 +55,33 @@ echo "PORT: $PORT"
 echo "RAILWAY_PUBLIC_DOMAIN: $RAILWAY_PUBLIC_DOMAIN"
 echo "PUBLIC_URL: $PUBLIC_URL"
 
+# Run the set_bot_token.py script to ensure the bot token is set
+echo "Verifying and setting the bot token..."
+python set_bot_token.py
+if [ $? -ne 0 ]; then
+  echo "WARNING: Bot token verification failed, bot may not work properly!"
+else
+  # Import the token from the generated file
+  if [ -f "bot_token.env" ]; then
+    source bot_token.env
+    echo "Bot token set successfully"
+  fi
+fi
+
+# Debug check for essential environment variables
+echo "Checking essential environment variables:"
+if [ -n "$BOT_TOKEN" ]; then
+  echo "✓ BOT_TOKEN is set"
+else
+  echo "✗ BOT_TOKEN is NOT set"
+fi
+
+if [ -n "$DATABASE_URL" ]; then
+  echo "✓ DATABASE_URL is set"
+else
+  echo "✗ DATABASE_URL is NOT set"
+fi
+
 # Ensure health check files
 echo "ok" > health.txt
 echo "ok" > health.html
@@ -71,7 +99,8 @@ start_process_with_retry() {
     
     while [ $retry -lt $max_retries ]; do
         echo "Starting $process_name (attempt $(($retry+1))/$max_retries)..."
-        nohup python $cmd > $log_file 2>&1 &
+        # Pass environment variables explicitly
+        nohup env BOT_TOKEN="$BOT_TOKEN" DATABASE_URL="$DATABASE_URL" python $cmd > $log_file 2>&1 &
         pid=$!
         
         # Give process time to initialize
@@ -84,6 +113,10 @@ start_process_with_retry() {
             return 0
         else
             echo "✗ $process_name failed to start (attempt $(($retry+1)))"
+            # Check the log for errors
+            echo "--- Last 20 lines of $log_file ---"
+            tail -n 20 $log_file
+            echo "--- End of log excerpt ---"
             retry=$(($retry+1))
         fi
     done

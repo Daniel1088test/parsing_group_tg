@@ -116,20 +116,58 @@ try:
         # display information about the bot start
         logger.info("====================================")
         logger.info(f"Bot started: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-        logger.info(f"Bot ID: {(await bot.get_me()).id}")
-        logger.info(f"Bot name: {(await bot.get_me()).username}")
+        
+        try:
+            bot_info = await bot.get_me()
+            logger.info(f"Bot ID: {bot_info.id}")
+            logger.info(f"Bot name: {bot_info.username}")
+        except Exception as e:
+            logger.error(f"Error getting bot info: {e}")
+            logger.error("Bot token may be invalid! Please check your configuration.")
+            return
+        
         logger.info("====================================")
         
         # delete all updates that came while the bot was offline
-        await bot.delete_webhook(drop_pending_updates=True)
-        logger.info("Old messages deleted")
+        try:
+            await bot.delete_webhook(drop_pending_updates=True)
+            logger.info("Old messages deleted")
+        except Exception as e:
+            logger.error(f"Error deleting webhook: {e}")
+        
+        # Re-register handlers for the /start command explicitly
+        try:
+            from aiogram import F
+            from aiogram.filters import Command
+            
+            # Simple handler for /start command to verify it works
+            @dp.message(Command("start"))
+            async def cmd_start(message):
+                logger.info(f"Received /start command from user {message.from_user.id}")
+                try:
+                    await message.answer(f"Hello! I'm Channel Parser Bot. Use the menu to navigate.")
+                    logger.info(f"Sent start response to user {message.from_user.id}")
+                except Exception as e:
+                    logger.error(f"Error sending start response: {e}")
+                
+            logger.info("Successfully registered handler for /start command")
+        except Exception as e:
+            logger.error(f"Error registering start command handler: {e}")
         
         # start polling
         logger.info("Starting to receive updates...")
         try:
-            await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
+            # Make sure we're using long polling to stay connected
+            await dp.start_polling(
+                bot, 
+                allowed_updates=dp.resolve_used_update_types(),
+                polling_timeout=60,  # Longer timeout to maintain connection
+                handle_signals=False  # Let the parent process handle signals
+            )
         except Exception as e:
             logger.error(f"Error during bot operation: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
         finally:
             logger.info("Bot stopped")
     

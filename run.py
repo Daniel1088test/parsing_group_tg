@@ -102,13 +102,57 @@ def start_bot():
     try:
         import subprocess
         logger.info("Starting Telegram bot process...")
-        bot_proc = subprocess.Popen([sys.executable, 'run_bot.py'], 
-                                  stdout=subprocess.PIPE, 
-                                  stderr=subprocess.STDOUT)
-        logger.info(f"Bot process started with PID: {bot_proc.pid}")
-        return bot_proc
+        
+        # Kill any previous instance first
+        if bot_proc and bot_proc.poll() is None:
+            try:
+                bot_proc.terminate()
+                logger.info("Terminated previous bot process")
+                time.sleep(1)
+            except:
+                pass
+        
+        # Try several methods to start the bot
+        methods = [
+            # Method 1: Direct module run
+            [sys.executable, 'run_bot.py'],
+            
+            # Method 2: Direct bot script
+            [sys.executable, 'tg_bot/bot.py'],
+            
+            # Method 3: Import-based execution
+            [sys.executable, '-c', 'import asyncio; import os; os.environ.setdefault("DJANGO_SETTINGS_MODULE", "core.settings"); import django; django.setup(); from tg_bot.bot import main; asyncio.run(main())']
+        ]
+        
+        # Try each method until one works
+        for i, method in enumerate(methods):
+            logger.info(f"Trying bot start method {i+1}")
+            
+            bot_proc = subprocess.Popen(
+                method,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                env=os.environ.copy()  # Ensure environment variables are passed
+            )
+            
+            # Give it a moment to initialize
+            time.sleep(5)
+            
+            # Check if process is still running
+            if bot_proc and bot_proc.poll() is None:
+                logger.info(f"Bot process started successfully with PID: {bot_proc.pid} (method {i+1})")
+                # Write PID to file for external monitoring
+                with open('bot.pid', 'w') as f:
+                    f.write(str(bot_proc.pid))
+                return bot_proc
+            else:
+                logger.warning(f"Bot start method {i+1} failed, trying next method")
+        
+        logger.error("All bot start methods failed")
+        return None
     except Exception as e:
         logger.error(f"Failed to start bot process: {e}")
+        logger.error(traceback.format_exc())
         return None
 
 def start_parser():
@@ -117,29 +161,74 @@ def start_parser():
     try:
         import subprocess
         logger.info("Starting Telegram parser process...")
-        parser_proc = subprocess.Popen([sys.executable, 'run_parser.py'], 
-                                     stdout=subprocess.PIPE, 
-                                     stderr=subprocess.STDOUT)
-        logger.info(f"Parser process started with PID: {parser_proc.pid}")
-        return parser_proc
+        
+        # Kill any previous instance first
+        if parser_proc and parser_proc.poll() is None:
+            try:
+                parser_proc.terminate()
+                logger.info("Terminated previous parser process")
+                time.sleep(1)
+            except:
+                pass
+        
+        parser_proc = subprocess.Popen(
+            [sys.executable, 'run_parser.py'],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            env=os.environ.copy()  # Ensure environment variables are passed
+        )
+        
+        # Give it a moment to initialize
+        time.sleep(3)
+        
+        # Check if process is still running
+        if parser_proc.poll() is None:
+            logger.info(f"Parser process started with PID: {parser_proc.pid}")
+            # Write PID to file for external monitoring
+            with open('parser.pid', 'w') as f:
+                f.write(str(parser_proc.pid))
+            return parser_proc
+        else:
+            logger.error("Parser process failed to start")
+            return None
     except Exception as e:
         logger.error(f"Failed to start parser process: {e}")
+        logger.error(traceback.format_exc())
         return None
 
 def monitor_processes():
     """Monitor bot and parser processes and restart them if they crash"""
     global running, bot_proc, parser_proc
     
+    # Debug the environment variables
+    logger.info(f"BOT_TOKEN: {'Set' if 'BOT_TOKEN' in os.environ else 'Not set'}")
+    logger.info(f"DATABASE_URL: {'Set' if 'DATABASE_URL' in os.environ else 'Not set'}")
+    
+    # Time tracking for restart cooldown
+    last_bot_restart = 0
+    last_parser_restart = 0
+    restart_cooldown = 60  # Seconds to wait before restarting a crashed process
+    
     while running:
+        current_time = time.time()
+        
         # Check bot process
         if bot_proc and bot_proc.poll() is not None:
-            logger.warning(f"Bot process exited with code {bot_proc.poll()}, restarting...")
-            bot_proc = start_bot()
+            if current_time - last_bot_restart > restart_cooldown:
+                logger.warning(f"Bot process exited with code {bot_proc.poll()}, restarting...")
+                bot_proc = start_bot()
+                last_bot_restart = current_time
+            else:
+                logger.info("Waiting for cooldown before restarting bot...")
         
         # Check parser process
         if parser_proc and parser_proc.poll() is not None:
-            logger.warning(f"Parser process exited with code {parser_proc.poll()}, restarting...")
-            parser_proc = start_parser()
+            if current_time - last_parser_restart > restart_cooldown:
+                logger.warning(f"Parser process exited with code {parser_proc.poll()}, restarting...")
+                parser_proc = start_parser()
+                last_parser_restart = current_time
+            else:
+                logger.info("Waiting for cooldown before restarting parser...")
         
         # Sleep before checking again
         time.sleep(5)
