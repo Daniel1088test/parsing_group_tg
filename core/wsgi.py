@@ -29,8 +29,19 @@ try:
     os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'core.settings')
     from django.core.wsgi import get_wsgi_application
     
-    # Get the Django application
+    # Initialize Django first
     django_application = get_wsgi_application()
+    
+    # Run database fix commands
+    try:
+        import logging
+        from django.core.management import call_command
+        
+        # Fix database schema issues
+        call_command('fix_db_schema', '--quiet')
+        logging.info("Database schema check completed during startup")
+    except Exception as schema_fix_error:
+        logging.error(f"Error fixing database schema during startup: {schema_fix_error}")
     
     # Wrapper function to handle health checks at the WSGI level
     def application(environ, start_response):

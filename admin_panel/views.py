@@ -390,7 +390,12 @@ def sessions_list_view(request):
                 session = TelegramSession.objects.get(id=session_id)
                 
                 # Check for a session file and ensure we mark it as authenticated if found
-                session_name = session.session_file or f"telethon_session_{session.phone.replace('+', '')}"
+                try:
+                    session_name = session.session_file or f"telethon_session_{session.phone.replace('+', '')}"
+                except AttributeError:
+                    # Handle case where session_file doesn't exist
+                    session_name = f"telethon_session_{session.phone.replace('+', '')}"
+                
                 session_paths = [
                     f"{session_name}.session",
                     f"data/sessions/{session_name}.session"
@@ -416,6 +421,7 @@ def sessions_list_view(request):
                 messages.error(request, f'Session with ID {session_id} not found')
             except Exception as e:
                 messages.error(request, f'Error fixing session: {str(e)}')
+                request.session['error_message'] = str(e)
             
         elif action == 'fix_auth_status':
             try:
@@ -425,6 +431,7 @@ def sessions_list_view(request):
                 messages.success(request, f'Session authentication status fixed for all sessions.')
             except Exception as e:
                 messages.error(request, f'Error fixing session authentication status: {str(e)}')
+                request.session['error_message'] = str(e)
             
         elif action == 'fix_media':
             try:
@@ -434,6 +441,17 @@ def sessions_list_view(request):
                 messages.success(request, f'Media files fixed. Check the console for details.')
             except Exception as e:
                 messages.error(request, f'Error fixing media files: {str(e)}')
+                request.session['error_message'] = str(e)
+                
+        elif action == 'fix_schema':
+            # Run our migration to fix schema
+            try:
+                from django.core.management import call_command
+                call_command('migrate', 'admin_panel')
+                messages.success(request, 'Database schema fixed. Refresh the page to see the changes.')
+            except Exception as e:
+                messages.error(request, f'Error fixing database schema: {str(e)}')
+                request.session['error_message'] = str(e)
                 
         # Handle session creation (directly from the list page)
         elif action == '' or action is None:
@@ -464,6 +482,7 @@ def sessions_list_view(request):
                 
             except Exception as e:
                 messages.error(request, f'Error creating session: {str(e)}')
+                request.session['error_message'] = str(e)
                 
         # Handle session update
         elif action == 'update_session' and session_id:
@@ -503,31 +522,61 @@ def sessions_list_view(request):
                 messages.error(request, f'Error deleting session: {str(e)}')
     
     # Get all sessions
-    sessions = TelegramSession.objects.all().order_by('-is_active', 'id')
+    try:
+        sessions = TelegramSession.objects.all().order_by('-is_active', 'id')
+        
+        # Add needs_auth attribute if it doesn't exist in the database
+        for session in sessions:
+            if not hasattr(session, 'needs_auth'):
+                session.needs_auth = True
+        
+        # Check if we need to update session status (has valid data but marked as needs_auth)
+        for session in sessions:
+            try:
+                if hasattr(session, 'needs_auth') and session.needs_auth and hasattr(session, 'session_data') and session.session_data:
+                    # If we have session data, but it's marked as needing auth, update it
+                    session.needs_auth = False
+                    session.save(update_fields=['needs_auth'])
+            except (AttributeError, DatabaseError):
+                # Skip if database fields are missing
+                pass
+                
+        # Count channels per session
+        for session in sessions:
+            session.channels_count = session.channels.count() if hasattr(session, 'channels') else 0
+            session.messages_count = session.messages.count() if hasattr(session, 'messages') else 0
     
-    # Add needs_auth attribute if it doesn't exist in the database
-    for session in sessions:
-        if not hasattr(session, 'needs_auth'):
-            session.needs_auth = True
-    
-    # Check if we need to update session status (has valid data but marked as needs_auth)
-    for session in sessions:
-        try:
-            if hasattr(session, 'needs_auth') and session.needs_auth and hasattr(session, 'session_data') and session.session_data:
-                # If we have session data, but it's marked as needing auth, update it
-                session.needs_auth = False
-                session.save(update_fields=['needs_auth'])
-        except (AttributeError, DatabaseError):
-            # Skip if database fields are missing
-            pass
-            
-    # Count channels per session
-    for session in sessions:
-        session.channels_count = session.channels.count() if hasattr(session, 'channels') else 0
-        session.messages_count = session.messages.count() if hasattr(session, 'messages') else 0
+    except Exception as e:
+        logger.error(f"Error loading sessions: {e}")
+        request.session['error_message'] = str(e)
+        
+        # Use raw queries as fallback
+        with connection.cursor() as cursor:
+            try:
+                cursor.execute("""
+                    SELECT id, phone, is_active, 
+                    created_at, updated_at
+                    FROM admin_panel_telegramsession
+                    ORDER BY id DESC
+                """)
+                columns = [col[0] for col in cursor.description]
+                sessions = [
+                    dict(zip(columns, row))
+                    for row in cursor.fetchall()
+                ]
+                # Add missing attributes
+                for session in sessions:
+                    session.needs_auth = True
+                    session.channels_count = 0
+                    session.messages_count = 0
+                    session.session_file = ''
+            except Exception as inner_e:
+                logger.error(f"Error with fallback query: {inner_e}")
+                sessions = []
     
     context = {
         'sessions': sessions,
+        'schema_error': 'session_name' in request.session.get('error_message', '')
     }
     return render(request, 'admin_panel/sessions_list.html', context)
 
@@ -720,26 +769,50 @@ def channels_view(request):
 def telegram_sessions_view(request):
     """Сторінка зі списком сесій Telegram"""
     try:
+        # Try to use Django's ORM first
         sessions = TelegramSession.objects.all().order_by('-id')
     except Exception as e:
-        # Fallback to using a minimal set of fields if there's a schema mismatch
         logger.error(f"Error loading TelegramSession: {e}")
-        # Use raw query to get only existing fields
+        # Use raw query to get only essential fields that should exist
         with connection.cursor() as cursor:
-            cursor.execute("""
-                SELECT id, phone, is_active, created_at, updated_at
-                FROM admin_panel_telegramsession
-                ORDER BY id DESC
-            """)
-            columns = [col[0] for col in cursor.description]
-            sessions = [
-                dict(zip(columns, row))
-                for row in cursor.fetchall()
-            ]
+            try:
+                cursor.execute("""
+                    SELECT id, phone, is_active, 
+                    CASE WHEN needs_auth IS NULL THEN 1 ELSE needs_auth END as needs_auth,
+                    CASE WHEN session_file IS NULL THEN '' ELSE session_file END as session_file,
+                    created_at, updated_at
+                    FROM admin_panel_telegramsession
+                    ORDER BY id DESC
+                """)
+                columns = [col[0] for col in cursor.description]
+                sessions = [
+                    dict(zip(columns, row))
+                    for row in cursor.fetchall()
+                ]
+            except Exception as inner_e:
+                # If even the safer query fails, use the most minimal query
+                logger.error(f"Error with safer query: {inner_e}")
+                cursor.execute("""
+                    SELECT id, phone, 
+                    CASE WHEN is_active IS NULL THEN 1 ELSE is_active END as is_active,
+                    created_at, updated_at
+                    FROM admin_panel_telegramsession
+                    ORDER BY id DESC
+                """)
+                columns = [col[0] for col in cursor.description]
+                sessions = [
+                    dict(zip(columns, row))
+                    for row in cursor.fetchall()
+                ]
+                # Add missing attributes
+                for session in sessions:
+                    session['needs_auth'] = True
+                    session['session_file'] = ''
     
     context = {
         'sessions': sessions,
-        'title': 'Сесії Telegram'
+        'title': 'Сесії Telegram',
+        'migration_needed': 'session_name' in request.session.get('error_message', '') 
     }
     return render(request, 'admin_panel/telegram_sessions.html', context)
 

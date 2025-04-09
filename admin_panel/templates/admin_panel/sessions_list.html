@@ -4,14 +4,19 @@
 
 {% block content %}
 <div class="container mt-4">
-    {% if 'no such column' in request.session.get_error|default:'' %}
+    {% if schema_error %}
     <div class="alert alert-danger">
-        <i class="fas fa-exclamation-triangle"></i> <strong>Database Error:</strong> The database schema needs to be updated.
+        <i class="fas fa-exclamation-triangle"></i> <strong>Database Schema Error:</strong> The database is missing the session_name column.
         <hr>
-        <p>Please run migrations to fix this issue:</p>
-        <a href="{% url 'run_migrations' %}" class="btn btn-primary">Run Migrations</a>
+        <p>Please fix the database schema with the button below:</p>
+        <form method="post" action="{% url 'sessions_list' %}">
+            {% csrf_token %}
+            <input type="hidden" name="action" value="fix_schema">
+            <button type="submit" class="btn btn-primary">Fix Database Schema</button>
+        </form>
     </div>
     {% endif %}
+    
     <div class="row mb-4">
         <div class="col">
             <h1 class="h3 mb-2 text-gray-800">Telegram Sessions</h1>
