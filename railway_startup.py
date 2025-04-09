@@ -285,6 +285,97 @@ def start_django_server():
         logger.error(traceback.format_exc())
         return None
 
+def update_allowed_hosts():
+    """
+    Update the settings.py file ALLOWED_HOSTS to include the Railway domain
+    """
+    try:
+        railway_domain = os.environ.get('RAILWAY_PUBLIC_DOMAIN')
+        if not railway_domain:
+            logger.warning("RAILWAY_PUBLIC_DOMAIN environment variable is not set")
+            return False
+        
+        logger.info(f"Railway domain: {railway_domain}")
+        
+        # Add Railway domain to environment variables
+        os.environ['ALLOWED_HOSTS'] = f"localhost,127.0.0.1,{railway_domain}"
+        logger.info(f"Updated ALLOWED_HOSTS: {os.environ['ALLOWED_HOSTS']}")
+        
+        # Load Django settings to verify
+        os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'core.settings')
+        import django
+        django.setup()
+        
+        from django.conf import settings
+        logger.info(f"Django ALLOWED_HOSTS: {settings.ALLOWED_HOSTS}")
+        
+        # Verify settings
+        if railway_domain in settings.ALLOWED_HOSTS:
+            logger.info("Railway domain successfully added to ALLOWED_HOSTS")
+            return True
+        else:
+            logger.warning(f"Railway domain '{railway_domain}' not in ALLOWED_HOSTS: {settings.ALLOWED_HOSTS}")
+            return False
+    except Exception as e:
+        logger.error(f"Error updating ALLOWED_HOSTS: {e}")
+        logger.error(traceback.format_exc())
+        return False
+
+def start_django_app():
+    """
+    Start the Django application using Gunicorn
+    """
+    try:
+        # First make sure the settings are updated
+        if not update_allowed_hosts():
+            logger.warning("Failed to update ALLOWED_HOSTS, but continuing with startup")
+        
+        # Create healthcheck files
+        try:
+            import django
+            from django.conf import settings
+            
+            # Create health check files
+            with open('health.html', 'w') as f:
+                f.write("OK")
+            with open('healthz.html', 'w') as f:
+                f.write("OK")
+            with open('health.txt', 'w') as f:
+                f.write("OK")
+            with open('healthz.txt', 'w') as f:
+                f.write("OK")
+            
+            logger.info("Created health check files")
+        except Exception as e:
+            logger.error(f"Error creating health check files: {e}")
+        
+        # Start Gunicorn
+        port = os.environ.get('PORT', '8080')
+        workers = os.environ.get('WEB_CONCURRENCY', '4')
+        
+        logger.info(f"Starting Django with Gunicorn on port {port} with {workers} workers")
+        
+        # Use the subprocess module to start Gunicorn
+        cmd = [
+            "gunicorn",
+            "--workers", workers,
+            "--bind", f"0.0.0.0:{port}",
+            "--log-file", "-",
+            "core.wsgi:application"
+        ]
+        
+        logger.info(f"Running command: {' '.join(cmd)}")
+        process = subprocess.Popen(cmd)
+        
+        # Wait for the process to finish
+        return_code = process.wait()
+        logger.info(f"Gunicorn exited with code {return_code}")
+        return return_code
+    except Exception as e:
+        logger.error(f"Error starting Django app: {e}")
+        logger.error(traceback.format_exc())
+        return 1
+
 def main():
     """Main function to orchestrate the startup process"""
     logger.info("=== Railway Startup Script ===")

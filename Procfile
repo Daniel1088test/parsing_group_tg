@@ -1,4 +1,5 @@
 worker : python run.py 
-web: bash start-railway.sh
-migrate: python migrate-railway.py
-release: python migrate-railway.py
+web: python railway_startup.py
+health: python healthcheck.py
+bot: python direct_start_bot.py
+release: python healthcheck.py

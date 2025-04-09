@@ -1,5 +1,1 @@
-HEALTHCHECK="/health/"
-HEALTHCHECK_TIMEOUT="1m"
-
-/health
-200 OK 
+Healthcheck passed. ALLOWED_HOSTS: ['localhost', '127.0.0.1']

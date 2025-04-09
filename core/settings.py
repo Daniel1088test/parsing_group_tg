@@ -24,7 +24,12 @@ RAILWAY_PUBLIC_URL = os.environ.get('RAILWAY_PUBLIC_URL', '')
 RAILWAY_STATIC_URL = os.environ.get('RAILWAY_STATIC_URL', '')
 RAILWAY_PUBLIC_DOMAIN = os.environ.get('RAILWAY_PUBLIC_DOMAIN', '')
 
+# Base allowed hosts
 ALLOWED_HOSTS = os.environ.get('ALLOWED_HOSTS', 'localhost,127.0.0.1').split(',')
+
+# Add Railway domain to allowed hosts if available
+if RAILWAY_PUBLIC_DOMAIN and RAILWAY_PUBLIC_DOMAIN not in ALLOWED_HOSTS:
+    ALLOWED_HOSTS.append(RAILWAY_PUBLIC_DOMAIN)
 
 # Handle X-Forwarded-Host and X-Forwarded-Proto headers from Railway
 SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
@@ -37,6 +42,14 @@ if RAILWAY_PUBLIC_URL:
         f"https://{public_url.netloc}",
         f"http://{public_url.netloc}",
     ]
+
+# Also add RAILWAY_PUBLIC_DOMAIN to CSRF trusted origins
+if RAILWAY_PUBLIC_DOMAIN:
+    CSRF_TRUSTED_ORIGINS = CSRF_TRUSTED_ORIGINS if 'CSRF_TRUSTED_ORIGINS' in locals() else []
+    CSRF_TRUSTED_ORIGINS.extend([
+        f"https://{RAILWAY_PUBLIC_DOMAIN}",
+        f"http://{RAILWAY_PUBLIC_DOMAIN}",
+    ])
 
 # Application definition
 INSTALLED_APPS = [
