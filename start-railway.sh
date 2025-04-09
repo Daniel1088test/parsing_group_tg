@@ -31,6 +31,10 @@ echo "Installing psycopg2 for database connectivity..."
 pip install psycopg2-binary==2.9.9
 pip install psycopg2==2.9.9 || echo "Could not install psycopg2, but continuing with psycopg2-binary"
 
+# Test database connection properly
+echo "Testing database connection during build..."
+python -c "import sys; try: import psycopg2; print('✓ psycopg2 is properly installed'); except ImportError as e: print('✗ psycopg2 import failed! ' + str(e)); sys.exit(1);" || echo "Warning: psycopg2 test failed, but continuing build"
+
 # Run our enhanced migration script that handles errors and prepares media paths
 echo "Running enhanced migration script..."
 python migrate-railway.py
