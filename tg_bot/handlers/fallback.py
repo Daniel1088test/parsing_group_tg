@@ -56,14 +56,79 @@ async def unknown_command(message: types.Message):
 
 @fallback_router.message()
 async def handle_any_message(message: types.Message):
-    """Обробник для будь-яких повідомлень, які не були оброблені іншими хендлерами"""
+    """Catch-all handler for all unhandled messages
+    
+    This handler will be called when no other handler matches
+    """
     try:
-        # Не показуємо користувачеві повідомлення про необроблену команду,
-        # але показуємо йому кнопки головного меню
-        if message.from_user.is_bot:
-            return
+        logger.info(f"Unhandled message from user {message.from_user.id}: {message.text[:50] if message.text else '<no text>'}")
         
-        await show_menu(message)
+        # Keyboard with main menu buttons
+        keyboard = types.ReplyKeyboardMarkup(
+            keyboard=[
+                [types.KeyboardButton(text="📎 List of channels")],
+                [types.KeyboardButton(text="📍 Categories menu")],
+                [types.KeyboardButton(text="🌐 Go to the site")],
+                [types.KeyboardButton(text="🔑 Add new session")],
+            ],
+            resize_keyboard=True,
+            is_persistent=True
+        )
+        
+        # Send a helpful message with available commands and buttons
+        await message.answer(
+            "Вибачте, я не розумію цю команду. Використовуйте меню або спробуйте команди:\n"
+            "/start - Запустити бота\n"
+            "/menu - Показати меню\n"
+            "/help - Отримати довідку",
+            reply_markup=keyboard
+        )
     except Exception as e:
-        logger.error(f"Error in handle_any_message: {e}")
-        # Нічого не робимо у разі помилки 
+        logger.error(f"Error in fallback handler: {e}")
+        # Try to send a simple message without any formatting or keyboards
+        try:
+            await message.answer("Виникла помилка. Спробуйте команду /start")
+        except:
+            pass  # If even this fails, just ignore it
+
+@fallback_router.errors()
+async def errors_handler(update: types.Update, exception: Exception):
+    """Handle errors from other handlers
+    
+    This handler will catch any exceptions raised in other handlers
+    """
+    try:
+        logger.error(f"Update {update} caused error {exception}")
+        
+        # Try to get message from update
+        message = None
+        if hasattr(update, 'message') and update.message:
+            message = update.message
+        elif hasattr(update, 'callback_query') and update.callback_query and update.callback_query.message:
+            message = update.callback_query.message
+        
+        if message:
+            await message.answer(
+                "Виникла помилка при обробці запиту. Будь ласка, спробуйте ще раз пізніше або зверніться до адміністратора."
+            )
+            
+            # Try to show main menu again
+            keyboard = types.ReplyKeyboardMarkup(
+                keyboard=[
+                    [types.KeyboardButton(text="📎 List of channels")],
+                    [types.KeyboardButton(text="📍 Categories menu")],
+                    [types.KeyboardButton(text="🌐 Go to the site")],
+                    [types.KeyboardButton(text="🔑 Add new session")],
+                ],
+                resize_keyboard=True,
+                is_persistent=True
+            )
+            
+            await message.answer("Спробуйте використати меню:", reply_markup=keyboard)
+            
+    except Exception as e:
+        # Log but don't try to handle further to avoid infinite loops
+        logger.error(f"Error handling error: {e}")
+        
+    # Return True so aiogram knows the error was handled
+    return True 

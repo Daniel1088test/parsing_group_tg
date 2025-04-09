@@ -17,7 +17,7 @@ MAX_MESSAGES = 100000
 # Server configuration
 WEB_SERVER_HOST = os.environ.get('WEB_SERVER_HOST', "127.0.0.1")  # Internal server host
 WEB_SERVER_PORT = os.environ.get('WEB_SERVER_PORT', "8080")  # Internal server port
-WEB_SERVER_HOST2 = os.environ.get('WEB_SERVER_HOST2', "108.181.154.114")
+WEB_SERVER_HOST2 = os.environ.get('WEB_SERVER_HOST2', "0.0.0.0")  # Use 0.0.0.0 for Railway binding
 
 # Railway environment variables
 RAILWAY_PUBLIC_DOMAIN = os.environ.get('RAILWAY_PUBLIC_DOMAIN', 'parsinggrouptg-production.up.railway.app')
@@ -43,11 +43,14 @@ print(f"Bot will use PUBLIC_URL: {PUBLIC_URL}")
 
 # Database configuration from Railway
 DATABASE_URL = os.environ.get('DATABASE_URL', '')
-PGHOST = os.environ.get('PGHOST', 'postgres.railway.internal')
+PGHOST = os.environ.get('PGHOST', 'localhost')  # Changed from postgres.railway.internal
 PGPORT = os.environ.get('PGPORT', '5432')
 PGDATABASE = os.environ.get('PGDATABASE', 'railway')
 PGUSER = os.environ.get('PGUSER', 'postgres')
 PGPASSWORD = os.environ.get('PGPASSWORD', '')
+
+# Check if we're running on Railway
+IS_RAILWAY = os.environ.get('RAILWAY_ENVIRONMENT') is not None or os.environ.get('RAILWAY_SERVICE_NAME') is not None
 
 # Security configuration
 SECRET_KEY = os.environ.get('SECRET_KEY', '/QoXhzTJkyhzSKccxR+XV0pf4T2zqLfXzPlSwegi6Cs=')

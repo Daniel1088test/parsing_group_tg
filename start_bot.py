@@ -1,286 +1,167 @@
 #!/usr/bin/env python3
 """
-Script to start the Telegram bot with all fixes applied
-This is the main entry point users should use to run the bot
+Скрипт для запуску Telegram бота на Railway
 """
 import os
 import sys
 import logging
-import subprocess
 import time
 import traceback
-from pathlib import Path
+import django
+from django.core.management import call_command
 
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.FileHandler('start_bot.log', encoding='utf-8'),
         logging.StreamHandler(sys.stdout)
     ]
 )
-logger = logging.getLogger(__name__)
+logger = logging.getLogger('railway_bot_runner')
 
-# Ensure environment variables are set
+# Set up environment variables
+os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'core.settings')
 os.environ.setdefault('BOT_TOKEN', '8102516142:AAFTsVXXujHHKoX2KZGqZXBHPBznfgh7kg0')
 os.environ.setdefault('BOT_USERNAME', 'chan_parsing_mon_bot')
-os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'core.settings')
 
-def kill_existing_processes():
-    """Kill any existing Python processes"""
+def run_migrations():
+    """Run database migrations"""
     try:
-        if sys.platform == "win32":
-            # Windows
-            subprocess.run(["taskkill", "/F", "/IM", "python.exe", "/T"], 
-                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        else:
-            # Unix-like
-            subprocess.run(["pkill", "-f", "python"], 
-                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        
-        # Wait a bit
-        time.sleep(2)
-        logger.info("Killed existing Python processes")
-        return True
-    except Exception as e:
-        logger.error(f"Error killing processes: {e}")
-        return False
-
-def fix_database_config():
-    """Fix the database configuration for Railway and local environments"""
-    try:
-        # Check if running on Railway
-        is_railway = os.environ.get('RAILWAY_ENVIRONMENT') is not None or os.environ.get('RAILWAY_SERVICE_NAME') is not None
-        
-        # Update settings file if it exists
-        settings_path = Path('core/settings.py')
-        if not settings_path.exists():
-            logger.warning(f"Settings file not found at {settings_path}")
-            return False
-        
-        with open(settings_path, 'r', encoding='utf-8') as f:
-            content = f.read()
-        
-        # Add Telegram API Token if missing
-        if 'TELEGRAM_API_TOKEN' not in content:
-            if '# Application definition' in content:
-                content = content.replace(
-                    '# Application definition',
-                    f'# Telegram API Token\nTELEGRAM_API_TOKEN = os.environ.get("BOT_TOKEN", "{os.environ["BOT_TOKEN"]}")\n\n# Application definition'
-                )
-            else:
-                content += f'\n# Telegram API Token\nTELEGRAM_API_TOKEN = os.environ.get("BOT_TOKEN", "{os.environ["BOT_TOKEN"]}")\n'
-            
-            logger.info("Added TELEGRAM_API_TOKEN to settings.py")
-        
-        # Configure database based on environment
-        if is_railway:
-            # Railway environment with PostgreSQL
-            db_config = """
-DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.postgresql',
-        'NAME': os.environ.get('PGDATABASE', 'railway'),
-        'USER': os.environ.get('PGUSER', 'postgres'),
-        'PASSWORD': os.environ.get('PGPASSWORD', ''),
-        'HOST': os.environ.get('PGHOST', 'postgres.railway.internal'),
-        'PORT': os.environ.get('PGPORT', '5432'),
-    }
-}
-"""
-            logger.info("Configuring for Railway PostgreSQL")
-        else:
-            # Local environment with SQLite
-            db_config = """
-DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': os.path.join(BASE_DIR, 'db.sqlite3'),
-    }
-}
-"""
-            logger.info("Configuring for local SQLite database")
-        
-        # Update the database configuration
-        import re
-        if 'DATABASES' in content:
-            content = re.sub(
-                r'DATABASES\s*=\s*\{[^}]*\}',
-                db_config.strip(),
-                content
-            )
-        else:
-            content += '\n' + db_config
-        
-        # Write the updated content
-        with open(settings_path, 'w', encoding='utf-8') as f:
-            f.write(content)
-        
-        logger.info("Database configuration updated")
-        return True
-    except Exception as e:
-        logger.error(f"Error fixing database configuration: {e}")
-        logger.error(traceback.format_exc())
-        return False
-
-def fix_migrations():
-    """Fix SQL syntax in migration files"""
-    try:
-        migrations_dir = Path('admin_panel/migrations')
-        if not migrations_dir.exists():
-            logger.warning("Migrations directory not found")
-            return False
-        
-        fixed_count = 0
-        for migration_file in migrations_dir.glob('*.py'):
-            with open(migration_file, 'r', encoding='utf-8') as f:
-                content = f.read()
-            
-            # Fix incorrect DO 1 BEGIN syntax in SQL
-            if 'DO 1 BEGIN' in content:
-                content = content.replace('DO 1 BEGIN', 'DO $$ BEGIN')
-                content = content.replace('END 1;', 'END $$;')
-                
-                with open(migration_file, 'w', encoding='utf-8') as f:
-                    f.write(content)
-                
-                fixed_count += 1
-                logger.info(f"Fixed SQL syntax in {migration_file}")
-        
-        if fixed_count > 0:
-            logger.info(f"Fixed SQL syntax in {fixed_count} migration files")
-        else:
-            logger.info("No SQL syntax issues found in migration files")
-        
-        return True
-    except Exception as e:
-        logger.error(f"Error fixing migrations: {e}")
-        logger.error(traceback.format_exc())
-        return False
-
-def apply_migrations():
-    """Apply database migrations"""
-    try:
+        logger.info("Running database migrations...")
         # Initialize Django
-        logger.info("Initializing Django...")
-        os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'core.settings')
-        try:
-            import django
-            django.setup()
-            
-            # Import management commands
-            from django.core.management import call_command
-            
-            # Make migrations
-            logger.info("Running makemigrations...")
-            call_command('makemigrations')
-            
-            # Apply migrations
-            logger.info("Running migrate...")
-            call_command('migrate')
-            
-            logger.info("Migrations applied successfully")
-            return True
-        except Exception as e:
-            logger.error(f"Error applying migrations: {e}")
-            logger.error(traceback.format_exc())
-            # Continue anyway, as this might be a first-run issue
-            return False
+        django.setup()
+        
+        # Apply migrations
+        call_command('migrate')
+        logger.info("Migrations applied successfully")
+        return True
     except Exception as e:
-        logger.error(f"Error setting up Django: {e}")
+        logger.error(f"Error applying migrations: {e}")
         logger.error(traceback.format_exc())
         return False
 
-def start_bot():
-    """Start the bot process"""
+def check_database():
+    """Check database connection"""
     try:
-        # First try tg_bot/bot.py directly
-        bot_script = 'tg_bot/bot.py'
-        if os.path.exists(bot_script):
-            logger.info(f"Starting bot using {bot_script}...")
-            
-            flags = 0
-            if sys.platform == "win32":
-                flags = subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS
-                
-            process = subprocess.Popen(
-                [sys.executable, bot_script],
-                creationflags=flags if sys.platform == "win32" else 0,
-                start_new_session=True if sys.platform != "win32" else False
-            )
-            
-            logger.info(f"Bot started with PID: {process.pid}")
-            return True
+        logger.info("Checking database connection...")
+        # Initialize Django if not already initialized
+        django.setup()
         
-        # Try alternative scripts
-        for script in ['run.py', 'direct_bot_runner.py', 'run_bot.py']:
-            if os.path.exists(script):
-                logger.info(f"Starting bot using {script}...")
-                
-                flags = 0
-                if sys.platform == "win32":
-                    flags = subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS
-                    
-                process = subprocess.Popen(
-                    [sys.executable, script],
-                    creationflags=flags if sys.platform == "win32" else 0,
-                    start_new_session=True if sys.platform != "win32" else False
-                )
-                
-                logger.info(f"Bot started with PID: {process.pid}")
-                return True
-                
-        logger.error("No bot script found to run")
-        return False
+        # Check if we can query something
+        from django.db import connection
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT 1")
+            result = cursor.fetchone()
+        
+        if result and result[0] == 1:
+            logger.info("Database connection successful")
+            return True
+        else:
+            logger.error("Database check query failed")
+            return False
     except Exception as e:
-        logger.error(f"Error starting bot: {e}")
+        logger.error(f"Database connection error: {e}")
         logger.error(traceback.format_exc())
         return False
+
+def run_bot():
+    """Run the bot"""
+    try:
+        # First try running tg_bot/bot.py directly
+        bot_path = os.path.join(os.path.dirname(__file__), 'tg_bot', 'bot.py')
+        
+        if os.path.exists(bot_path):
+            logger.info(f"Starting bot using {bot_path}")
+            import importlib.util
+            spec = importlib.util.spec_from_file_location("bot", bot_path)
+            bot_module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(bot_module)
+            
+            # Run the main function to start the bot
+            if hasattr(bot_module, 'main'):
+                logger.info("Launching bot's main function")
+                import asyncio
+                loop = asyncio.get_event_loop()
+                loop.run_until_complete(bot_module.main())
+                return True
+        
+        logger.error(f"Bot module not found at {bot_path}")
+        return False
+    except Exception as e:
+        logger.error(f"Error running bot: {e}")
+        logger.error(traceback.format_exc())
+        return False
+
+def serve_http():
+    """Serve basic HTTP health check"""
+    import threading
+    import http.server
+    import socketserver
+    
+    class HealthCheckHandler(http.server.SimpleHTTPRequestHandler):
+        def do_GET(self):
+            if self.path == '/health' or self.path == '/healthz':
+                self.send_response(200)
+                self.send_header('Content-type', 'text/plain')
+                self.end_headers()
+                self.wfile.write(b'OK')
+            elif self.path == '/metrics':
+                self.send_response(200)
+                self.send_header('Content-type', 'text/plain')
+                self.end_headers()
+                self.wfile.write(b'# Bot metrics\nbot_running 1\n')
+            else:
+                self.send_response(200)
+                self.send_header('Content-type', 'text/html')
+                self.end_headers()
+                self.wfile.write(b'Telegram bot is running')
+    
+    def run_server():
+        port = int(os.environ.get('PORT', 8080))
+        with socketserver.TCPServer(("", port), HealthCheckHandler) as httpd:
+            logger.info(f"HTTP server started on port {port}")
+            try:
+                httpd.serve_forever()
+            except KeyboardInterrupt:
+                httpd.shutdown()
+    
+    # Start HTTP server in a separate thread
+    server_thread = threading.Thread(target=run_server, daemon=True)
+    server_thread.start()
+    logger.info("Health check HTTP server started in background thread")
+    return server_thread
 
 def main():
     """Main function"""
-    logger.info("=== Starting Telegram Parser Bot ===")
+    logger.info("=== Starting Railway Bot Deployment ===")
     
-    # Kill existing processes
-    kill_existing_processes()
+    # Check database
+    logger.info("Checking database...")
+    db_ok = check_database()
+    if not db_ok:
+        logger.warning("Database check failed - continuing anyway")
     
-    # Fix database configuration
-    logger.info("Fixing database configuration...")
-    fix_database_config()
+    # Run migrations
+    logger.info("Running migrations...")
+    run_migrations()
     
-    # Fix migrations SQL
-    logger.info("Fixing migration files...")
-    fix_migrations()
+    # Start health check server
+    logger.info("Starting health check server...")
+    http_thread = serve_http()
     
-    # Apply migrations
-    logger.info("Applying database migrations...")
-    apply_migrations()
-    
-    # Start the bot
-    logger.info("Starting bot...")
-    success = start_bot()
-    
-    if success:
-        logger.info("=== Bot started successfully ===")
-        logger.info("The bot is now running in the background.")
-        logger.info("You can access it at https://t.me/chan_parsing_mon_bot")
-        logger.info("To stop the bot, close this terminal or press Ctrl+C")
-    else:
-        logger.error("=== Failed to start bot ===")
-        return False
-    
-    # Keep the script running to make it easy to stop with Ctrl+C
+    # Run bot
+    logger.info("Starting the bot...")
     try:
-        while True:
-            time.sleep(10)
-            sys.stdout.write(".")
-            sys.stdout.flush()
+        run_bot()
     except KeyboardInterrupt:
-        logger.info("\nBot stopped by user")
+        logger.info("Bot stopped by user")
+    except Exception as e:
+        logger.error(f"Bot crashed: {e}")
+        logger.error(traceback.format_exc())
+        sys.exit(1)
     
-    return True
+    return 0
 
 if __name__ == "__main__":
-    success = main()
-    sys.exit(0 if success else 1) 
+    sys.exit(main()) 

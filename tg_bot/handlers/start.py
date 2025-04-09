@@ -17,11 +17,19 @@ router = Router()
 
 def _get_categories():
     from admin_panel.models import Category
-    return list(Category.objects.all())
+    try:
+        return list(Category.objects.all())
+    except Exception as e:
+        logger.error(f"Error fetching categories: {e}")
+        return []
 
 def _get_channels():
     from admin_panel.models import Channel
-    return list(Channel.objects.all())
+    try:
+        return list(Channel.objects.all())
+    except Exception as e:
+        logger.error(f"Error fetching channels: {e}")
+        return []
 
 # create async functions
 get_categories = sync_to_async(_get_categories)

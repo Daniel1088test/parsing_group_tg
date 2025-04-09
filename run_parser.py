@@ -1,153 +1,225 @@
 #!/usr/bin/env python3
 """
-Запускає Telegram-парсер у фоновому режимі.
-Обробляє помилки для стабільної роботи в Railway.
+Script to run the Telegram channel parser
 """
 import os
 import sys
-import time
-import signal
 import logging
 import traceback
-import subprocess
-from datetime import datetime
+import asyncio
+import json
+import time
+from datetime import datetime, timedelta
+import django
 
-# Налаштування логування
+# Configure logging
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    datefmt='%Y-%m-%d %H:%M:%S'
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler('parser.log', encoding='utf-8'),
+        logging.StreamHandler(sys.stdout)
+    ]
 )
-logger = logging.getLogger('parser_launcher')
+logger = logging.getLogger('channel_parser')
 
-# Ініціалізація Django
-import django
+# Set up Django
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'core.settings')
-django.setup()
+try:
+    django.setup()
+    logger.info("Django initialized successfully")
+except Exception as e:
+    logger.error(f"Error initializing Django: {e}")
+    logger.error(traceback.format_exc())
+    sys.exit(1)
 
-# Імпорт моделей Django
-from admin_panel.models import TelegramSession, Channel, Category, Message
-from django.conf import settings
+# Import Django models
+try:
+    from admin_panel.models import Channel, Category, Message, TelegramSession
+    from tg_bot.auth_telethon import TelethonClient
+    logger.info("Django models imported successfully")
+except Exception as e:
+    logger.error(f"Error importing Django models: {e}")
+    logger.error(traceback.format_exc())
+    sys.exit(1)
 
-# Змінні для управління роботою
-RETRY_INTERVAL = 60  # секунди між спробами перезапуску
-MAX_RETRIES = 5      # максимальна кількість спроб перезапуску
-running = True
-
-def signal_handler(sig, frame):
-    """Обробник сигналів для коректного завершення"""
-    global running
-    logger.info("Отримано сигнал завершення роботи. Зупиняємо парсер...")
-    running = False
-    sys.exit(0)
-
-# Встановлюємо обробники сигналів
-signal.signal(signal.SIGINT, signal_handler)
-signal.signal(signal.SIGTERM, signal_handler)
-
-def check_sessions():
-    """Перевіряє наявність активних сесій Telegram"""
+async def fetch_channels():
+    """Fetch active channels from the database"""
     try:
-        sessions = TelegramSession.objects.filter(is_active=True)
-        return sessions.exists()
+        channels = list(Channel.objects.filter(is_active=True))
+        logger.info(f"Found {len(channels)} active channels")
+        return channels
     except Exception as e:
-        logger.error(f"Помилка при перевірці сесій: {e}")
-        return False
+        logger.error(f"Error fetching channels: {e}")
+        logger.error(traceback.format_exc())
+        return []
 
-def check_channels():
-    """Перевіряє наявність активних каналів для парсингу"""
+async def fetch_messages(channel, client):
+    """Fetch messages from a channel using the Telethon client"""
     try:
-        channels = Channel.objects.filter(is_active=True)
-        return channels.exists()
+        # Get the channel entity
+        entity = await client.get_entity(channel.url)
+        if not entity:
+            logger.error(f"Could not find entity for channel {channel.name} ({channel.url})")
+            return []
+        
+        # Get last message date from database for incremental updates
+        last_message = Message.objects.filter(channel=channel).order_by('-created_at').first()
+        
+        # Get the messages
+        limit = 20  # Reasonable limit for each fetch
+        messages = []
+        
+        if last_message and last_message.created_at:
+            # Incremental fetch - get messages after the last one
+            offset_date = last_message.created_at
+            logger.info(f"Fetching messages from {channel.name} after {offset_date}")
+            messages = await client.get_messages(entity, limit=limit, offset_date=offset_date)
+        else:
+            # Initial fetch - get the latest messages
+            logger.info(f"Fetching the latest {limit} messages from {channel.name}")
+            messages = await client.get_messages(entity, limit=limit)
+        
+        logger.info(f"Fetched {len(messages)} messages from {channel.name}")
+        return messages
     except Exception as e:
-        logger.error(f"Помилка при перевірці каналів: {e}")
-        return False
+        logger.error(f"Error fetching messages from {channel.name}: {e}")
+        logger.error(traceback.format_exc())
+        return []
 
-def start_parser():
-    """Запускає основний парсер Telegram"""
-    logger.info("Запускаємо парсер повідомлень Telegram...")
-    
-    # Перевіряємо готовність системи
-    if not check_sessions():
-        logger.warning("Немає активних сесій Telegram. Парсер не запущено.")
-        return False
-        
-    if not check_channels():
-        logger.warning("Немає активних каналів для парсингу. Парсер не запущено.")
-        return False
-    
+async def save_message(message, channel, session):
+    """Save a message to the database"""
     try:
-        # Імпортуємо і запускаємо основний парсер
-        from telegram_parser.parser import TelegramParser
+        # Check if message already exists by Telegram ID
+        if Message.objects.filter(telegram_message_id=str(message.id), channel=channel).exists():
+            logger.debug(f"Message {message.id} already exists, skipping")
+            return None
         
-        parser = TelegramParser()
-        parser.run()
-        return True
-    except ImportError:
-        # Альтернативний метод - запуск через subprocess
-        logger.info("Використовуємо альтернативний метод запуску через підпроцес")
+        # Extract text, media, and link
+        text = message.text or message.message or ''
+        media_type = None
+        media_file = None
+        media_path = None
+        
+        if message.media:
+            media_type = type(message.media).__name__
+            # Handle media file if needed
+            # This is a simplified version - expand as needed for different media types
+        
+        # Create the message
+        db_message = Message(
+            text=text,
+            telegram_message_id=str(message.id),
+            telegram_channel_id=str(channel.id),
+            telegram_link=f"{channel.url}/{message.id}",
+            channel=channel,
+            session_used=session,
+            media_type=media_type
+        )
+        
+        # Save timestamp
+        if hasattr(message, 'date') and message.date:
+            db_message.created_at = message.date
+        
+        # Save the message
+        db_message.save()
+        logger.info(f"Saved message {message.id} from {channel.name}")
+        return db_message
+    except Exception as e:
+        logger.error(f"Error saving message {getattr(message, 'id', 'unknown')}: {e}")
+        logger.error(traceback.format_exc())
+        return None
+
+async def parse_channel(channel, session):
+    """Parse a single channel using a Telegram session"""
+    try:
+        # Create client
+        client = TelethonClient(
+            session=session.phone, 
+            api_id=session.api_id or os.environ.get('API_ID'),
+            api_hash=session.api_hash or os.environ.get('API_HASH')
+        )
+        
         try:
-            result = subprocess.run(
-                ["python", "-m", "telegram_parser.main"],
-                capture_output=True,
-                text=True,
-                check=False
-            )
-            
-            if result.returncode != 0:
-                logger.error(f"Парсер завершився з помилкою: {result.stderr}")
+            # Connect to Telegram
+            await client.connect()
+            if not await client.is_user_authorized():
+                logger.error(f"Session {session.phone} is not authorized, skipping channel {channel.name}")
                 return False
-            else:
-                logger.info("Парсер успішно запущено через підпроцес")
-                return True
-        except Exception as e:
-            logger.error(f"Помилка запуску підпроцесу: {e}")
-            return False
+            
+            # Fetch messages
+            messages = await fetch_messages(channel, client)
+            
+            # Save messages
+            for message in messages:
+                await save_message(message, channel, session)
+            
+            logger.info(f"Successfully parsed channel {channel.name}")
+            return True
+        finally:
+            # Always disconnect client
+            await client.disconnect()
     except Exception as e:
-        logger.error(f"Критична помилка при запуску парсера: {e}")
+        logger.error(f"Error parsing channel {channel.name}: {e}")
         logger.error(traceback.format_exc())
         return False
 
-def main():
-    """Основна функція запуску з повторними спробами"""
-    logger.info("Запуск системи парсингу Telegram")
+async def main_parser():
+    """Main parser function"""
+    logger.info("Starting channel parser")
     
-    # Отримуємо URL для налаштування
-    public_url = os.environ.get('PUBLIC_URL', '')
-    if public_url:
-        logger.info(f"Виявлено PUBLIC_URL: {public_url}")
-    
-    # Цикл з повторними спробами
-    retry_count = 0
-    
-    while running and retry_count < MAX_RETRIES:
+    try:
+        # Fetch channels to parse
+        channels = await fetch_channels()
+        if not channels:
+            logger.warning("No active channels found")
+            return False
+        
+        # Get available sessions
         try:
-            logger.info(f"Спроба запуску парсера #{retry_count + 1}")
-            success = start_parser()
-            
-            if success:
-                logger.info("Парсер успішно запущено")
-                break
-            else:
-                retry_count += 1
-                logger.warning(f"Не вдалося запустити парсер. Спроба {retry_count}/{MAX_RETRIES}")
-                time.sleep(RETRY_INTERVAL)
+            sessions = list(TelegramSession.objects.filter(is_active=True))
+            if not sessions:
+                logger.error("No active Telegram sessions available")
+                return False
+            logger.info(f"Found {len(sessions)} active sessions")
         except Exception as e:
-            retry_count += 1
-            logger.error(f"Непередбачена помилка: {e}")
-            logger.error(traceback.format_exc())
-            time.sleep(RETRY_INTERVAL)
-    
-    if retry_count >= MAX_RETRIES:
-        logger.error("Досягнуто максимальну кількість спроб. Парсер не запущено.")
-    
-    # Якщо запуск не вдався, продовжуємо роботу для підтримки веб-сервера
-    while running:
-        try:
-            time.sleep(60)
-            logger.info("Парсер працює у фоновому режимі...")
-        except KeyboardInterrupt:
-            break
+            logger.error(f"Error fetching sessions: {e}")
+            return False
+        
+        # Parse each channel with its assigned session
+        for channel in channels:
+            # Get the session for this channel
+            session = None
+            if channel.session:
+                session = channel.session
+            else:
+                # If channel has no assigned session, use the first available one
+                if sessions:
+                    session = sessions[0]
+            
+            if not session:
+                logger.error(f"No suitable session found for channel {channel.name}")
+                continue
+            
+            # Parse the channel
+            await parse_channel(channel, session)
+        
+        logger.info("Channel parsing completed")
+        return True
+    except Exception as e:
+        logger.error(f"Error in main parser: {e}")
+        logger.error(traceback.format_exc())
+        return False
 
 if __name__ == "__main__":
-    main()
+    try:
+        # Run the main parser
+        loop = asyncio.get_event_loop()
+        success = loop.run_until_complete(main_parser())
+        
+        # Exit with the appropriate status
+        sys.exit(0 if success else 1)
+    except Exception as e:
+        logger.error(f"Unexpected error: {e}")
+        logger.error(traceback.format_exc())
+        sys.exit(1)

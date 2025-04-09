@@ -108,17 +108,44 @@ WSGI_APPLICATION = 'core.wsgi.application'
 # Database
 # https://docs.djangoproject.com/en/4.2/ref/settings/#databases
 
-# Database configuration - always use PostgreSQL from Railway
-DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.postgresql',
-        'NAME': os.environ.get('PGDATABASE', 'railway'),
-        'USER': os.environ.get('PGUSER', 'postgres'),
-        'PASSWORD': os.environ.get('PGPASSWORD', 'urCNhXdwvbqOvvEsJDffIiDUMcLhAvcs'),
-        'HOST': os.environ.get('PGHOST', 'postgres.railway.internal'),
-        'PORT': os.environ.get('PGPORT', '5432'),
+# Database configuration - use database URL if available, otherwise fallback to specific settings
+if 'DATABASE_URL' in os.environ:
+    # For Railway or any environment that uses DATABASE_URL
+    DATABASES = {
+        'default': dj_database_url.config(
+            default=os.environ.get('DATABASE_URL'),
+            conn_max_age=600, ssl_require=False  # 10 minutes timeout without requiring SSL
+        )
     }
-}
+    print("Using DATABASE_URL connection string")
+elif os.environ.get('RAILWAY_ENVIRONMENT') or os.environ.get('RAILWAY_SERVICE_NAME'):
+    # For Railway when DATABASE_URL is not directly available but PG variables are set
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.postgresql',
+            'NAME': os.environ.get('PGDATABASE', 'railway'),
+            'USER': os.environ.get('PGUSER', 'postgres'),
+            'PASSWORD': os.environ.get('PGPASSWORD', ''),
+            'HOST': os.environ.get('PGHOST', 'localhost'), # Changed from postgres.railway.internal
+            'PORT': os.environ.get('PGPORT', '5432'),
+            'CONN_MAX_AGE': 60,  # Recommended for Railway's ephemeral builds
+            'OPTIONS': {
+                'connect_timeout': 10,
+                'options': '-c statement_timeout=5000',  # 5s timeout for statements to avoid hanging queries
+            }
+        }
+    }
+    print(f"Using PostgreSQL connection to {os.environ.get('PGHOST', 'localhost')}")
+else:
+    # For local development, use SQLite by default for simplicity
+    db_path = os.path.join(BASE_DIR, 'db.sqlite3')
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.sqlite3',
+            'NAME': db_path,
+        }
+    }
+    print(f"Using SQLite database at {db_path}")
 
 # Password validation
 # https://docs.djangoproject.com/en/4.2/ref/settings/#auth-password-validators

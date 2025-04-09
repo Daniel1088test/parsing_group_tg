@@ -40,36 +40,31 @@ class MenuInitMiddleware(BaseMiddleware):
             return await handler(event, data)
         
         # Отримуємо текст повідомлення
-        user_text = event.text if hasattr(event, 'text') else ''
+        user_text = event.text if hasattr(event, 'text') and event.text else ''
         logger.info(f"Menu middleware processing message from user {event.from_user.id}: '{user_text}'")
         
-        # Відправляємо клавіатуру для кожного повідомлення, що не є командою
+        # Спершу викликаємо обробник
         try:
-            # Спершу викликаємо обробник
             result = await handler(event, data)
-            
-            # Якщо це не команда /start і не команда /menu, відправляємо клавіатуру
+        except Exception as e:
+            logger.error(f"Error in handler: {e}")
+            # У випадку помилки обробника, просто поверніть базову відповідь
+            await event.answer("Відбулася помилка при обробці запиту. Спробуйте знову пізніше або використайте інші команди.")
+            return None
+        
+        # Якщо це не команда /start і не команда /menu, відправляємо клавіатуру
+        try:
             if not (user_text.startswith('/start') or user_text.startswith('/menu')):
                 # Якщо повідомлення - не одна з кнопок меню, нагадуємо про меню
                 menu_texts = ["📎 List of channels", "📍 Categories menu", "🌐 Go to the site", "🔑 Add new session"]
                 if user_text not in menu_texts:
-                    keyboard = ReplyKeyboardMarkup(
-                        keyboard=[
-                            [KeyboardButton(text="📎 List of channels")],
-                            [KeyboardButton(text="📍 Categories menu")],
-                            [KeyboardButton(text="🌐 Go to the site")],
-                            [KeyboardButton(text="🔑 Add new session")],
-                        ],
-                        resize_keyboard=True,
-                        is_persistent=True,
-                        input_field_placeholder="Виберіть опцію..."
-                    )
-                    await event.answer("Доступне меню:", reply_markup=keyboard)
-                    logger.info(f"Sent menu to user {event.from_user.id} after handling")
-            
-            return result
-            
+                    try:
+                        keyboard = self.default_keyboard
+                        await event.answer("Доступне меню:", reply_markup=keyboard)
+                        logger.info(f"Sent menu to user {event.from_user.id} after handling")
+                    except Exception as menu_error:
+                        logger.error(f"Error sending menu keyboard: {menu_error}")
         except Exception as e:
             logger.error(f"Error in menu middleware: {e}")
-            # Щоб не заблокувати обробку повідомлення, повертаємо результат викликаного обробника
-            return await handler(event, data) 
+        
+        return result 
