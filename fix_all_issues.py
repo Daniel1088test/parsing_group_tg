@@ -74,8 +74,10 @@ def fix_database_issues():
         # Get Django settings
         from django.conf import settings
         
-        # Set the correct database engine
-        if os.environ.get('RAILWAY_SERVICE_NAME'):
+        # Check if running in Railway environment
+        is_railway = os.environ.get('RAILWAY_ENVIRONMENT') is not None or os.environ.get('RAILWAY_SERVICE_NAME') is not None
+        
+        if is_railway:
             # Railway environment with PostgreSQL
             db_settings = {
                 'ENGINE': 'django.db.backends.postgresql',
@@ -85,37 +87,15 @@ def fix_database_issues():
                 'HOST': os.environ.get('PGHOST', 'postgres.railway.internal'),
                 'PORT': os.environ.get('PGPORT', '5432'),
             }
+            logger.info("Configuring for Railway PostgreSQL environment")
         else:
-            # Local development - try to use SQLite if PostgreSQL is not available
-            try:
-                # Test PostgreSQL connection
-                conn = psycopg2.connect(
-                    host=os.environ.get('PGHOST', 'localhost'),
-                    port=os.environ.get('PGPORT', '5432'),
-                    user=os.environ.get('PGUSER', 'postgres'),
-                    password=os.environ.get('PGPASSWORD', ''),
-                    database=os.environ.get('PGDATABASE', 'postgres')
-                )
-                conn.close()
-                
-                # PostgreSQL is available
-                db_settings = {
-                    'ENGINE': 'django.db.backends.postgresql',
-                    'NAME': os.environ.get('PGDATABASE', 'postgres'),
-                    'USER': os.environ.get('PGUSER', 'postgres'),
-                    'PASSWORD': os.environ.get('PGPASSWORD', ''),
-                    'HOST': os.environ.get('PGHOST', 'localhost'),
-                    'PORT': os.environ.get('PGPORT', '5432'),
-                }
-                logger.info("Using PostgreSQL database")
-            except:
-                # Fall back to SQLite
-                db_path = os.path.join(settings.BASE_DIR, 'db.sqlite3')
-                db_settings = {
-                    'ENGINE': 'django.db.backends.sqlite3',
-                    'NAME': db_path,
-                }
-                logger.info(f"Using SQLite database at {db_path}")
+            # Local development - use SQLite
+            db_path = os.path.join(settings.BASE_DIR, 'db.sqlite3')
+            db_settings = {
+                'ENGINE': 'django.db.backends.sqlite3',
+                'NAME': db_path,
+            }
+            logger.info(f"Configuring for local environment with SQLite at {db_path}")
         
         # Update settings.py with the correct database settings
         settings_path = os.path.join('core', 'settings.py')
@@ -157,119 +137,12 @@ def fix_database_issues():
         # Write updated content
         with open(settings_path, 'w', encoding='utf-8') as f:
             f.write(content)
-        
-        # Update or create .env file with database settings
-        env_path = '.env'
-        env_content = []
-        
-        if os.path.exists(env_path):
-            with open(env_path, 'r', encoding='utf-8') as f:
-                env_content = f.readlines()
-        
-        # Update or add environment variables
-        env_vars = {
-            'BOT_TOKEN': '8102516142:AAFTsVXXujHHKoX2KZGqZXBHPBznfgh7kg0',
-            'BOT_USERNAME': 'chan_parsing_mon_bot',
-            'API_ID': '19840544',
-            'API_HASH': 'c839f28bad345082329ec086fca021fa',
-            'DJANGO_SETTINGS_MODULE': 'core.settings',
-        }
-        
-        # Add database settings if using PostgreSQL
-        if db_settings['ENGINE'] == 'django.db.backends.postgresql':
-            env_vars.update({
-                'PGDATABASE': db_settings['NAME'],
-                'PGUSER': db_settings['USER'],
-                'PGHOST': db_settings['HOST'],
-                'PGPORT': db_settings['PORT'],
-            })
             
-            # Add password if provided
-            if db_settings.get('PASSWORD'):
-                env_vars['PGPASSWORD'] = db_settings['PASSWORD']
-        
-        # Process existing lines
-        new_env_content = []
-        
-        # Track which variables we've processed
-        processed_vars = set()
-        
-        # Update existing variables
-        for line in env_content:
-            line = line.strip()
-            if not line or line.startswith('#'):
-                new_env_content.append(line)
-                continue
-                
-            # Check if this is an environment variable
-            if '=' in line:
-                key, _ = line.split('=', 1)
-                key = key.strip()
-                
-                if key in env_vars:
-                    new_env_content.append(f"{key}={env_vars[key]}")
-                    processed_vars.add(key)
-                else:
-                    new_env_content.append(line)
-        
-        # Add any missing variables
-        for key, value in env_vars.items():
-            if key not in processed_vars:
-                new_env_content.append(f"{key}={value}")
-        
-        # Write updated .env file
-        with open(env_path, 'w', encoding='utf-8') as f:
-            for line in new_env_content:
-                f.write(f"{line}\n")
-                
-        logger.info(f"Updated {env_path} with correct environment variables")
-        
-        # Fix models if needed
-        try:
-            # Fix non-nullable fields that should be nullable
-            models_path = os.path.join('admin_panel', 'models.py')
+        # Fix custom SQL migrations
+        self.fix_migrations_sql()
             
-            if os.path.exists(models_path):
-                with open(models_path, 'r', encoding='utf-8') as f:
-                    content = f.read()
-                
-                # Fix 1: telegram_channel_id field
-                if 'telegram_channel_id' in content and 'null=True' not in re.search(r'telegram_channel_id\s*=\s*models\.', content).group(0):
-                    content = re.sub(
-                        r'(telegram_channel_id\s*=\s*models\.[^,\)]+)',
-                        r'\1, null=True, blank=True',
-                        content
-                    )
-                    logger.info("Fixed telegram_channel_id field")
-                
-                # Fix 2: Other common fields that should be nullable
-                for field in ['username', 'title', 'description', 'link', 'name']:
-                    # Find field definition
-                    field_match = re.search(rf'{field}\s*=\s*models\.Char[^,\)]+', content)
-                    if field_match and 'null=True' not in field_match.group(0):
-                        content = re.sub(
-                            rf'({field}\s*=\s*models\.Char[^,\)]+)',
-                            r'\1, null=True, blank=True',
-                            content
-                        )
-                        logger.info(f"Fixed {field} field")
-                
-                # Fix 3: Make sure BotSettings.bot_token doesn't depend on settings.TELEGRAM_API_TOKEN
-                if 'bot_token' in content and 'settings.TELEGRAM_API_TOKEN' in content:
-                    content = re.sub(
-                        r'(bot_token\s*=\s*models\.CharField\([^)]*default=)settings\.TELEGRAM_API_TOKEN([^)]*\))',
-                        r'\1"8102516142:AAFTsVXXujHHKoX2KZGqZXBHPBznfgh7kg0"\2',
-                        content
-                    )
-                    logger.info("Fixed bot_token field to not depend on settings.TELEGRAM_API_TOKEN")
-                
-                # Write updated content
-                with open(models_path, 'w', encoding='utf-8') as f:
-                    f.write(content)
-                
-                logger.info(f"Updated {models_path} with fixed fields")
-        except Exception as e:
-            logger.error(f"Error fixing model fields: {e}")
+        # Update URL patterns to remove leading slashes
+        self.fix_url_patterns()
         
         # Apply migrations
         try:
@@ -293,6 +166,61 @@ def fix_database_issues():
     except Exception as e:
         logger.error(f"Error fixing database issues: {e}")
         logger.error(traceback.format_exc())
+        return False
+
+def fix_migrations_sql(self):
+    """Fix SQL syntax errors in migrations"""
+    try:
+        migrations_dir = Path('admin_panel/migrations')
+        if not migrations_dir.exists():
+            logger.warning("Migrations directory not found")
+            return False
+            
+        for migration_file in migrations_dir.glob('*.py'):
+            with open(migration_file, 'r', encoding='utf-8') as f:
+                content = f.read()
+                
+            # Fix incorrect DO 1 BEGIN syntax in SQL
+            if 'DO 1 BEGIN' in content:
+                content = content.replace('DO 1 BEGIN', 'DO $$ BEGIN')
+                content = content.replace('END 1;', 'END $$;')
+                
+                with open(migration_file, 'w', encoding='utf-8') as f:
+                    f.write(content)
+                    
+                logger.info(f"Fixed SQL syntax in {migration_file}")
+        
+        return True
+    except Exception as e:
+        logger.error(f"Error fixing migrations SQL: {e}")
+        return False
+
+def fix_url_patterns(self):
+    """Fix URL patterns with leading slashes"""
+    try:
+        # Find all urls.py files
+        urls_files = []
+        for root, dirs, files in os.walk('.'):
+            for file in files:
+                if file == 'urls.py':
+                    urls_files.append(os.path.join(root, file))
+        
+        for urls_file in urls_files:
+            with open(urls_file, 'r', encoding='utf-8') as f:
+                content = f.read()
+                
+            # Fix patterns with leading slashes
+            if "r'^/" in content:
+                content = content.replace("r'^/", "r'^")
+                
+                with open(urls_file, 'w', encoding='utf-8') as f:
+                    f.write(content)
+                    
+                logger.info(f"Fixed URL patterns in {urls_file}")
+        
+        return True
+    except Exception as e:
+        logger.error(f"Error fixing URL patterns: {e}")
         return False
 
 def fix_templates():
