@@ -50,6 +50,24 @@ def fix_telegramsession_fields():
                 "name": "needs_auth",
                 "pg_sql": "ALTER TABLE admin_panel_telegramsession ADD COLUMN needs_auth BOOLEAN DEFAULT FALSE",
                 "sqlite_sql": "ALTER TABLE admin_panel_telegramsession ADD COLUMN needs_auth BOOLEAN DEFAULT 0"
+            },
+            # Add username field
+            {
+                "name": "username",
+                "pg_sql": "ALTER TABLE admin_panel_telegramsession ADD COLUMN username VARCHAR(255) DEFAULT NULL",
+                "sqlite_sql": "ALTER TABLE admin_panel_telegramsession ADD COLUMN username VARCHAR(255) DEFAULT NULL"
+            },
+            # Add auth_token field
+            {
+                "name": "auth_token",
+                "pg_sql": "ALTER TABLE admin_panel_telegramsession ADD COLUMN auth_token VARCHAR(255) DEFAULT NULL",
+                "sqlite_sql": "ALTER TABLE admin_panel_telegramsession ADD COLUMN auth_token VARCHAR(255) DEFAULT NULL"
+            },
+            # Add phone_code_hash field
+            {
+                "name": "phone_code_hash",
+                "pg_sql": "ALTER TABLE admin_panel_telegramsession ADD COLUMN phone_code_hash VARCHAR(255) DEFAULT NULL",
+                "sqlite_sql": "ALTER TABLE admin_panel_telegramsession ADD COLUMN phone_code_hash VARCHAR(255) DEFAULT NULL"
             }
         ]
         
