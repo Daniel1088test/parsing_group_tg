@@ -67,7 +67,55 @@ python migrate-railway.py
 
 # Force database migrations
 echo "Ensuring database tables exist..."
-python manage.py migrate --noinput
+python manage.py migrate --noinput || python -c "
+import os, sys, django
+os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'core.settings')
+django.setup()
+from django.core.management import call_command
+try:
+    print('Forcing migrations with fallback method...')
+    call_command('migrate', interactive=False, verbosity=3)
+    print('Migration completed with fallback method')
+except Exception as e:
+    print(f'Migration error: {e}')
+    # Try reset migrations as last resort
+    try:
+        print('Last resort: Applying only auth and contenttypes migrations...')
+        call_command('migrate', 'auth', interactive=False)
+        call_command('migrate', 'contenttypes', interactive=False)
+        call_command('migrate', 'admin', interactive=False)
+        call_command('migrate', 'sessions', interactive=False)
+        print('Critical migrations applied')
+    except Exception as last_e:
+        print(f'Critical migration error: {last_e}')
+"
+
+# Verify database setup
+echo "Verifying database setup..."
+python -c "
+import os, sys, django
+os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'core.settings')
+django.setup()
+from django.db import connection
+try:
+    with connection.cursor() as cursor:
+        cursor.execute('SELECT 1')
+        print('✓ Database connection verified')
+        # Check if critical tables exist
+        cursor.execute(\"\"\"
+            SELECT table_name FROM information_schema.tables 
+            WHERE table_schema='public'
+        \"\"\")
+        tables = [row[0] for row in cursor.fetchall()]
+        print(f'Found {len(tables)} tables in database')
+        for table in ['admin_panel_botsettings', 'auth_user', 'django_session']:
+            if table in tables:
+                print(f'✓ Table {table} exists')
+            else:
+                print(f'✗ Table {table} missing!')
+except Exception as e:
+    print(f'Database verification error: {e}')
+"
 
 # Ensure media directories exist
 echo "Ensuring media directories exist..."
@@ -192,7 +240,7 @@ echo "Combined services started with PID: $COMBINED_PID"
 echo "Starting Telegram bot directly for extra reliability..."
 mkdir -p logs/bot
 nohup python -c "
-import os, sys, asyncio, logging
+import os, sys, asyncio, logging, signal, time, traceback
 
 # Configure logging for direct bot launch
 logging.basicConfig(
@@ -210,7 +258,31 @@ os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'core.settings')
 import django
 django.setup()
 
-# Start the bot
+# Create a file to indicate bot is starting
+with open('bot_starting.flag', 'w') as f:
+    f.write(str(time.time()))
+logger.info('Bot starting flag created')
+
+# For detecting if the bot is actually running
+bot_running = False
+bot_info = None
+
+async def verify_bot_running():
+    global bot_running, bot_info
+    try:
+        from tg_bot.bot import bot
+        bot_info = await bot.get_me()
+        logger.info(f'✅ Bot verification successful: {bot_info.username} (ID: {bot_info.id})')
+        bot_running = True
+        # Create a file that shows bot is verified
+        with open('bot_verified.flag', 'w') as f:
+            f.write(f'{bot_info.id}:{bot_info.username}')
+        return True
+    except Exception as e:
+        logger.error(f'❌ Bot verification failed: {e}')
+        return False
+
+# Start the bot with verification
 async def run_bot():
     try:
         from tg_bot.bot import main, bot
@@ -224,6 +296,23 @@ async def run_bot():
             BotCommand(command='authorize', description='Start authorization process')
         ]
         
+        # First verify bot is running
+        logger.info('Verifying bot connection...')
+        verification_attempts = 0
+        max_verification_attempts = 3
+        
+        while verification_attempts < max_verification_attempts:
+            if await verify_bot_running():
+                break
+            verification_attempts += 1
+            logger.warning(f'Bot verification attempt {verification_attempts} failed, retrying...')
+            await asyncio.sleep(3)
+        
+        if not bot_running:
+            logger.critical('❌ CRITICAL: Bot verification failed after multiple attempts')
+            logger.critical('Cannot continue without verified bot connection')
+            return
+            
         try:
             await bot.set_my_commands(commands=commands, scope=BotCommandScopeDefault())
             logger.info('Bot commands registered successfully')
@@ -234,7 +323,6 @@ async def run_bot():
         await main()
     except Exception as e:
         logger.error(f'Critical error in bot: {e}')
-        import traceback
         logger.error(traceback.format_exc())
 
 # Run the bot with asyncio
@@ -243,7 +331,6 @@ try:
     asyncio.run(run_bot())
 except Exception as e:
     logger.error(f'Fatal error running bot: {e}')
-    import traceback
     logger.error(traceback.format_exc())
 " > logs/bot/direct_bot_output.log 2>&1 &
 DIRECT_BOT_PID=$!
@@ -268,12 +355,40 @@ sleep 5
 echo "Checking if bot processes are running..."
 ps -ef | grep -i "python" | grep -v grep
 
+# Check for bot verification flag
+if [ -f "bot_verified.flag" ]; then
+    BOT_INFO=$(cat bot_verified.flag)
+    echo "✅ Bot verified and connected to Telegram API: $BOT_INFO"
+else
+    echo "⚠️ Bot verification flag not found - bot may not be properly connected"
+fi
+
+# Check direct bot logs for signs of successful connection
+if grep -q "Bot verified" logs/bot/direct_bot.log 2>/dev/null; then
+    echo "✅ Found successful bot verification in logs"
+elif grep -q "Bot started:" logs/bot/direct_bot.log 2>/dev/null; then
+    echo "⚠️ Bot started but verification unclear"
+else
+    echo "❌ No signs of successful bot start in logs"
+fi
+
 # Verify direct bot specifically 
 if ps -p $DIRECT_BOT_PID > /dev/null; then
     echo "✅ Direct bot process is running with PID: $DIRECT_BOT_PID"
+    # Check the process age to ensure it's stable
+    PROC_START=$(ps -p $DIRECT_BOT_PID -o lstart= 2>/dev/null)
+    echo "   Process started at: $PROC_START"
 else
     echo "⚠️ Direct bot process failed to start or terminated"
-    cat logs/bot/direct_bot_output.log | tail -n 20
+    if [ -f "logs/bot/direct_bot_output.log" ]; then
+        echo "Direct bot output log (last 20 lines):"
+        cat logs/bot/direct_bot_output.log | tail -n 20
+    fi
+    
+    if [ -f "logs/bot/direct_bot.log" ]; then
+        echo "Direct bot log (last 20 lines):"
+        cat logs/bot/direct_bot.log | tail -n 20
+    fi
 fi
 
 # Verify the combined services
@@ -281,8 +396,35 @@ if ps -p $COMBINED_PID > /dev/null; then
     echo "✅ Combined services process is running with PID: $COMBINED_PID"
 else 
     echo "⚠️ Combined services process failed to start or terminated"
-    cat logs/combined_services.log | tail -n 20
+    if [ -f "logs/combined_services.log" ]; then
+        echo "Combined services log (last 20 lines):"
+        cat logs/combined_services.log | tail -n 20
+    fi
 fi
+
+# Extra database check
+echo "Final database connection check..."
+python -c "
+import os, sys, django
+os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'core.settings')
+django.setup()
+try:
+    from admin_panel.models import BotSettings
+    settings = BotSettings.objects.first()
+    if settings:
+        print(f'✓ BotSettings found in database: {settings.id}')
+        if settings.bot_token:
+            masked_token = settings.bot_token[:5] + '...' + settings.bot_token[-5:]
+            print(f'✓ Bot token is set in database: {masked_token}')
+        else:
+            print('✗ Bot token is not set in database')
+    else:
+        print('ℹ️ No BotSettings found in database, will create default')
+        BotSettings.objects.create(bot_token=os.environ.get('BOT_TOKEN', ''))
+        print('✓ Created default BotSettings')
+except Exception as e:
+    print(f'Error checking BotSettings: {e}')
+"
 
 # Extra bot launch as fallback if both others failed
 if ! (ps -p $DIRECT_BOT_PID > /dev/null || ps -ef | grep -i "run_bot" | grep -v grep > /dev/null); then
@@ -291,6 +433,18 @@ if ! (ps -p $DIRECT_BOT_PID > /dev/null || ps -ef | grep -i "run_bot" | grep -v 
     EMERGENCY_BOT_PID=$!
     echo $EMERGENCY_BOT_PID > emergency_bot.pid
     echo "Emergency bot process started with PID: $EMERGENCY_BOT_PID"
+fi
+
+# Last resort - try Django command approach
+if ! (ps -p $DIRECT_BOT_PID > /dev/null || ps -p $EMERGENCY_BOT_PID > /dev/null 2>/dev/null || ps -ef | grep -i "run_bot" | grep -v grep > /dev/null); then
+    echo "⚠️⚠️⚠️ CRITICAL: All bot launch methods failed, trying Django management command..."
+    nohup python manage.py runbot > logs/bot/django_cmd_bot.log 2>&1 &
+    DJANGO_BOT_PID=$!
+    echo $DJANGO_BOT_PID > django_bot.pid
+    echo "Django management command bot started with PID: $DJANGO_BOT_PID"
+    
+    # Create a special flag file to indicate we've tried everything
+    echo "$(date) - All methods tried" > bot_all_methods_attempted.flag
 fi
 
 # Start the bot monitor in daemon mode to keep bot alive
@@ -302,4 +456,92 @@ echo "Bot monitor started with PID: $MONITOR_PID"
 
 # Start Django server in foreground (this keeps the Railway process alive)
 echo "Starting Django server on 0.0.0.0:$PORT..."
-exec python manage.py runserver 0.0.0.0:$PORT
+python -c "
+import os, sys, subprocess, signal, threading, time, logging
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[logging.FileHandler('logs/django_wrapper.log'), logging.StreamHandler()]
+)
+logger = logging.getLogger('django_wrapper')
+
+# Set up Django environment
+os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'core.settings')
+os.environ['PYTHONUNBUFFERED'] = '1'  # Ensure unbuffered output
+port = os.environ.get('PORT', '8080')
+
+# Signal handler
+def handle_signal(sig, frame):
+    logger.info(f'Received signal {sig}, shutting down...')
+    sys.exit(0)
+
+signal.signal(signal.SIGINT, handle_signal)
+signal.signal(signal.SIGTERM, handle_signal)
+
+# Bot status checking thread
+def check_bot_status():
+    while True:
+        try:
+            # See if the bot is running
+            with open('/proc/loadavg', 'r') as f:
+                load = f.read().strip()
+            
+            bot_processes = subprocess.check_output(
+                'ps -ef | grep -i \"run_bot\\|direct_bot\\|emergency_bot\" | grep -v grep | wc -l', 
+                shell=True
+            ).decode().strip()
+            
+            logger.info(f'System load: {load}, Bot processes: {bot_processes}')
+            
+            # If no bot processes, try to start one
+            if bot_processes == '0':
+                logger.warning('No bot processes detected, attempting to restart')
+                try:
+                    subprocess.Popen(
+                        ['python', 'run_bot.py'], 
+                        stdout=open('logs/bot/wrapper_restart.log', 'w'),
+                        stderr=subprocess.STDOUT
+                    )
+                    logger.info('Bot restart initiated')
+                except Exception as e:
+                    logger.error(f'Failed to restart bot: {e}')
+        except Exception as e:
+            logger.error(f'Error in status thread: {e}')
+        
+        time.sleep(60)  # Check every minute
+
+# Start status thread
+status_thread = threading.Thread(target=check_bot_status, daemon=True)
+status_thread.start()
+
+# Start Django server
+logger.info(f'Starting Django server on 0.0.0.0:{port}')
+try:
+    # Use subprocess so we can capture and log output
+    proc = subprocess.Popen(
+        ['python', 'manage.py', 'runserver', f'0.0.0.0:{port}'],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        universal_newlines=True,
+        bufsize=1  # Line buffered
+    )
+    
+    # Read and log output
+    for line in proc.stdout:
+        sys.stdout.write(line)
+        sys.stdout.flush()
+        logger.debug(line.strip())
+        
+    # Wait for process to complete
+    proc.wait()
+    
+    # If we get here, server has stopped
+    exit_code = proc.returncode
+    logger.error(f'Django server stopped with exit code {exit_code}')
+    sys.exit(exit_code)
+except Exception as e:
+    logger.critical(f'Fatal error starting Django server: {e}')
+    sys.exit(1)
+"
