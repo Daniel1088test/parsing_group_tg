@@ -403,22 +403,24 @@ async def _update_session_in_db(phone, api_id, api_hash, session_file, needs_aut
                 
                 # If this session needs auth, provide instructions
                 if needs_auth:
-                    bot_username = "Channels_hunt_bot"  # Default bot username
-                    try:
-                        # Try to get from settings if possible
-                        from django.conf import settings
-                        if hasattr(settings, 'TELEGRAM_BOT_USERNAME'):
-                            bot_username = settings.TELEGRAM_BOT_USERNAME
-                    except:
-                        pass
-                        
-                    auth_token = session.auth_token or f"auth_{session.id}_{int(time.time())}"
+                    # Get the bot username from settings or environment
+                    bot_username = "chan_parsing_mon_bot"  # Default bot username
+
+                    # Try to get from settings
+                    if hasattr(settings, 'TELEGRAM_BOT_USERNAME'):
+                        bot_username = settings.TELEGRAM_BOT_USERNAME
+                    else:
+                        bot_username = os.environ.get('BOT_USERNAME', bot_username)
+
+                    # Authentication instructions
+                    auth_instructions = (
+                        f"1. Send /authorize command to @{bot_username} on Telegram\n"
+                        f"2. Enter your phone: {session.phone}\n"
+                        f"3. Use this deep link: https://t.me/{bot_username}?start={session.auth_token}\n"
+                    )
+                    
                     logger.info(f"\n======== AUTHENTICATION REQUIRED ========\n"
-                               f"Session {session.id} ({phone}) needs authentication.\n"
-                               f"Please use one of these methods:\n"
-                               f"1. Send /authorize command to @{bot_username} on Telegram\n"
-                               f"2. Click 'Authorize' button on the Sessions page in web interface\n"
-                               f"3. Use this deep link: https://t.me/{bot_username}?start={auth_token}\n"
+                               f"{auth_instructions}\n"
                                f"=========================================\n")
                 
                 return session.id

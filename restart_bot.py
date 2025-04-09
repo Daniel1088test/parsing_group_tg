@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 # Налаштування бота
 BOT_TOKEN = "8102516142:AAFTsVXXujHHKoX2KZGqZXBHPBznfgh7kg0"
-BOT_USERNAME = "channel_pars_mode_bot"
+BOT_USERNAME = "chan_parsing_mon_bot"
 
 def find_bot_processes():
     """Знаходить процеси бота, які можливо вже запущені"""

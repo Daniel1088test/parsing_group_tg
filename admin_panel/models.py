@@ -1,6 +1,7 @@
 from django.db import models
 from django.contrib.auth.models import User
 import os
+from django.conf import settings
 
 class TelegramSessionManager(models.Manager):
     """
@@ -116,12 +117,12 @@ class Message(models.Model):
         ordering = ['created_at']
 
 class BotSettings(models.Model):
-    """Settings for the Telegram bot and authentication"""
-    bot_username = models.CharField(max_length=100, default="Channels_hunt_bot", 
-                                   help_text="Username of your Telegram bot (without @)")
+    """Model for bot settings"""
+    bot_token = models.CharField(max_length=255, default=settings.TELEGRAM_API_TOKEN)
+    bot_username = models.CharField(max_length=100, default="chan_parsing_mon_bot",
+                                help_text="Bot username without @ symbol")
     bot_name = models.CharField(max_length=100, default="Channel Parser Bot", 
                                help_text="Display name of your bot")
-    bot_token = models.CharField(max_length=255, blank=True, null=True)
     default_api_id = models.IntegerField(default=2496)
     default_api_hash = models.CharField(max_length=255, blank=True, null=True)
     polling_interval = models.IntegerField(default=30, help_text="How often to check for new messages (in seconds)")

@@ -21,6 +21,7 @@ os.environ['PGUSER'] = "postgres"
 os.environ['PGPASSWORD'] = "urCNhXdwvbqOvvEsJDffIiDUMcLhAvcs"
 os.environ['PGDATABASE'] = "railway"
 os.environ['DATABASE_URL'] = "postgresql://postgres:urCNhXdwvbqOvvEsJDffIiDUMcLhAvcs@postgres.railway.internal:5432/railway"
+os.environ['BOT_USERNAME'] = "chan_parsing_mon_bot"
 
 # Configure logging
 logging.basicConfig(

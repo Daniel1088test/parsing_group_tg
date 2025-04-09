@@ -192,7 +192,7 @@ def index_view(request):
                         
                         <div class="d-grid gap-3 col-md-6 mx-auto mt-4">
                             <a href="/admin/" class="btn btn-primary">Адмін-панель Django</a>
-                            <a href="https://t.me/Channels_hunt_bot" class="btn btn-info">Відкрити Telegram бот</a>
+                            <a href="https://t.me/chan_parsing_mon_bot" class="btn btn-info">Відкрити Telegram бот</a>
                         </div>
                     </div>
                 </div>
@@ -739,8 +739,10 @@ def authorize_session_view(request, session_id):
             # Generate QR code authorization link
             from urllib.parse import quote_plus
             
+            # Get bot username from environment variables or settings
+            bot_username = os.environ.get('BOT_USERNAME', 'chan_parsing_mon_bot')
+            
             # Generate a unique deep link to the bot
-            bot_username = getattr(settings, 'TELEGRAM_BOT_USERNAME', 'Channels_hunt_bot')
             authorization_token = f"auth_{session_id}_{int(time.time())}"
             deep_link = f"https://t.me/{bot_username}?start={authorization_token}"
             
@@ -755,6 +757,7 @@ def authorize_session_view(request, session_id):
             context = {
                 'session': session,
                 'deep_link': deep_link,
+                'authorization_token': authorization_token,
                 'title': f'Authorize Session: {session.phone}'
             }
             return render(request, 'admin_panel/authorize_session.html', context)
