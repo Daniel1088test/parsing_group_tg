@@ -18,7 +18,7 @@ from django.contrib import admin
 from django.urls import path, include, re_path
 from django.conf import settings
 from django.conf.urls.static import static
-from admin_panel.views import index_view
+from admin_panel.views import index_view, login_view, register_view, logout_view
 from django.http import HttpResponse, FileResponse, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_GET
@@ -358,3 +358,41 @@ urlpatterns += static(settings.STATIC_URL, document_root=settings.STATIC_ROOT)
 # Media files handling (fallback)
 if settings.DEBUG:
     urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
+
+# Fix home/root URL to properly display the interface
+urlpatterns = [
+    path('admin/', admin.site.urls),
+    path('admin_panel/', include('admin_panel.urls')),
+    path('health/', health_check),
+    path('healthz/', health_check),
+    path('ping/', health_check),
+    path('health.html', health_check),
+    path('healthz.html', health_check),
+    path('bot/', include('tg_bot.urls')),
+    
+    # Static files (for development)
+    path('media/<path:path>', serve_media),
+    path('static/<path:path>', serve, {'document_root': settings.STATIC_ROOT}),
+    
+    # Fix root path to show index view
+    path('', index_view, name='index'),
+    
+    # Auth URLs
+    path('login/', login_view, name='login'),
+    path('register/', register_view, name='register'),
+    path('logout/', logout_view, name='logout'),
+    
+    # Add health check endpoints for Railway
+    re_path(r'^/?health$', health_check),
+    re_path(r'^/?healthz$', health_check),
+    re_path(r'^_health/?$', health_check),  # Railway specific format
+    path('api/bot/status/', bot_status_api),
+    
+    # Catch-all for health checks with query params
+    re_path(r'^$', lambda r: health_check(r) if 'health' in r.GET or 'healthcheck' in r.GET else index_view(r)),
+]
+
+# Fix URL patterns by removing leading slashes (to fix W002 warnings)
+re_path(r'^health$', health_check),
+re_path(r'^healthz$', health_check),
+re_path(r'^_health/?$', health_check),  # Railway specific format

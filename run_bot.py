@@ -377,9 +377,104 @@ async def run():
             logger.error("Possible message formatting issue. Check message text for valid markup.")
         raise
 
+# Kill any existing bot processes before starting a new one
+def kill_existing_bot_processes():
+    """Kill any existing bot processes to prevent conflicts"""
+    try:
+        # Different commands for different OS
+        if os.name == 'nt':  # Windows
+            # Find python processes running run_bot.py except current one
+            current_pid = os.getpid()
+            result = subprocess.run(
+                ['tasklist', '/FI', 'IMAGENAME eq python.exe', '/FO', 'CSV'],
+                capture_output=True,
+                text=True
+            )
+            
+            for line in result.stdout.splitlines()[1:]:  # Skip header
+                if 'python.exe' in line and 'run_bot.py' in line:
+                    try:
+                        pid = int(line.split(',')[1].strip('"'))
+                        if pid != current_pid:
+                            logger.info(f"Killing existing bot process with PID {pid}")
+                            os.kill(pid, signal.SIGTERM)
+                    except (ValueError, IndexError):
+                        pass
+        else:  # Linux/Unix
+            command = "ps -ef | grep 'python.*run_bot.py' | grep -v grep | awk '{print $2}'"
+            result = subprocess.run(command, shell=True, capture_output=True, text=True)
+            
+            current_pid = os.getpid()
+            for pid_str in result.stdout.splitlines():
+                try:
+                    pid = int(pid_str.strip())
+                    if pid != current_pid:
+                        logger.info(f"Killing existing bot process with PID {pid}")
+                        os.kill(pid, signal.SIGTERM)
+                except (ValueError, ProcessLookupError):
+                    pass
+        
+        # Wait a bit for processes to terminate
+        time.sleep(2)
+        logger.info("Existing bot processes terminated")
+    except Exception as e:
+        logger.error(f"Error killing existing bot processes: {e}")
+
+# Define the setup_django function that's being called but doesn't exist
+def setup_django():
+    """Initialize Django environment"""
+    try:
+        os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'core.settings')
+        django.setup()
+        logger.info("Django successfully initialized")
+        return True
+    except Exception as e:
+        logger.error(f"Django initialization failed: {e}")
+        logger.error(traceback.format_exc())
+        return False
+
 if __name__ == "__main__":
     try:
-        asyncio.run(run())
+        # Kill any existing bot processes first
+        kill_existing_bot_processes()
+        
+        # Initialize Django
+        if not setup_django():
+            sys.exit(1)
+        
+        # Write process ID to file for management
+        with open('bot.pid', 'w') as f:
+            f.write(str(os.getpid()))
+        
+        # Import bot components - do this after Django setup
+        try:
+            from tg_bot.bot import main as bot_main
+            from tg_bot.config import Config, load_config
+            
+            # Run the bot
+            bot_main()
+        except ImportError:
+            # Alternative import path
+            try:
+                from tg_bot.launcher import main as bot_main
+                bot_main()
+                logger.info("Successfully imported bot components directly")
+            except ImportError as e:
+                logger.error(f"Error importing bot components: {e}")
+                
+                # Try a different approach
+                try:
+                    # Direct import from telethon worker
+                    from tg_bot.telethon_worker import main as bot_main
+                    bot_main()
+                    logger.info("Successfully imported telethon worker")
+                except ImportError as e:
+                    logger.error(f"Failed to import any bot components: {e}")
+                    sys.exit(1)
+        except Exception as e:
+            logger.error(f"Error running bot: {e}")
+            logger.error(traceback.format_exc())
+            sys.exit(1)
     except KeyboardInterrupt:
         logger.info("Bot stopped by keyboard interrupt")
     except Exception as e:

@@ -1,189 +1,187 @@
 #!/usr/bin/env python3
 """
-Script to fix various issues with templates and settings
+Script to fix templates and ensure all required directories for web serving exist
 """
 import os
 import sys
-import re
 import logging
 import django
-from pathlib import Path
 
-# Setup logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-logger = logging.getLogger(__name__)
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler(),
+        logging.FileHandler('fix_templates_and_aiohttp.log')
+    ]
+)
+logger = logging.getLogger('fix_templates')
 
-# Replace the standard StreamHandler with one that has proper encoding
-for handler in logger.handlers:
-    if isinstance(handler, logging.StreamHandler):
-        logger.removeHandler(handler)
+# Set up Django environment
+os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'core.settings')
+try:
+    django.setup()
+    from django.conf import settings
+    logger.info("Django initialized successfully")
+except Exception as e:
+    logger.error(f"Error initializing Django: {e}")
+    sys.exit(1)
 
-# Add new handler with proper encoding
-console_handler = logging.StreamHandler(sys.stdout)
-console_handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
-logger.addHandler(console_handler)
-
-def fix_settings():
-    """Add TELEGRAM_API_TOKEN to Django settings"""
+def ensure_directories_exist():
+    """Ensure that all required directories exist"""
     try:
-        # Try to locate settings.py
-        settings_files = [
-            'core/settings.py',
-            'settings.py',
+        # Create required directories
+        required_dirs = [
+            os.path.join(settings.BASE_DIR, 'templates'),
+            os.path.join(settings.BASE_DIR, 'templates', 'admin_panel'),
+            os.path.join(settings.BASE_DIR, 'static'),
+            os.path.join(settings.BASE_DIR, 'static', 'img'),
+            os.path.join(settings.BASE_DIR, 'static', 'health'),
+            os.path.join(settings.BASE_DIR, 'staticfiles'),
+            os.path.join(settings.BASE_DIR, 'staticfiles', 'img'),
+            os.path.join(settings.BASE_DIR, 'staticfiles', 'health'),
+            os.path.join(settings.BASE_DIR, 'media'),
+            os.path.join(settings.BASE_DIR, 'media', 'messages'),
+            os.path.join(settings.BASE_DIR, 'logs'),
         ]
         
-        settings_path = None
-        for path in settings_files:
-            if os.path.exists(path):
-                settings_path = path
-                break
+        for directory in required_dirs:
+            if not os.path.exists(directory):
+                os.makedirs(directory, exist_ok=True)
+                logger.info(f"Created directory: {directory}")
         
-        if not settings_path:
-            logger.error("Could not find Django settings file")
-            return False
-            
-        logger.info(f"Found settings file at {settings_path}")
-        
-        # Read the settings file
-        with open(settings_path, 'r', encoding='utf-8') as f:
-            content = f.read()
-            
-        # Check if TELEGRAM_API_TOKEN already exists
-        if 'TELEGRAM_API_TOKEN' in content:
-            logger.info("TELEGRAM_API_TOKEN already exists in settings")
-            return True
-            
-        # Add TELEGRAM_API_TOKEN to settings, getting it from environment
-        new_setting = "\n# Telegram API Token from environment\nTELEGRAM_API_TOKEN = os.environ.get('BOT_TOKEN', '8102516142:AAFTsVXXujHHKoX2KZGqZXBHPBznfgh7kg0')\n"
-        
-        # Find a good place to insert the setting
-        if '# Application definition' in content:
-            content = content.replace('# Application definition', new_setting + '# Application definition')
-        else:
-            # Add it near the end of the file
-            content += new_setting
-            
-        # Write updated content
-        with open(settings_path, 'w', encoding='utf-8') as f:
-            f.write(content)
-            
-        logger.info("[OK] Added TELEGRAM_API_TOKEN to settings")
+        logger.info("All required directories exist")
         return True
-        
     except Exception as e:
-        logger.error(f"Error fixing settings: {e}")
+        logger.error(f"Error creating directories: {e}")
         return False
 
-def fix_models():
-    """Fix the BotSettings model to handle missing TELEGRAM_API_TOKEN"""
+def create_health_files():
+    """Create health check files in static and staticfiles directories"""
     try:
-        models_path = 'admin_panel/models.py'
-        if not os.path.exists(models_path):
-            logger.error(f"Models file not found at {models_path}")
-            return False
-            
-        with open(models_path, 'r', encoding='utf-8') as f:
-            content = f.read()
-            
-        # Update the BotSettings model to handle missing TELEGRAM_API_TOKEN
-        updated_content = re.sub(
-            r'bot_token\s*=\s*models\.CharField\(max_length=255,\s*default=settings\.TELEGRAM_API_TOKEN\)',
-            'bot_token = models.CharField(max_length=255, default="8102516142:AAFTsVXXujHHKoX2KZGqZXBHPBznfgh7kg0")',
-            content
-        )
+        health_files = [
+            {'path': os.path.join(settings.BASE_DIR, 'static', 'health.txt'), 'content': 'OK'},
+            {'path': os.path.join(settings.BASE_DIR, 'static', 'healthz.txt'), 'content': 'OK'},
+            {'path': os.path.join(settings.BASE_DIR, 'static', 'health.html'), 'content': '<html><body>OK</body></html>'},
+            {'path': os.path.join(settings.BASE_DIR, 'static', 'healthz.html'), 'content': '<html><body>OK</body></html>'},
+            {'path': os.path.join(settings.BASE_DIR, 'staticfiles', 'health.txt'), 'content': 'OK'},
+            {'path': os.path.join(settings.BASE_DIR, 'staticfiles', 'healthz.txt'), 'content': 'OK'},
+            {'path': os.path.join(settings.BASE_DIR, 'staticfiles', 'health.html'), 'content': '<html><body>OK</body></html>'},
+            {'path': os.path.join(settings.BASE_DIR, 'staticfiles', 'healthz.html'), 'content': '<html><body>OK</body></html>'},
+            {'path': os.path.join(settings.BASE_DIR, 'health.txt'), 'content': 'OK'},
+            {'path': os.path.join(settings.BASE_DIR, 'healthz.txt'), 'content': 'OK'},
+            {'path': os.path.join(settings.BASE_DIR, 'health.html'), 'content': '<html><body>OK</body></html>'},
+            {'path': os.path.join(settings.BASE_DIR, 'healthz.html'), 'content': '<html><body>OK</body></html>'},
+        ]
         
-        if content != updated_content:
-            with open(models_path, 'w', encoding='utf-8') as f:
-                f.write(updated_content)
-                
-            logger.info("[OK] Fixed BotSettings model")
-            return True
-        else:
-            logger.info("No changes needed for BotSettings model")
-            return True
-            
-    except Exception as e:
-        logger.error(f"Error fixing models: {e}")
-        return False
-
-def update_env_file():
-    """Make sure environment variables are properly set in .env file"""
-    try:
-        env_path = '.env'
-        if not os.path.exists(env_path):
-            logger.warning(".env file not found, creating a new one")
-            with open(env_path, 'w', encoding='utf-8') as f:
-                f.write("# Django settings\n")
-                f.write("BOT_TOKEN=8102516142:AAFTsVXXujHHKoX2KZGqZXBHPBznfgh7kg0\n")
-                f.write("BOT_USERNAME=chan_parsing_mon_bot\n")
-            logger.info("[OK] Created basic .env file")
-            return True
-            
-        # Read existing .env
-        with open(env_path, 'r', encoding='utf-8') as f:
-            content = f.read()
-            
-        # Make sure BOT_TOKEN and BOT_USERNAME are defined
-        if not re.search(r'BOT_TOKEN\s*=', content):
-            content += "\nBOT_TOKEN=8102516142:AAFTsVXXujHHKoX2KZGqZXBHPBznfgh7kg0\n"
-            logger.info("Added BOT_TOKEN to .env")
-            
-        if not re.search(r'BOT_USERNAME\s*=', content):
-            content += "\nBOT_USERNAME=chan_parsing_mon_bot\n"
-            logger.info("Added BOT_USERNAME to .env")
-            
-        # Write updated content if changed
-        with open(env_path, 'w', encoding='utf-8') as f:
-            f.write(content)
-            
-        logger.info("[OK] Updated .env file")
+        for file in health_files:
+            with open(file['path'], 'w') as f:
+                f.write(file['content'])
+            logger.info(f"Created health file: {file['path']}")
+        
+        logger.info("All health files created")
         return True
-        
     except Exception as e:
-        logger.error(f"Error updating .env file: {e}")
+        logger.error(f"Error creating health files: {e}")
         return False
 
-def setup_django_environment():
-    """Setup Django environment to test settings"""
+def create_placeholder_images():
+    """Create placeholder images for media files"""
     try:
-        os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'core.settings')
-        os.environ['BOT_TOKEN'] = "8102516142:AAFTsVXXujHHKoX2KZGqZXBHPBznfgh7kg0"
-        os.environ['BOT_USERNAME'] = "chan_parsing_mon_bot"
-        
-        django.setup()
-        
-        # Check if TELEGRAM_API_TOKEN is available
-        from django.conf import settings
-        if hasattr(settings, 'TELEGRAM_API_TOKEN'):
-            logger.info(f"[OK] TELEGRAM_API_TOKEN is now available in settings: {settings.TELEGRAM_API_TOKEN}")
-            return True
-        else:
-            logger.warning("TELEGRAM_API_TOKEN still not available in settings")
-            return False
+        # Try to use PIL if available
+        try:
+            from PIL import Image, ImageDraw, ImageFont
             
+            # Create image placeholder
+            img_placeholder_path = os.path.join(settings.BASE_DIR, 'static', 'img', 'placeholder-image.png')
+            if not os.path.exists(img_placeholder_path):
+                img = Image.new('RGB', (300, 200), color=(240, 240, 240))
+                draw = ImageDraw.Draw(img)
+                draw.rectangle([(0, 0), (299, 199)], outline=(200, 200, 200), width=2)
+                draw.text((150, 100), "IMAGE", fill=(100, 100, 100))
+                img.save(img_placeholder_path)
+                logger.info(f"Created placeholder image: {img_placeholder_path}")
+            
+            # Create video placeholder
+            video_placeholder_path = os.path.join(settings.BASE_DIR, 'static', 'img', 'placeholder-video.png')
+            if not os.path.exists(video_placeholder_path):
+                img = Image.new('RGB', (300, 200), color=(240, 240, 240))
+                draw = ImageDraw.Draw(img)
+                draw.rectangle([(0, 0), (299, 199)], outline=(200, 200, 200), width=2)
+                draw.text((150, 100), "VIDEO", fill=(100, 100, 100))
+                img.save(video_placeholder_path)
+                logger.info(f"Created placeholder video: {video_placeholder_path}")
+            
+            # Copy placeholders to staticfiles
+            import shutil
+            staticfiles_img_dir = os.path.join(settings.BASE_DIR, 'staticfiles', 'img')
+            os.makedirs(staticfiles_img_dir, exist_ok=True)
+            
+            shutil.copy2(img_placeholder_path, os.path.join(staticfiles_img_dir, 'placeholder-image.png'))
+            shutil.copy2(video_placeholder_path, os.path.join(staticfiles_img_dir, 'placeholder-video.png'))
+            logger.info("Copied placeholders to staticfiles directory")
+            
+        except ImportError:
+            logger.warning("PIL not available, creating simple placeholder files")
+            
+            # Create simple placeholder files
+            img_placeholder_path = os.path.join(settings.BASE_DIR, 'static', 'img', 'placeholder-image.png')
+            video_placeholder_path = os.path.join(settings.BASE_DIR, 'static', 'img', 'placeholder-video.png')
+            
+            with open(img_placeholder_path, 'wb') as f:
+                f.write(b'')
+            with open(video_placeholder_path, 'wb') as f:
+                f.write(b'')
+            
+            # Copy placeholders to staticfiles
+            staticfiles_img_dir = os.path.join(settings.BASE_DIR, 'staticfiles', 'img')
+            os.makedirs(staticfiles_img_dir, exist_ok=True)
+            
+            import shutil
+            shutil.copy2(img_placeholder_path, os.path.join(staticfiles_img_dir, 'placeholder-image.png'))
+            shutil.copy2(video_placeholder_path, os.path.join(staticfiles_img_dir, 'placeholder-video.png'))
+            logger.info("Created and copied empty placeholder files")
+        
+        logger.info("Placeholders created successfully")
+        return True
     except Exception as e:
-        logger.error(f"Error setting up Django environment: {e}")
+        logger.error(f"Error creating placeholder images: {e}")
+        return False
+
+def run_collectstatic():
+    """Run Django's collectstatic command"""
+    try:
+        from django.core.management import call_command
+        call_command('collectstatic', '--noinput')
+        logger.info("Collectstatic completed successfully")
+        return True
+    except Exception as e:
+        logger.error(f"Error running collectstatic: {e}")
         return False
 
 def main():
-    """Main function to fix all issues"""
-    logger.info("=== Starting fix for templates and settings ===")
+    """Main function"""
+    logger.info("Starting fix templates script")
     
-    # Update environment variables
-    update_env_file()
+    # Ensure directories exist
+    ensure_directories_exist()
     
-    # Fix Django settings
-    fix_settings()
+    # Create health files
+    create_health_files()
     
-    # Fix models
-    fix_models()
+    # Create placeholder images
+    create_placeholder_images()
     
-    # Test Django setup
-    setup_django_environment()
+    # Run collectstatic
+    run_collectstatic()
     
-    logger.info("=== Fixes completed ===")
+    logger.info("Fix templates script completed")
     return True
 
 if __name__ == "__main__":
-    main()
-    sys.exit(0) 
+    try:
+        main()
+    except Exception as e:
+        logger.error(f"Unhandled error: {e}")
+        sys.exit(1) 

@@ -8,8 +8,12 @@ import logging
 import shutil
 from pathlib import Path
 from django.http import HttpResponse
+import re
+import django
+import json
+import sys
 
-logger = logging.getLogger('middleware')
+logger = logging.getLogger('health_middleware')
 
 class HealthCheckMiddleware:
     """
@@ -19,6 +23,15 @@ class HealthCheckMiddleware:
     
     def __init__(self, get_response):
         self.get_response = get_response
+        self.health_patterns = [
+            r'^/?health$',
+            r'^/?healthz$',
+            r'^/?_health$',
+            r'^/?health\.html$',
+            r'^/?healthz\.html$',
+            r'^/?ping$',
+        ]
+        self.compiled_patterns = [re.compile(pattern) for pattern in self.health_patterns]
         
         # Create required health check static files
         self._create_static_health_files()
@@ -29,16 +42,75 @@ class HealthCheckMiddleware:
         logger.info("HealthCheckMiddleware initialized")
     
     def __call__(self, request):
-        # Handle health check requests immediately
-        path = request.path.lower().strip('/')
+        # Check if this is a health check request
+        path = request.path.lstrip('/')
         
-        if path in ['health', 'healthz', 'health.txt', 'healthz.txt', 'health.html', 'healthz.html', 'ping']:
-            # Always respond OK to health checks
-            logger.debug(f"Health check request: {path}")
-            return HttpResponse("OK", content_type="text/plain")
+        # Also check for health in query params (Railway may use this)
+        if 'health' in request.GET or 'healthcheck' in request.GET:
+            return self.health_response(request)
         
-        # For all other requests, proceed normally
+        # Check path patterns
+        for pattern in self.compiled_patterns:
+            if pattern.match(path):
+                return self.health_response(request)
+        
+        # This isn't a health check, proceed with regular request handling
         return self.get_response(request)
+    
+    def health_response(self, request):
+        """Generate a health check response with detailed status"""
+        try:
+            # Detailed health information
+            health_data = {
+                'status': 'ok',
+                'timestamp': str(django.utils.timezone.now()),
+                'python_version': sys.version,
+                'django_version': django.__version__,
+                'request_path': request.path,
+            }
+            
+            # Check database connection if possible
+            try:
+                from django.db import connection
+                with connection.cursor() as cursor:
+                    cursor.execute("SELECT 1")
+                    db_result = cursor.fetchone()[0]
+                    health_data['database'] = {
+                        'status': 'connected' if db_result == 1 else 'error',
+                        'engine': connection.vendor
+                    }
+            except Exception as e:
+                health_data['database'] = {
+                    'status': 'error',
+                    'message': str(e)
+                }
+            
+            # Format based on Accept header or file extension
+            accept = request.META.get('HTTP_ACCEPT', '')
+            path = request.path.lower()
+            
+            if 'application/json' in accept or path.endswith('.json'):
+                return HttpResponse(json.dumps(health_data), content_type='application/json')
+            elif path.endswith('.html'):
+                # Simple HTML response
+                html_content = f"""
+                <!DOCTYPE html>
+                <html>
+                <head><title>Service Health</title></head>
+                <body>
+                    <h1>Service Health: OK</h1>
+                    <p>Telegram bot is running</p>
+                </body>
+                </html>
+                """
+                return HttpResponse(html_content, content_type='text/html')
+            else:
+                # Plain text for simplicity and compatibility
+                return HttpResponse("OK", content_type="text/plain")
+        except Exception as e:
+            # Even if everything fails, still return 200 OK for the health check
+            logger.error(f"Error in health check: {e}")
+            return HttpResponse("OK", content_type="text/plain")
     
     def _create_static_health_files(self):
         """Create static health check files for web server direct access"""
