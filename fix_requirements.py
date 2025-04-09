@@ -23,6 +23,7 @@ FIXES = {
     r'channels-redis==4\.1\.0': 'channels-redis==4.0.0',  # Знижуємо версію channels-redis
     r'gevent==23\.9\.1': 'gevent==22.10.2',     # Встановлюємо стабільнішу версію gevent
     r'pyaes==1\.6\.1': 'pyaes==1.6.1',          # Ensure specific version for pyaes
+    r'aiohttp==3\.11\.14': 'aiohttp~=3.9.0',    # Downgrade aiohttp to be compatible with aiogram 3.2.0
 }
 
 # Additional packages to add if they don't exist in requirements

@@ -13,6 +13,7 @@ Telethon==1.32.1
 aiofiles~=23.2.1  # Сумісність з aiogram
 aiogram==3.2.0
 pyaes==1.6.1  # Dependency required by Telethon
+aiohttp~=3.9.0  # Compatible with aiogram 3.2.0
 
 # Веб-сервер
 gunicorn==21.2.0

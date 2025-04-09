@@ -74,7 +74,7 @@ def get_default_keyboard():
         is_persistent=True
     )
 
-# Create a default instance for immediate use
+# Create a default instance for immediate use with persistent flag
 main_menu_keyboard = ReplyKeyboardMarkup(
     keyboard=[
         [KeyboardButton(text="📎 List of channels")],

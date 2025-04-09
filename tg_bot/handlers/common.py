@@ -35,7 +35,8 @@ async def cmd_start(message: Message):
                 [KeyboardButton(text="🌐 Go to the site")],
                 [KeyboardButton(text="🔑 Add new session")],
             ],
-            resize_keyboard=True
+            resize_keyboard=True,
+            is_persistent=True  # Make sure keyboard is persistent
         )
         
         try:
@@ -69,7 +70,8 @@ async def cmd_start(message: Message):
                             # Start Telethon authorization
                             await message.answer(
                                 f"Starting authorization for session ID {session_id} ({session.phone}).\n"
-                                f"Please follow the instructions to authenticate."
+                                f"Please follow the instructions to authenticate.",
+                                reply_markup=fallback_keyboard  # Always include keyboard
                             )
                             
                             # Import Telethon auth function
@@ -80,11 +82,12 @@ async def cmd_start(message: Message):
                                 settings.auth_guide_text if settings else 
                                 "For authorization in Telethon, I need your phone number.\n"
                                 "Please enter your phone number in the format +380XXXXXXXXX:\n"
-                                "⚠️ IMPORTANT: You must use a regular user account, NOT a bot!"
+                                "⚠️ IMPORTANT: You must use a regular user account, NOT a bot!",
+                                reply_markup=fallback_keyboard  # Always include keyboard
                             )
                             
                             # Start the interactive session
-                            await message.answer("Please enter your phone number:")
+                            await message.answer("Please enter your phone number:", reply_markup=fallback_keyboard)
                             
                             # Store auth info in user data
                             await sync_to_async(lambda: setattr(message.from_user, 'auth_session_id', session_id))()
@@ -110,7 +113,14 @@ async def cmd_start(message: Message):
             except Exception as fallback_kbd_error:
                 logger.error(f"Failed to send fallback keyboard: {fallback_kbd_error}")
                 # Last resort - try without keyboard
-                await message.answer(f"{welcome_msg}\n\nPlease try sending /start again if menu buttons don't appear.")
+                await message.answer(f"{welcome_msg}\n\nPlease try sending /menu to show the menu buttons.")
+                
+                # Force send a menu command
+                try:
+                    from tg_bot.bot import force_menu
+                    await force_menu(message)
+                except Exception as force_menu_error:
+                    logger.error(f"Failed to force menu: {force_menu_error}")
     except Exception as e:
         logger.error(f"Error handling /start command: {e}")
         # Try sending a simple message as fallback
@@ -122,13 +132,14 @@ async def cmd_start(message: Message):
                     [KeyboardButton(text="📎 List of channels")],
                     [KeyboardButton(text="📍 Categories menu")],
                 ],
-                resize_keyboard=True
+                resize_keyboard=True,
+                is_persistent=True  # Make sure keyboard is persistent
             )
             await message.answer("Привіт! Бот запущено. Використовуйте меню нижче:", reply_markup=emergency_keyboard)
         except Exception as fallback_error:
             logger.error(f"Failed to send fallback message: {fallback_error}")
             # Absolute last resort - no formatting
-            await message.answer("Привіт! Бот запущено. Спробуйте /start ще раз.")
+            await message.answer("Привіт! Бот запущено. Спробуйте /menu для відображення кнопок меню.")
 
 @router.message(F.text == "📎 List of channels")
 async def list_channels(message: Message):

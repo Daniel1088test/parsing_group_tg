@@ -101,21 +101,53 @@ try:
         @dp.message(Command("menu"))
         async def force_menu(message: types.Message):
             """Force show the menu keyboard"""
-            from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
-            
-            # Create a keyboard directly
-            keyboard = ReplyKeyboardMarkup(
-                keyboard=[
-                    [KeyboardButton(text="📎 List of channels")],
-                    [KeyboardButton(text="📍 Categories menu")],
-                    [KeyboardButton(text="🌐 Go to the site")],
-                    [KeyboardButton(text="🔑 Add new session")],
-                ],
-                resize_keyboard=True,
-                is_persistent=True  # Make it persistent
-            )
-            
-            await message.answer("Menu refreshed. You should see the buttons below:", reply_markup=keyboard)
+            try:
+                # Try to get user-specific dynamic keyboard first
+                try:
+                    from tg_bot.keyboards.main_menu import get_main_menu_keyboard
+                    keyboard = await get_main_menu_keyboard()
+                except Exception as e:
+                    logger.error(f"Error getting dynamic keyboard: {e}")
+                    # Create a standard keyboard as fallback
+                    keyboard = types.ReplyKeyboardMarkup(
+                        keyboard=[
+                            [types.KeyboardButton(text="📎 List of channels")],
+                            [types.KeyboardButton(text="📍 Categories menu")],
+                            [types.KeyboardButton(text="🌐 Go to the site")],
+                            [types.KeyboardButton(text="🔑 Add new session")],
+                        ],
+                        resize_keyboard=True,
+                        is_persistent=True  # Make it persistent
+                    )
+                
+                # Log the attempt to help with debugging
+                user_id = message.from_user.id
+                username = message.from_user.username or "unknown"
+                logger.info(f"Sending menu to user {user_id} (@{username}) via /menu command")
+                
+                # Send with clear instructions
+                await message.answer(
+                    "Menu buttons are shown below. You can use these buttons to navigate:",
+                    reply_markup=keyboard
+                )
+                logger.info(f"Menu sent successfully to user {user_id}")
+                
+            except Exception as e:
+                logger.error(f"Failed to show menu via /menu command: {e}")
+                # Try simple keyboard as last resort
+                try:
+                    simple_keyboard = types.ReplyKeyboardMarkup(
+                        keyboard=[
+                            [types.KeyboardButton(text="📎 List of channels")],
+                            [types.KeyboardButton(text="📍 Categories menu")],
+                        ],
+                        resize_keyboard=True,
+                        is_persistent=True
+                    )
+                    await message.answer("Menu (simplified version):", reply_markup=simple_keyboard)
+                except Exception as simple_e:
+                    logger.error(f"Even simplified menu failed: {simple_e}")
+                    await message.answer("Could not display menu. Please try /start again.")
         
         # Add a special handler for menu button text that directly relates to the buttons
         @dp.message(F.text.in_(["Show menu", "меню", "Меню", "menu", "Menu"]))
