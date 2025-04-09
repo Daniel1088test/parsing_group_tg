@@ -48,7 +48,7 @@ magic-filter==1.0.12
 multidict==6.2.0
 propcache==0.3.0
 pyaes==1.6.1
-pyasn1==0.6.1
+pyasn1==0.6.0
 pydantic==2.5.3
 pydantic_core==2.27.2
 qrcode==7.4.2
@@ -77,5 +77,7 @@ channels==3.0.5
 channels-redis==4.0.0
 django-csp==3.7
 
-# Змінюємо gevent на стабільнішу версію
-gevent==22.10.2
+# Fix for Python 3.12+ compatibility
+# Removing problematic gevent and using alternative packages
+# gevent==22.10.2 - Incompatible with Python 3.12
+eventlet==0.35.2

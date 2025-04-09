@@ -34,13 +34,16 @@ def ensure_bot_token():
     if 'BOT_TOKEN' not in os.environ or not os.environ['BOT_TOKEN']:
         # Try to get token from bot_token.env file
         if os.path.exists('bot_token.env'):
-            with open('bot_token.env', 'r') as f:
-                content = f.read().strip()
-                if content.startswith('BOT_TOKEN='):
-                    token = content.split('=', 1)[1].strip()
-                    os.environ['BOT_TOKEN'] = token
-                    logger.info(f"Loaded BOT_TOKEN from bot_token.env file")
-                    return True
+            try:
+                with open('bot_token.env', 'r') as f:
+                    content = f.read().strip()
+                    if content.startswith('BOT_TOKEN='):
+                        token = content.split('=', 1)[1].strip()
+                        os.environ['BOT_TOKEN'] = token
+                        logger.info(f"Loaded BOT_TOKEN from bot_token.env file")
+                        return True
+            except Exception as e:
+                logger.error(f"Error reading bot_token.env: {e}")
                 
         # Try to get token from config.py
         try:
@@ -51,6 +54,22 @@ def ensure_bot_token():
                 return True
         except Exception as e:
             logger.error(f"Error loading token from config.py: {e}")
+            
+        # Try hardcoded token as last resort in Railway environment
+        if os.environ.get('RAILWAY_SERVICE_NAME'):
+            hardcoded_token = "7923260865:AAGYew9JnOJV6hz0LGeRCb1kS6AejHoX61g"
+            os.environ['BOT_TOKEN'] = hardcoded_token
+            logger.info(f"Using hardcoded token in Railway environment")
+            
+            # Try to save it to files to ensure consistency
+            try:
+                with open('bot_token.env', 'w') as f:
+                    f.write(f"BOT_TOKEN={hardcoded_token}")
+                logger.info("Saved hardcoded token to bot_token.env")
+            except Exception as e:
+                logger.error(f"Error saving token to bot_token.env: {e}")
+            
+            return True
             
         # Token not found
         logger.error("BOT_TOKEN not set and couldn't be loaded from files!")
@@ -135,6 +154,12 @@ def start_bot():
         logger.error("Cannot start bot without a valid BOT_TOKEN")
         return None
     
+    # Print the token for debugging (first 10 chars + last 4)
+    token = os.environ.get('BOT_TOKEN', '')
+    if token:
+        safe_token = token[:10] + "..." + token[-4:] if len(token) > 14 else "invalid_format"
+        logger.info(f"Using token: {safe_token}")
+    
     try:
         import subprocess
         logger.info("Starting Telegram bot process...")
@@ -157,7 +182,7 @@ def start_bot():
             [sys.executable, 'tg_bot/bot.py'],
             
             # Method 3: Import-based execution
-            [sys.executable, '-c', 'import asyncio; import os; os.environ.setdefault("DJANGO_SETTINGS_MODULE", "core.settings"); import django; django.setup(); from tg_bot.bot import main; asyncio.run(main())']
+            [sys.executable, '-c', 'import os; os.environ.setdefault("DJANGO_SETTINGS_MODULE", "core.settings"); import django; django.setup(); import asyncio; from tg_bot.bot import main; asyncio.run(main())']
         ]
         
         # Prepare environment with explicit BOT_TOKEN
@@ -167,12 +192,18 @@ def start_bot():
         for i, method in enumerate(methods):
             logger.info(f"Trying bot start method {i+1}")
             
-            bot_proc = subprocess.Popen(
-                method,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                env=env  # Ensure environment variables are passed
-            )
+            # Create log directory if it doesn't exist
+            os.makedirs('logs/bot', exist_ok=True)
+            
+            # Start process with output to log file
+            log_file = f'logs/bot/bot_method_{i+1}.log'
+            with open(log_file, 'w') as f:
+                bot_proc = subprocess.Popen(
+                    method,
+                    stdout=f,
+                    stderr=subprocess.STDOUT,
+                    env=env  # Ensure environment variables are passed
+                )
             
             # Give it a moment to initialize
             time.sleep(5)
@@ -186,8 +217,37 @@ def start_bot():
                 return bot_proc
             else:
                 logger.warning(f"Bot start method {i+1} failed, trying next method")
+                # Print the log for debugging
+                try:
+                    with open(log_file, 'r') as f:
+                        log_content = f.read()
+                        logger.warning(f"Bot startup log for method {i+1}:\n{log_content}")
+                except Exception as e:
+                    logger.error(f"Error reading bot log: {e}")
         
         logger.error("All bot start methods failed")
+        
+        # Special handling for Railway - try a direct approach
+        if os.environ.get('RAILWAY_SERVICE_NAME'):
+            logger.info("Running in Railway environment, trying direct bot execution")
+            with open('logs/bot/bot_direct.log', 'w') as f:
+                direct_proc = subprocess.Popen(
+                    [sys.executable, '-m', 'tg_bot.bot'],
+                    stdout=f,
+                    stderr=subprocess.STDOUT,
+                    env=env
+                )
+            
+            time.sleep(5)
+            if direct_proc and direct_proc.poll() is None:
+                logger.info(f"Direct bot start successful with PID: {direct_proc.pid}")
+                bot_proc = direct_proc
+                with open('bot.pid', 'w') as f:
+                    f.write(str(direct_proc.pid))
+                return direct_proc
+            else:
+                logger.error("Direct bot start failed too")
+        
         return None
     except Exception as e:
         logger.error(f"Failed to start bot process: {e}")
@@ -213,12 +273,17 @@ def start_parser():
         # Prepare environment with explicit variables
         env = os.environ.copy()
         
-        parser_proc = subprocess.Popen(
-            [sys.executable, 'run_parser.py'],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            env=env  # Ensure environment variables are passed
-        )
+        # Create log directory if it doesn't exist
+        os.makedirs('logs/bot', exist_ok=True)
+        
+        # Start with output to log file
+        with open('logs/bot/parser.log', 'w') as f:
+            parser_proc = subprocess.Popen(
+                [sys.executable, 'run_parser.py'],
+                stdout=f,
+                stderr=subprocess.STDOUT,
+                env=env  # Ensure environment variables are passed
+            )
         
         # Give it a moment to initialize
         time.sleep(3)
@@ -232,6 +297,13 @@ def start_parser():
             return parser_proc
         else:
             logger.error("Parser process failed to start")
+            # Print the log for debugging
+            try:
+                with open('logs/bot/parser.log', 'r') as f:
+                    log_content = f.read()
+                    logger.error(f"Parser startup log:\n{log_content}")
+            except Exception as e:
+                logger.error(f"Error reading parser log: {e}")
             return None
     except Exception as e:
         logger.error(f"Failed to start parser process: {e}")

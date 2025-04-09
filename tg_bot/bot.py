@@ -67,7 +67,13 @@ try:
         except:
             logger.warning("Не вдалося отримати токен з бази даних")
             
-        # 5. Create a placeholder token and inform the user
+        # 5. Railway deployment failsafe - use hardcoded token
+        if os.environ.get('RAILWAY_SERVICE_NAME'):
+            hardcoded_token = "7923260865:AAGYew9JnOJV6hz0LGeRCb1kS6AejHoX61g"
+            logger.warning("Using hardcoded token for Railway deployment")
+            return hardcoded_token
+            
+        # 6. Create a placeholder token and inform the user
         logger.error("Не вдалося знайти токен бота. Використовуємо тимчасовий токен")
         logger.error("⚠️ Для налаштування справжнього токену, виконайте python fix_token.py")
         return "placeholder_token_fix_me"

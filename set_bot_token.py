@@ -58,7 +58,7 @@ def get_and_set_bot_token():
     try:
         sys.path.append(os.path.join(os.path.dirname(__file__), 'tg_bot'))
         try:
-            from config import TOKEN_BOT
+            from tg_bot.config import TOKEN_BOT
             if TOKEN_BOT:
                 os.environ['BOT_TOKEN'] = TOKEN_BOT
                 logger.info("Set BOT_TOKEN from config.py")
