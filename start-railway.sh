@@ -8,6 +8,15 @@ echo "Setting up environment variables..."
 export RAILWAY_PUBLIC_DOMAIN=${RAILWAY_PUBLIC_DOMAIN:-"parsinggrouptg-production.up.railway.app"}
 export PORT=${PORT:-8080}
 
+# Make our fix scripts executable
+echo "Making fix scripts executable..."
+chmod +x railway_fix.sh
+chmod +x sql_fix.py
+
+# Run our comprehensive migration fix
+echo "Running comprehensive migration fix..."
+bash railway_fix.sh
+
 # Add a check to see if BOT_TOKEN exists in environment, and if not, load from bot_token.env
 if [ -z "$BOT_TOKEN" ]; then
   if [ -f "bot_token.env" ]; then

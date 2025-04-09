@@ -3,8 +3,22 @@
 
 echo "=== Starting migration fix ==="
 
+# Check for DATABASE_URL
+if [ -z "$DATABASE_URL" ]; then
+  echo "ERROR: DATABASE_URL environment variable is not set. Cannot continue."
+  exit 1
+fi
+
+echo "Using PostgreSQL database from DATABASE_URL"
+
 # Approach 1: Fake the problematic migrations
 echo "Faking problematic migrations..."
+python -c "
+import os
+os.environ['DATABASE_URL'] = '$DATABASE_URL'
+os.environ['DJANGO_SETTINGS_MODULE'] = 'core.settings'
+" || echo "Failed to set environment variables"
+
 python manage.py migrate admin_panel 0002_auto_20250409_0000 --fake || echo "Failed to fake 0002 migration, continuing..."
 python manage.py migrate admin_panel 0003_merge_final --fake || echo "Failed to fake 0003 migration, continuing..."
 python manage.py migrate admin_panel 0004_fake_migration --fake || echo "Failed to fake 0004 migration, continuing..."
@@ -16,6 +30,66 @@ python manage.py migrate || echo "Migration failed, will try direct SQL fix..."
 # Approach 2: Try direct SQL fix if migrations failed
 echo "Running direct SQL fix..."
 python sql_fix.py
+
+# Fix old model fields directly in database
+echo "Fixing model fields directly in database..."
+python -c "
+import os
+import django
+import psycopg2
+from urllib.parse import urlparse
+
+# Setup Django
+os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'core.settings')
+django.setup()
+
+# Parse DATABASE_URL
+url = urlparse(os.environ.get('DATABASE_URL', ''))
+dbname = url.path[1:]
+user = url.username
+password = url.password
+host = url.hostname
+port = url.port
+
+try:
+    # Connect directly to database
+    conn = psycopg2.connect(
+        dbname=dbname,
+        user=user,
+        password=password,
+        host=host,
+        port=port
+    )
+    conn.autocommit = True
+    with conn.cursor() as cursor:
+        # Check if column exists and fix directly
+        cursor.execute(\"\"\"
+        DO $$
+        BEGIN
+            BEGIN
+                ALTER TABLE admin_panel_telegramsession DROP COLUMN IF EXISTS needs_auth;
+            EXCEPTION WHEN undefined_column THEN
+                RAISE NOTICE 'Column needs_auth does not exist, skipping';
+            END;
+            
+            BEGIN
+                ALTER TABLE admin_panel_telegramsession ADD COLUMN IF NOT EXISTS needs_auth BOOLEAN DEFAULT TRUE;
+            EXCEPTION WHEN duplicate_column THEN
+                RAISE NOTICE 'Column needs_auth already exists';
+            END;
+            
+            BEGIN
+                ALTER TABLE admin_panel_telegramsession ADD COLUMN IF NOT EXISTS auth_token VARCHAR(255) DEFAULT NULL;
+            EXCEPTION WHEN duplicate_column THEN
+                RAISE NOTICE 'Column auth_token already exists';
+            END;
+        END
+        $$;
+        \"\"\")
+        print('Direct database fixes applied successfully')
+except Exception as e:
+    print(f'Error fixing database directly: {e}')
+" || echo "Direct database fix failed, but continuing..."
 
 # Always create health check files
 echo "Creating health check files..."
