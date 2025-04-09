@@ -1,5 +1,5 @@
 from aiogram import Router, F
-from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, BufferedInputFile, CallbackQuery
+from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, BufferedInputFile, CallbackQuery, ReplyKeyboardMarkup, KeyboardButton
 from aiogram.filters import Command
 from tg_bot.keyboards.main_menu import main_menu_keyboard, get_main_menu_keyboard
 from tg_bot.config import ADMIN_ID, WEB_SERVER_HOST, WEB_SERVER_PORT
@@ -27,11 +27,27 @@ async def cmd_start(message: Message):
         username = message.from_user.username or "unknown"
         logger.info(f"Received /start command from user {user_id} (@{username})")
         
-        # Get bot settings
-        settings = await sync_to_async(BotSettings.get_settings)()
+        # Create a keyboard directly to ensure it's always available
+        fallback_keyboard = ReplyKeyboardMarkup(
+            keyboard=[
+                [KeyboardButton(text="📎 List of channels")],
+                [KeyboardButton(text="📍 Categories menu")],
+                [KeyboardButton(text="🌐 Go to the site")],
+                [KeyboardButton(text="🔑 Add new session")],
+            ],
+            resize_keyboard=True
+        )
         
-        # Get the appropriate keyboard based on settings
-        dynamic_keyboard = await get_main_menu_keyboard()
+        try:
+            # Get bot settings
+            settings = await sync_to_async(BotSettings.get_settings)()
+            
+            # Get the appropriate keyboard based on settings
+            dynamic_keyboard = await get_main_menu_keyboard()
+        except Exception as keyboard_error:
+            logger.error(f"Error loading dynamic keyboard: {keyboard_error}")
+            dynamic_keyboard = fallback_keyboard
+            settings = None
         
         # Check if the message contains a start parameter
         args = message.text.split()
@@ -61,7 +77,7 @@ async def cmd_start(message: Message):
                             
                             # Start the authorization process
                             await message.answer(
-                                settings.auth_guide_text or 
+                                settings.auth_guide_text if settings else 
                                 "For authorization in Telethon, I need your phone number.\n"
                                 "Please enter your phone number in the format +380XXXXXXXXX:\n"
                                 "⚠️ IMPORTANT: You must use a regular user account, NOT a bot!"
@@ -77,19 +93,42 @@ async def cmd_start(message: Message):
                     logging.error(f"Error processing auth token: {e}")
         
         # If no auth parameter or auth failed, show normal start message
-        await message.answer(
-            settings.welcome_message or "Welcome! I am a bot for channel parsing.\n"
-            "Select an option from the menu below:",
-            reply_markup=dynamic_keyboard
-        )
-        logger.info(f"Sent welcome message to user {user_id}")
+        welcome_msg = "Welcome! I am a bot for channel parsing.\nSelect an option from the menu below:"
+        if settings and hasattr(settings, 'welcome_message') and settings.welcome_message:
+            welcome_msg = settings.welcome_message
+            
+        try:
+            # Try to send with dynamic keyboard first
+            await message.answer(welcome_msg, reply_markup=dynamic_keyboard)
+            logger.info(f"Sent welcome message with dynamic keyboard to user {user_id}")
+        except Exception as kbd_error:
+            # If that fails, try with the fallback keyboard
+            logger.error(f"Failed to send dynamic keyboard: {kbd_error}")
+            try:
+                await message.answer(welcome_msg, reply_markup=fallback_keyboard)
+                logger.info(f"Sent welcome message with fallback keyboard to user {user_id}")
+            except Exception as fallback_kbd_error:
+                logger.error(f"Failed to send fallback keyboard: {fallback_kbd_error}")
+                # Last resort - try without keyboard
+                await message.answer(f"{welcome_msg}\n\nPlease try sending /start again if menu buttons don't appear.")
     except Exception as e:
         logger.error(f"Error handling /start command: {e}")
         # Try sending a simple message as fallback
         try:
-            await message.answer("Привіт! Бот запущено.")
+            # Create a simple keyboard as last resort
+            from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
+            emergency_keyboard = ReplyKeyboardMarkup(
+                keyboard=[
+                    [KeyboardButton(text="📎 List of channels")],
+                    [KeyboardButton(text="📍 Categories menu")],
+                ],
+                resize_keyboard=True
+            )
+            await message.answer("Привіт! Бот запущено. Використовуйте меню нижче:", reply_markup=emergency_keyboard)
         except Exception as fallback_error:
             logger.error(f"Failed to send fallback message: {fallback_error}")
+            # Absolute last resort - no formatting
+            await message.answer("Привіт! Бот запущено. Спробуйте /start ще раз.")
 
 @router.message(F.text == "📎 List of channels")
 async def list_channels(message: Message):

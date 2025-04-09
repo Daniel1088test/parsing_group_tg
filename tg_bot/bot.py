@@ -26,10 +26,11 @@ except Exception as e:
 
 try:
     # Імпортуємо необхідні модулі
-    from aiogram import Bot, Dispatcher
+    from aiogram import Bot, Dispatcher, types, F
     from aiogram.fsm.storage.memory import MemoryStorage
+    from aiogram.filters import Command
     from tg_bot.handlers import common_router, admin_router, session_router, session_buttons_router, menu_buttons_router, fallback_router
-    from tg_bot.middlewares import ChannelsDataMiddleware
+    from tg_bot.middlewares import ChannelsDataMiddleware, MenuInitMiddleware
     
     # Отримуємо токен бота з різних можливих джерел
     def get_bot_token():
@@ -91,9 +92,36 @@ try:
         storage = MemoryStorage()
         dp = Dispatcher(storage=storage)
         
-        # add middleware for channel data
+        # add middleware for channel data and menu initialization
         dp.message.middleware(ChannelsDataMiddleware())
         dp.callback_query.middleware(ChannelsDataMiddleware())
+        dp.message.middleware(MenuInitMiddleware())  # Add menu middleware
+        
+        # Add special command to force menu refresh
+        @dp.message(Command("menu"))
+        async def force_menu(message: types.Message):
+            """Force show the menu keyboard"""
+            from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
+            
+            # Create a keyboard directly
+            keyboard = ReplyKeyboardMarkup(
+                keyboard=[
+                    [KeyboardButton(text="📎 List of channels")],
+                    [KeyboardButton(text="📍 Categories menu")],
+                    [KeyboardButton(text="🌐 Go to the site")],
+                    [KeyboardButton(text="🔑 Add new session")],
+                ],
+                resize_keyboard=True,
+                is_persistent=True  # Make it persistent
+            )
+            
+            await message.answer("Menu refreshed. You should see the buttons below:", reply_markup=keyboard)
+        
+        # Add a special handler for menu button text that directly relates to the buttons
+        @dp.message(F.text.in_(["Show menu", "меню", "Меню", "menu", "Menu"]))
+        async def handle_menu_text(message: types.Message):
+            """Handle text requests for menu"""
+            await force_menu(message)
         
         # register all routers
         dp.include_router(session_router)
