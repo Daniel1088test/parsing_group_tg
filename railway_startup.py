@@ -67,9 +67,11 @@ def apply_fixes():
         ("python fix_admin_query.py", "Admin query fixes"),
         ("python fix_railway_migrations.py", "Railway migrations fixes"),
         ("python fix_session_migration.py", "Session migration fixes"),
+        ("python fix_migration_conflict.py", "Migration conflict fixes", True),
         ("python fix_all_issues.py", "General issue fixes"),
         ("python fix_integration_issues.py", "Integration issue fixes", False),
-        ("python fix_database_connection.py", "Database connection fixes", False)
+        ("python fix_database_connection.py", "Database connection fixes", False),
+        ("python fix_bot_conflict.py", "Telegram bot conflict fixes", True)
     ]
     
     for fix in fixes:
@@ -89,7 +91,45 @@ def run_migrations():
 # Start the bot in a separate thread
 def start_bot():
     logger.info("Starting Telegram bot...")
-    return subprocess.Popen(["python", "run_bot.py"])
+    
+    # Check for existing bot lock file
+    if os.path.exists('bot.lock'):
+        try:
+            with open('bot.lock', 'r') as f:
+                pid = int(f.read().strip())
+            
+            # Check if the process is still running
+            if os.path.exists(f'/proc/{pid}') or (sys.platform == 'win32' and pid in [p.pid for p in subprocess.check_output(['tasklist']).decode().splitlines() if str(pid) in p]):
+                logger.warning(f"Bot process with PID {pid} is already running")
+                try:
+                    os.kill(pid, 0)  # Check if process exists
+                    logger.info(f"Terminating existing bot process with PID {pid}")
+                    if sys.platform == 'win32':
+                        subprocess.run(['taskkill', '/F', '/PID', str(pid)])
+                    else:
+                        os.kill(pid, 15)  # SIGTERM
+                except OSError:
+                    pass  # Process doesn't exist
+        except Exception as e:
+            logger.error(f"Error handling bot lock file: {e}")
+        
+        # Remove the stale lock file
+        try:
+            os.remove('bot.lock')
+            logger.info("Removed stale bot lock file")
+        except Exception as e:
+            logger.error(f"Error removing bot lock file: {e}")
+    
+    # Create a new lock file
+    try:
+        bot_process = subprocess.Popen(["python", "run_bot.py"])
+        with open('bot.lock', 'w') as f:
+            f.write(str(bot_process.pid))
+        logger.info(f"Created bot lock file with PID {bot_process.pid}")
+        return bot_process
+    except Exception as e:
+        logger.error(f"Error starting bot process: {e}")
+        return None
 
 # Start the parser in a separate thread
 def start_parser():

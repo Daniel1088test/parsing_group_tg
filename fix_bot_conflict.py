@@ -16,75 +16,93 @@ logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.StreamHandler(sys.stdout),
-        logging.FileHandler('fix_bot_conflict.log')
+        logging.StreamHandler(),
+        logging.FileHandler("bot_conflict_fix.log")
     ]
 )
 logger = logging.getLogger('bot_conflict_fix')
 
-def kill_existing_bot_processes():
-    """Find and kill any existing bot processes"""
-    count = 0
+def run_command(command, description="Running command", critical=False):
+    """Run a shell command and log the output."""
+    logging.info(f"{description}: {command}")
     
+    try:
+        result = subprocess.run(
+            command, 
+            shell=True, 
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True
+        )
+        logging.info(f"Command output: {result.stdout.strip()}")
+        return True
+    except subprocess.CalledProcessError as e:
+        logging.error(f"Command failed with exit code {e.returncode}")
+        logging.error(f"Error output: {e.stderr.strip()}")
+        
+        if critical:
+            logging.critical("Critical command failed. Exiting.")
+            sys.exit(1)
+        return False
+
+def find_and_kill_telegram_processes():
+    """Find and kill any running telegram bot processes"""
+    logging.info("Checking for running telegram bot processes")
+    
+    # Get the current process ID to avoid killing ourselves
+    current_pid = os.getpid()
+    
+    killed_processes = 0
     for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
         try:
-            cmdline = ' '.join(proc.info.get('cmdline', []) or [])
-            # Look for processes running bot.py or run_bot.py
-            if ('run_bot.py' in cmdline or 'tg_bot/bot.py' in cmdline) and proc.pid != os.getpid():
-                logger.info(f"Found bot process: PID {proc.pid}, Command: {cmdline}")
-                count += 1
+            # Skip our own process
+            if proc.info['pid'] == current_pid:
+                continue
                 
-                # Kill the process
-                if sys.platform == 'win32':
-                    os.kill(proc.pid, signal.SIGTERM)
-                else:
-                    os.kill(proc.pid, signal.SIGTERM)
+            # Check if this is a python process running a bot
+            if proc.info['name'] and 'python' in proc.info['name'].lower():
+                cmdline = proc.info['cmdline']
+                if cmdline and any('bot.py' in cmd for cmd in cmdline if cmd):
+                    logging.info(f"Found running bot process: {proc.info['pid']}")
                     
-                logger.info(f"Terminated bot process with PID {proc.pid}")
-                time.sleep(1)  # Give it time to terminate
-                
-                # Check if it's still running and force kill if necessary
-                if psutil.pid_exists(proc.pid):
-                    logger.warning(f"Process {proc.pid} still exists, forcing termination")
-                    if sys.platform == 'win32':
-                        os.kill(proc.pid, signal.SIGTERM)
-                    else:
-                        os.kill(proc.pid, signal.SIGKILL)
+                    # Kill the process
+                    try:
+                        os.kill(proc.info['pid'], signal.SIGTERM)
+                        logging.info(f"Successfully terminated process {proc.info['pid']}")
+                        killed_processes += 1
+                        # Give process time to shut down
+                        time.sleep(2)
+                    except Exception as e:
+                        logging.error(f"Failed to kill process {proc.info['pid']}: {str(e)}")
         except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
             pass
-        except Exception as e:
-            logger.error(f"Error killing process: {e}")
     
-    return count
+    if killed_processes > 0:
+        logging.info(f"Killed {killed_processes} bot processes")
+    else:
+        logging.info("No running bot processes found")
+    
+    return killed_processes
 
-def create_lockfile():
-    """Create a lockfile to prevent multiple bot instances"""
-    lock_file = 'bot.lock'
-    with open(lock_file, 'w') as f:
-        f.write(str(os.getpid()))
-    logger.info(f"Created lock file: {lock_file}")
-
-def main():
-    """Main function"""
-    logger.info("Starting bot conflict fix")
+def fix_bot_conflict():
+    """Fix the telegram bot conflict by ensuring only one instance runs"""
+    logging.info("Starting bot conflict fix")
     
-    # Kill any existing bot processes
-    killed = kill_existing_bot_processes()
-    logger.info(f"Killed {killed} existing bot processes")
+    # First, kill any existing bot processes
+    killed = find_and_kill_telegram_processes()
     
-    # Create lockfile
-    create_lockfile()
-    
-    # Update railway_startup.py to use a locking mechanism
-    logger.info("Bot conflict fix completed")
-    
-    # Print success message
-    print("\n" + "="*50)
-    print("Bot conflict fix applied!")
-    print("This should prevent the 'terminated by other getUpdates request' error.")
-    print("="*50 + "\n")
-    
-    return True
+    logging.info("Bot conflict fix completed")
+    return killed > 0
 
 if __name__ == "__main__":
-    main() 
+    try:
+        fixed = fix_bot_conflict()
+        if fixed:
+            logging.info("Successfully fixed telegram bot conflict")
+        else:
+            logging.info("No telegram bot conflicts were found")
+        sys.exit(0)
+    except Exception as e:
+        logging.error(f"Error fixing telegram bot conflict: {str(e)}")
+        sys.exit(1) 
