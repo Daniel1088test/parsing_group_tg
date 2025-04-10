@@ -342,8 +342,56 @@ def channel_delete_view(request, channel_id):
 
 @login_required
 def categories_list_view(request):
-    categories = Category.objects.all()
-    return render(request, 'admin_panel/categories_list.html', {'categories': categories})
+    """View for listing all categories"""
+    try:
+        categories = Category.objects.all()
+        
+        # Log successful template rendering
+        logger = logging.getLogger('template_debug')
+        logger.info(f"Rendering categories_list.html with {len(categories)} categories")
+        
+        try:
+            # Try to find the template first
+            from django.template.loader import get_template
+            template = get_template('admin_panel/categories_list.html')
+            logger.info(f"Found template at: {template.origin.name}")
+        except Exception as template_error:
+            logger.error(f"Error finding template: {str(template_error)}")
+            # Continue anyway to see the actual rendering error
+        
+        # Render the template with context
+        return render(request, 'admin_panel/categories_list.html', {
+            'categories': categories,
+            'debug_info': {
+                'template_dirs': settings.TEMPLATES[0]['DIRS'],
+                'template_app_dirs': settings.TEMPLATES[0]['APP_DIRS'],
+            }
+        })
+    except Exception as e:
+        # Log the error and show a simple page
+        logger = logging.getLogger('template_debug')
+        logger.error(f"Error in categories_list_view: {str(e)}")
+        logger.error(traceback.format_exc())
+        
+        return HttpResponse(f"""
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>Error - Categories List</title>
+            <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+        </head>
+        <body>
+            <div class="container mt-5">
+                <div class="alert alert-danger">
+                    <h4>Error loading categories</h4>
+                    <p>{str(e)}</p>
+                    <pre class="mt-3">{traceback.format_exc()}</pre>
+                </div>
+                <a href="/admin_panel/" class="btn btn-primary">Back to Dashboard</a>
+            </div>
+        </body>
+        </html>
+        """)
 
 @login_required
 def category_create_view(request):
@@ -767,7 +815,9 @@ def authorize_session_view(request, session_id):
         logger.error(f"Error in authorize_session_view: {e}")
         logger.error(traceback.format_exc())
         messages.error(request, f"Error authorizing session: {str(e)}")
-        return redirect('admin_panel:sessions_list')@login_required
+        return redirect('admin_panel:sessions_list')
+
+@login_required
 def run_migrations_view(request):
     """View for running database migrations"""
     if request.method == 'POST':
@@ -889,3 +939,95 @@ def edit_session_view(request, session_id):
         'title': f'Редагування сесії {session.phone}'
     }
     return render(request, 'admin_panel/edit_session.html', context)
+
+@login_required
+def categories_standalone_view(request):
+    """A simple standalone view for categories that doesn't use base.html"""
+    categories = Category.objects.all()
+    
+    # Use a very simple template that doesn't extend base.html
+    html_content = """
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>Categories</title>
+        <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+        <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+        <link rel="stylesheet" href="https://cdn.datatables.net/1.13.6/css/dataTables.bootstrap5.min.css">
+        <script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
+        <script src="https://cdn.datatables.net/1.13.6/js/dataTables.bootstrap5.min.js"></script>
+    </head>
+    <body>
+        <div class="container mt-5">
+            <h1>Categories</h1>
+            <div class="card">
+                <div class="card-header bg-white py-3 d-flex justify-content-between align-items-center">
+                    <h5 class="mb-0">Categories List</h5>
+                    <a href="{% url 'admin_panel:category_create' %}" class="btn btn-primary btn-sm">
+                        <i class="fas fa-plus me-2"></i>Create category
+                    </a>
+                </div>
+                <div class="card-body">
+                    <table id="categoriesTable" class="table table-striped table-hover">
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>Name</th>
+                                <th>Created</th>
+                                <th>Updated</th>
+                                <th style="width: 150px;">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for category in categories %}
+                            <tr>
+                                <td>{{ category.id }}</td>
+                                <td>{{ category.name }}</td>
+                                <td>{{ category.created_at|date:"d.m.Y H:i" }}</td>
+                                <td>{{ category.updated_at|date:"d.m.Y H:i" }}</td>
+                                <td>
+                                    <div class="btn-group">
+                                        <a href="{% url 'admin_panel:category_detail' category.id %}" class="btn btn-info btn-sm">
+                                            <i class="fas fa-eye"></i>
+                                        </a>
+                                        <a href="{% url 'admin_panel:category_update' category.id %}" class="btn btn-primary btn-sm">
+                                            <i class="fas fa-edit"></i>
+                                        </a>
+                                        <button type="button" class="btn btn-danger btn-sm delete-category" 
+                                                data-id="{{ category.id }}" 
+                                                data-name="{{ category.name }}">
+                                            <i class="fas fa-trash"></i>
+                                        </button>
+                                    </div>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            
+            <div class="mt-3">
+                <a href="{% url 'admin_panel:admin_panel' %}" class="btn btn-secondary">Back to Dashboard</a>
+            </div>
+        </div>
+        
+        <script>
+            $(document).ready(function() {
+                $('#categoriesTable').DataTable({
+                    order: [[0, 'desc']],
+                    responsive: true
+                });
+            });
+        </script>
+    </body>
+    </html>
+    """
+    
+    # Render the template string directly
+    from django.template import Template, RequestContext
+    template = Template(html_content)
+    context = RequestContext(request, {'categories': categories})
+    rendered = template.render(context)
+    
+    return HttpResponse(rendered)

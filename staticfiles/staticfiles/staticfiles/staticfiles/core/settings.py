@@ -80,6 +80,7 @@ MIDDLEWARE = [
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
     'core.health_middleware.HealthCheckMiddleware',  # Health middleware
     'core.template_middleware.TemplateDebugMiddleware',  # Template debug middleware
+    'core.template_debug_middleware.TemplateRenderDebugMiddleware',  # Template render debugging
 ]
 
 # Ensure database connections are released in long-running apps
@@ -254,24 +255,22 @@ LOGGING = {
     'disable_existing_loggers': False,
     'formatters': {
         'verbose': {
-            'format': '{asctime} {levelname} {module} {process:d} {thread:d} {message}',
+            'format': '{levelname} {asctime} {module} {message}',
             'style': '{',
         },
         'simple': {
-            'format': '{asctime} {levelname} {message}',
+            'format': '{levelname} {message}',
             'style': '{',
         },
     },
     'handlers': {
         'console': {
-            'level': 'INFO',
             'class': 'logging.StreamHandler',
-            'formatter': 'simple',
+            'formatter': 'verbose',
         },
         'file': {
-            'level': 'INFO',
             'class': 'logging.FileHandler',
-            'filename': os.path.join(BASE_DIR, 'logs', 'django.log'),
+            'filename': os.path.join(BASE_DIR, 'debug.log'),
             'formatter': 'verbose',
         },
     },
@@ -279,21 +278,15 @@ LOGGING = {
         'django': {
             'handlers': ['console'],
             'level': 'INFO',
-            'propagate': True,
         },
-        'middleware': {
-            'handlers': ['console'],
-            'level': 'INFO',
+        'template_debug': {
+            'handlers': ['console', 'file'],
+            'level': 'DEBUG',
             'propagate': False,
         },
-        'telegram_parser': {
-            'handlers': ['console'],
-            'level': 'INFO',
-            'propagate': False,
-        },
-        'manual_parser': {
-            'handlers': ['console'],
-            'level': 'INFO',
+        'template_middleware': {
+            'handlers': ['console', 'file'],
+            'level': 'DEBUG',
             'propagate': False,
         },
     },

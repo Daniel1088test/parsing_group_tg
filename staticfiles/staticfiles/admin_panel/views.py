@@ -342,8 +342,56 @@ def channel_delete_view(request, channel_id):
 
 @login_required
 def categories_list_view(request):
-    categories = Category.objects.all()
-    return render(request, 'admin_panel/categories_list.html', {'categories': categories})
+    """View for listing all categories"""
+    try:
+        categories = Category.objects.all()
+        
+        # Log successful template rendering
+        logger = logging.getLogger('template_debug')
+        logger.info(f"Rendering categories_list.html with {len(categories)} categories")
+        
+        try:
+            # Try to find the template first
+            from django.template.loader import get_template
+            template = get_template('admin_panel/categories_list.html')
+            logger.info(f"Found template at: {template.origin.name}")
+        except Exception as template_error:
+            logger.error(f"Error finding template: {str(template_error)}")
+            # Continue anyway to see the actual rendering error
+        
+        # Render the template with context
+        return render(request, 'admin_panel/categories_list.html', {
+            'categories': categories,
+            'debug_info': {
+                'template_dirs': settings.TEMPLATES[0]['DIRS'],
+                'template_app_dirs': settings.TEMPLATES[0]['APP_DIRS'],
+            }
+        })
+    except Exception as e:
+        # Log the error and show a simple page
+        logger = logging.getLogger('template_debug')
+        logger.error(f"Error in categories_list_view: {str(e)}")
+        logger.error(traceback.format_exc())
+        
+        return HttpResponse(f"""
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>Error - Categories List</title>
+            <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+        </head>
+        <body>
+            <div class="container mt-5">
+                <div class="alert alert-danger">
+                    <h4>Error loading categories</h4>
+                    <p>{str(e)}</p>
+                    <pre class="mt-3">{traceback.format_exc()}</pre>
+                </div>
+                <a href="/admin_panel/" class="btn btn-primary">Back to Dashboard</a>
+            </div>
+        </body>
+        </html>
+        """)
 
 @login_required
 def category_create_view(request):
@@ -767,7 +815,9 @@ def authorize_session_view(request, session_id):
         logger.error(f"Error in authorize_session_view: {e}")
         logger.error(traceback.format_exc())
         messages.error(request, f"Error authorizing session: {str(e)}")
-        return redirect('admin_panel:sessions_list')@login_required
+        return redirect('admin_panel:sessions_list')
+
+@login_required
 def run_migrations_view(request):
     """View for running database migrations"""
     if request.method == 'POST':

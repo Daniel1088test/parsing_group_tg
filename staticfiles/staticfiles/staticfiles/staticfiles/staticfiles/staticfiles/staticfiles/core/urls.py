@@ -229,10 +229,10 @@ def bot_status_api(request):
 urlpatterns = [
     # Basic routes
     path('admin/', admin.site.urls),
-    path('admin_panel/', include('admin_panel.urls')),
+    path('admin_panel/', include('admin_panel.urls', namespace='admin_panel')),
     
     # Main page - now using our direct serve_root_index function
-        path('', direct_index_view, name='index'),
+    path('', direct_index_view, name='index'),
     
     # Auth routes
     path('login/', login_view, name='login'),

@@ -8,7 +8,7 @@
         <h5 class="mb-0">
             <i class="fas fa-question-circle me-2"></i>Channels
         </h5>
-        <a href="{% url 'channel_create' %}" class="btn btn-primary btn-sm">
+        <a href="{% url 'admin_panel:channel_create' %}" class="btn btn-primary btn-sm">
             <i class="fas fa-plus me-2"></i>Create channel
         </a>
     </div>
@@ -36,10 +36,10 @@
                     <td>{{ channel.updated_at|date:"d.m.Y H:i" }}</td>
                     <td>
                         <div class="btn-group">
-                            <a href="{% url 'channel_detail' channel.id %}" class="btn btn-info btn-sm" data-bs-toggle="tooltip" title="Details">
+                            <a href="{% url 'admin_panel:channel_detail' channel.id %}" class="btn btn-info btn-sm" data-bs-toggle="tooltip" title="Details">
                                 <i class="fas fa-eye"></i>
                             </a>
-                            <a href="{% url 'channel_update' channel.id %}" class="btn btn-primary btn-sm" data-bs-toggle="tooltip" title="Edit">
+                            <a href="{% url 'admin_panel:channel_update' channel.id %}" class="btn btn-primary btn-sm" data-bs-toggle="tooltip" title="Edit">
                                 <i class="fas fa-edit"></i>
                             </a>
                             <button type="button" class="btn btn-danger btn-sm delete-channel" 
@@ -115,7 +115,7 @@
             $('#channelName').text(channelName);
             
             // Update delete form with correct URL
-            $('#deleteChannelForm').attr('action', "{% url 'channel_delete' 0 %}".replace('0', channelId));
+            $('#deleteChannelForm').attr('action', "{% url 'admin_panel:channel_delete' 0 %}".replace('0', channelId));
             
             // Show modal window
             deleteModal.show();

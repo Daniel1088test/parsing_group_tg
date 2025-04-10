@@ -215,20 +215,23 @@
                     Telegram Parser
                 </div>
                 <div class="mt-3">
-                    <a href="{% url 'admin_panel' %}" class="d-block text-white text-decoration-none sidebar-item active">
-                        <i class="fas fa-tachometer-alt"></i> Admin panel
+                    <a href="{% url 'admin_panel:admin_panel' %}" class="d-block text-white text-decoration-none sidebar-item active">
+                        <i class="fas fa-tachometer-alt"></i> Dashboard
                     </a>
-                    <a href="{% url 'channels_list' %}" class="d-block text-white text-decoration-none sidebar-item">
-                        <i class="fas fa-paper-plane"></i> Channels
+                    <a href="{% url 'admin_panel:channels_list' %}" class="d-block text-white text-decoration-none sidebar-item">
+                        <i class="fas fa-broadcast-tower"></i> Channels
                     </a>
-                    <a href="{% url 'categories_list' %}" class="d-block text-white text-decoration-none sidebar-item">
+                    <a href="{% url 'admin_panel:categories_list' %}" class="d-block text-white text-decoration-none sidebar-item">
                         <i class="fas fa-folder"></i> Categories
                     </a>
-                    <a href="{% url 'messages_list' %}" class="d-block text-white text-decoration-none sidebar-item">
-                        <i class="fas fa-comment"></i> Messages
+                    <a href="{% url 'admin_panel:messages_list' %}" class="d-block text-white text-decoration-none sidebar-item">
+                        <i class="fas fa-envelope"></i> Messages
                     </a>
-                    <a href="{% url 'sessions_list' %}" class="d-block text-white text-decoration-none sidebar-item">
-                        <i class="fas fa-key"></i> Telegram Sessions
+                    <a href="{% url 'admin_panel:sessions_list' %}" class="d-block text-white text-decoration-none sidebar-item">
+                        <i class="fas fa-key"></i> Sessions
+                    </a>
+                    <a href="{% url 'admin_panel:bot_settings' %}" class="d-block text-white text-decoration-none sidebar-item">
+                        <i class="fas fa-cog"></i> Settings
                     </a>
                     <div class="mt-5">
                         <a href="{% url 'logout' %}" class="d-block text-white text-decoration-none sidebar-item">
@@ -264,8 +267,8 @@
                     
                     <!-- BUTTONS -->
                     <div class="d-flex align-items-center">
-                        <a href="{% url 'admin_panel' %}" class="btn admin-panel-btn">
-                            <i class="fas fa-tachometer-alt me-1"></i> Admin panel
+                        <a href="{% url 'admin_panel:admin_panel' %}" class="btn admin-panel-btn">
+                            <i class="fas fa-columns me-2"></i>Admin Panel
                         </a>
                     </div>
                 </div>
