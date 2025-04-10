@@ -4,6 +4,7 @@ import os
 import signal
 import re
 import logging
+import traceback
 from datetime import datetime
 import django
 from typing import Dict, Optional, Tuple
@@ -200,7 +201,6 @@ async def save_message_to_data(message, channel, queue, category_id=None, client
 
     except Exception as e:
         logger.error(f"Error saving message: {e}")
-        import traceback
         error_traceback = traceback.format_exc()
         logger.error(f"Error traceback: {error_traceback}")
 

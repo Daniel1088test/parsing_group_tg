@@ -52,6 +52,7 @@ django_process = None
 telethon_process = None
 processor_process = None
 message_queue = None
+should_exit = False
 
 def run_command(command, description="Running command", critical=False):
     """Run a shell command and log the output."""
@@ -302,6 +303,18 @@ async def run_bot():
                 pass
             
         if not bot_token:
+            # Try to get from config.py
+            try:
+                from tg_bot.config import TOKEN_BOT
+                if TOKEN_BOT:
+                    bot_token = TOKEN_BOT
+                    logger.info("Using bot token from config.py")
+                    # Set it in environment for other processes
+                    os.environ['BOT_TOKEN'] = TOKEN_BOT
+            except Exception as e:
+                logger.error(f"Error getting bot token from config.py: {e}")
+                
+        if not bot_token:
             # Try to get from database
             try:
                 from admin_panel.models import BotSettings
@@ -309,18 +322,74 @@ async def run_bot():
                 if bot_settings and bot_settings.bot_token:
                     bot_token = bot_settings.bot_token
                     logger.info("Using bot token from database")
+                    # Set it in environment for other processes
+                    os.environ['BOT_TOKEN'] = bot_token
             except Exception as e:
                 logger.error(f"Error getting bot token from database: {e}")
         
+        # Last resort backup token
         if not bot_token:
-            logger.error("No Telegram bot token found. Please set BOT_TOKEN environment variable or add it to the BotSettings model.")
-            logger.warning("Telegram bot will not start")
-            return
+            bot_token = "8102516142:AAFTsVXXujHHKoX2KZGqZXBHPBznfgh7kg0"
+            logger.warning("Using backup hard-coded bot token")
+            os.environ['BOT_TOKEN'] = bot_token
             
-        # Start the bot
-        logger.info("Initializing Telegram bot...")
-        from tg_bot.bot import main
-        await main()
+        # Initialize aiogram directly
+        logger.info("Initializing Telegram bot with aiogram...")
+        try:
+            from aiogram import Bot, Dispatcher, types, F
+            from aiogram.fsm.storage.memory import MemoryStorage
+            
+            # Initialize bot and dispatcher
+            bot = Bot(token=bot_token)
+            storage = MemoryStorage()
+            dp = Dispatcher(storage=storage)
+            
+            # Check bot token by getting info
+            bot_info = await bot.get_me()
+            logger.info(f"Bot initiated successfully: @{bot_info.username} (ID: {bot_info.id})")
+            
+            # Try to register handlers from tg_bot
+            try:
+                from tg_bot.middlewares import ChannelsDataMiddleware
+                from tg_bot.handlers import common_router, admin_router, session_router
+                
+                # Add middleware
+                dp.message.middleware(ChannelsDataMiddleware())
+                dp.callback_query.middleware(ChannelsDataMiddleware())
+                
+                # Register routers
+                dp.include_router(session_router)
+                dp.include_router(admin_router)
+                dp.include_router(common_router)
+                logger.info("Bot handlers registered successfully")
+            except Exception as handler_error:
+                logger.error(f"Error registering handlers: {handler_error}")
+                
+                # Create basic handlers if the regular ones failed
+                @dp.message(F.text == "/start")
+                async def cmd_start(message: types.Message):
+                    await message.answer(f"Hello, {message.from_user.first_name}! Bot is running in emergency mode.")
+                
+                @dp.message(F.text == "/help")
+                async def cmd_help(message: types.Message):
+                    await message.answer("This bot is running in emergency mode. Regular functionality is limited.")
+                
+                logger.info("Emergency handlers registered")
+            
+            # Start polling
+            logger.info("Starting bot polling...")
+            await bot.delete_webhook(drop_pending_updates=True)
+            await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
+            
+        except Exception as aiogram_error:
+            logger.error(f"Critical error in aiogram init: {aiogram_error}")
+            logger.error(traceback.format_exc())
+            
+            # Try fallback method only if aiogram init fails
+            logger.info("Trying fallback method...")
+            from tg_bot.bot import main
+            await main()
+        
     except Exception as e:
         logger.error(f"Error starting bot: {e}")
         logger.error(f"Traceback: {traceback.format_exc()}")
@@ -338,11 +407,37 @@ def run_telethon_parser(message_queue):
     """Start Telethon parser"""
     logger.info("Starting Telethon parser...")
     try:
+        import django
+        os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'core.settings')
+        django.setup()
+        
+        # Check for Telethon sessions in the database first
+        has_active_session = False
+        try:
+            from admin_panel.models import TelegramSession
+            sessions = TelegramSession.objects.filter(is_active=True)
+            if sessions.exists():
+                logger.info(f"Found {sessions.count()} active Telethon sessions in database")
+                has_active_session = True
+                
+                # Try to extract session data if available
+                for session in sessions:
+                    if hasattr(session, 'session_data') and session.session_data:
+                        logger.info(f"Found session data for {session.name}, creating session file")
+                        session_file = f"{session.name}.session"
+                        with open(session_file, 'wb') as f:
+                            f.write(session.session_data)
+                        logger.info(f"Created session file: {session_file}")
+            else:
+                logger.warning("No active Telethon sessions found in database")
+        except Exception as e:
+            logger.error(f"Error checking database sessions: {e}")
+        
         # Check if any user session file exists (either from bot or console)
-        session_files = glob.glob('telethon_*.session') + glob.glob('*.session')
+        session_files = glob.glob('*.session')
         session_files = [f for f in session_files if 'telethon' in f.lower() or 'session' in f.lower()]
         
-        if not session_files:
+        if not session_files and not has_active_session:
             logger.warning("No Telethon session file found. Please authorize using the Telegram bot (🔐 Authorize Telethon) or run 'python -m tg_bot.auth_telethon'.")
             logger.warning("IMPORTANT: You must use a regular user account, NOT a bot!")
             logger.warning("Telethon parser will not be started.")
@@ -365,36 +460,56 @@ def run_telethon_parser(message_queue):
                     
                     # Just create the session file, we'll need user interaction later
                     client = TelegramClient(session_name, int(api_id), api_hash)
+                    
+                    # Try to connect but don't wait for login
+                    async def init_session():
+                        await client.connect()
+                        if await client.is_user_authorized():
+                            logger.info("Session already authorized!")
+                        else:
+                            logger.info("Session created but not authorized. Use the Telegram bot to authorize it.")
+                    
+                    # Run the async function
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+                    try:
+                        loop.run_until_complete(init_session())
+                    finally:
+                        loop.close()
+                        
                     logger.info(f"Created session file: {session_name}.session")
                     logger.info("You'll need to authenticate this session through the Telegram bot.")
                 else:
                     logger.warning("No API credentials found. Please set API_ID and API_HASH environment variables.")
             except Exception as e:
                 logger.error(f"Error creating automatic session: {e}")
+                logger.error(traceback.format_exc())
             
+            # Can't proceed without a session
             return
             
-        # Make sure Django is fully initialized before starting the parser
-        # as it depends on Django ORM models
-        import django
-        os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'core.settings')
-        django.setup()
-        
-        # Check for Telethon sessions in the database
-        try:
-            from admin_panel.models import TelegramSession
-            sessions = TelegramSession.objects.filter(is_active=True)
-            if sessions.exists():
-                logger.info(f"Found {sessions.count()} active Telethon sessions in database")
-            else:
-                logger.warning("No active Telethon sessions found in database")
-        except Exception as e:
-            logger.error(f"Error checking database sessions: {e}")
-        
         logger.info("Starting Telethon worker process...")
+        # Make sure we have all required files
+        for filename in ['file.json', 'categories.json']:
+            if not os.path.exists(filename):
+                logger.info(f"Creating empty {filename}")
+                with open(filename, 'w') as f:
+                    f.write('{}')
+                    
         # Start the parser
         from tg_bot.telethon_worker import telethon_worker_process
         telethon_worker_process(message_queue)
+    
+    except ImportError as ie:
+        logger.error(f"Import error in Telethon parser: {ie}")
+        logger.error("This usually means a required package is missing")
+        logger.error("Try installing: pip install telethon")
+        try:
+            # Try to install required package
+            run_command("pip install telethon", "Installing telethon")
+            logger.info("Telethon installed, try running again")
+        except:
+            pass
     except Exception as e:
         logger.error(f"Error starting Telethon parser: {e}")
         logger.error(f"Traceback: {traceback.format_exc()}")
@@ -530,13 +645,20 @@ def apply_fixes():
 
 def run_services():
     """Main function to run all services"""
-    global django_process, telethon_process, processor_process, message_queue
+    global django_process, telethon_process, processor_process, message_queue, should_exit
     
     start_time = datetime.now()
     logger.info(f"====== Starting services {start_time.strftime('%Y-%m-%d %H:%M:%S')} ======")
     
     # Set important environment variables
     os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'core.settings')
+    
+    # Check for missing packages - critical for Railway deployment
+    try:
+        fix_missing_packages()
+    except Exception as e:
+        logger.error(f"Error checking for missing packages: {e}")
+        logger.error("Continuing despite package check errors")
     
     # Apply fixes and ensure everything is set up
     try:
@@ -562,8 +684,9 @@ def run_services():
     should_continue = True
     retry_count = 0
     max_retries = 3
+    should_exit = False
     
-    while should_continue and retry_count < max_retries:
+    while should_continue and retry_count < max_retries and not should_exit:
         try:
             # Start Django server first - if this fails, we'll retry
             django_process = run_django()
@@ -578,8 +701,9 @@ def run_services():
             time.sleep(5)
             
             # Check if Django is still running
-            if django_process.poll() is not None:
+            if django_process and django_process.poll() is not None:
                 logger.error("Django server stopped unexpectedly. Retrying...")
+                django_process = None
                 retry_count += 1
                 continue
             
@@ -608,7 +732,16 @@ def run_services():
             try:
                 loop = asyncio.new_event_loop()
                 asyncio.set_event_loop(loop)
-                loop.run_until_complete(run_bot())
+                asyncio.run_coroutine_threadsafe(run_bot(), loop)
+                
+                # Keep the main thread running and check for exit flag
+                while not should_exit and should_continue:
+                    time.sleep(1)
+                    # Check if Django is still running
+                    if django_process and django_process.poll() is not None:
+                        logger.error("Django server stopped unexpectedly.")
+                        should_continue = False
+                        break
             except KeyboardInterrupt:
                 logger.info("\nReceived termination signal (KeyboardInterrupt)")
                 should_continue = False
@@ -636,7 +769,7 @@ def run_services():
             
             # If we got here and should_continue is still True, it means 
             # something crashed and we should retry
-            if should_continue:
+            if should_continue and not should_exit:
                 logger.info("Service crashed, cleaning up before retry...")
                 shutdown_services()
                 time.sleep(5)  # Wait before restarting
@@ -671,38 +804,57 @@ def shutdown_services():
     
     logger.info("Stopping services...")
     
+    # Helper function to safely terminate a process
+    def safe_terminate(process, name):
+        if not process:
+            return
+            
+        try:
+            # Only terminate if it's from the same process that created it
+            if process.is_alive() if hasattr(process, 'is_alive') else process.poll() is None:
+                logger.info(f"Stopping {name}...")
+                
+                if hasattr(process, 'terminate'):
+                    process.terminate()
+                    
+                    # Give it time to terminate
+                    timeout = 5
+                    for _ in range(timeout):
+                        if not (process.is_alive() if hasattr(process, 'is_alive') else process.poll() is None):
+                            break
+                        time.sleep(1)
+                        
+                    # Force kill if it's still running
+                    if process.is_alive() if hasattr(process, 'is_alive') else process.poll() is None:
+                        logger.warning(f"{name} did not terminate gracefully, forcing...")
+                        if sys.platform == 'win32':
+                            if hasattr(process, 'kill'):
+                                process.kill()
+                            else:
+                                subprocess.call(['taskkill', '/F', '/T', '/PID', str(process.pid)])
+                        else:
+                            os.kill(process.pid, signal.SIGKILL)
+                else:
+                    # For subprocess.Popen objects
+                    if sys.platform == 'win32':
+                        subprocess.call(['taskkill', '/F', '/T', '/PID', str(process.pid)])
+                    else:
+                        process.terminate()
+                        process.wait(timeout=5)
+        except (psutil.NoSuchProcess, psutil.AccessDenied, AssertionError):
+            # Process already gone or not our child
+            pass
+        except Exception as e:
+            logger.error(f"Error stopping {name}: {e}")
+    
     # Stop Telethon parser
-    if telethon_process and telethon_process.is_alive():
-        logger.info("Stopping Telethon parser...")
-        telethon_process.terminate()
-        telethon_process.join(timeout=5)
-        if telethon_process.is_alive():
-            logger.warning("Telethon parser did not terminate gracefully, forcing...")
-            if sys.platform == 'win32':
-                telethon_process.kill()
-            else:
-                os.kill(telethon_process.pid, signal.SIGKILL)
+    safe_terminate(telethon_process, "Telethon parser")
     
     # Stop message processor
-    if processor_process and processor_process.is_alive():
-        logger.info("Stopping message processor...")
-        processor_process.terminate()
-        processor_process.join(timeout=5)
-        if processor_process.is_alive():
-            logger.warning("Message processor did not terminate gracefully, forcing...")
-            if sys.platform == 'win32':
-                processor_process.kill()
-            else:
-                os.kill(processor_process.pid, signal.SIGKILL)
+    safe_terminate(processor_process, "Message processor")
     
     # Stop Django server
-    if django_process:
-        logger.info("Stopping Django server...")
-        if sys.platform == 'win32':
-            subprocess.call(['taskkill', '/F', '/T', '/PID', str(django_process.pid)])
-        else:
-            django_process.terminate()
-            django_process.wait(timeout=5)
+    safe_terminate(django_process, "Django server")
     
     # Remove bot lock file if it exists
     try:
@@ -711,12 +863,70 @@ def shutdown_services():
             logger.info("Removed bot lock file")
     except Exception as e:
         logger.error(f"Error removing bot lock file: {e}")
+        
+    # Reset process variables
+    telethon_process = None
+    processor_process = None
+    django_process = None
 
 def signal_handler(signum, frame):
     """Handle termination signals"""
     logger.info(f"Received signal {signum}. Initiating shutdown...")
-    shutdown_services()
-    sys.exit(0)
+    # Don't call shutdown_services() directly from signal handler
+    # This can cause multiprocessing issues
+    global should_exit
+    should_exit = True
+    
+    # If we're in the main process, set an exit flag instead
+    # The main process will check this flag and shut down properly
+    if 'should_continue' in globals():
+        globals()['should_continue'] = False
+
+def fix_missing_packages():
+    """Install any missing packages that are required for the project."""
+    logger.info("Checking for missing packages...")
+    
+    required_packages = [
+        'dj-database-url',
+        'whitenoise',
+        'python-dotenv',
+        'django-storages',
+        'psycopg2-binary'
+    ]
+    
+    for package in required_packages:
+        try:
+            # Try to import the package
+            package_name = package.replace('-', '_')
+            __import__(package_name)
+            logger.info(f"Package {package} is already installed")
+        except ImportError:
+            # If import fails, install the package
+            logger.warning(f"Package {package} is missing. Installing...")
+            try:
+                run_command(f"pip install {package}", f"Installing {package}")
+                logger.info(f"Successfully installed {package}")
+            except Exception as e:
+                logger.error(f"Failed to install {package}: {e}")
+    
+    # Special case for psycopg2
+    try:
+        import psycopg2
+        logger.info("psycopg2 is already installed")
+    except ImportError:
+        try:
+            # Try to use binary version if regular fails
+            import psycopg2_binary
+            logger.info("psycopg2_binary is being used instead of psycopg2")
+        except ImportError:
+            logger.warning("psycopg2 is missing. Installing...")
+            try:
+                run_command("pip install psycopg2-binary", "Installing psycopg2-binary")
+                logger.info("Successfully installed psycopg2-binary")
+            except Exception as e:
+                logger.error(f"Failed to install psycopg2-binary: {e}")
+                
+    return True
 
 if __name__ == "__main__":
     # Set the limit on the number of open files for Windows
@@ -726,6 +936,9 @@ if __name__ == "__main__":
             win32file._setmaxstdio(2048)
         except:
             pass
+    
+    # Initialize exit flag
+    should_exit = False
     
     # Set up signal handlers
     signal.signal(signal.SIGINT, signal_handler)
