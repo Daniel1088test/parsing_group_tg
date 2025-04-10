@@ -538,6 +538,13 @@ def run_services():
     # Set important environment variables
     os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'core.settings')
     
+    # Check for missing packages - critical for Railway deployment
+    try:
+        fix_missing_packages()
+    except Exception as e:
+        logger.error(f"Error checking for missing packages: {e}")
+        logger.error("Continuing despite package check errors")
+    
     # Apply fixes and ensure everything is set up
     try:
         apply_fixes()
@@ -717,6 +724,52 @@ def signal_handler(signum, frame):
     logger.info(f"Received signal {signum}. Initiating shutdown...")
     shutdown_services()
     sys.exit(0)
+
+def fix_missing_packages():
+    """Install any missing packages that are required for the project."""
+    logger.info("Checking for missing packages...")
+    
+    required_packages = [
+        'dj-database-url',
+        'whitenoise',
+        'python-dotenv',
+        'django-storages',
+        'psycopg2-binary'
+    ]
+    
+    for package in required_packages:
+        try:
+            # Try to import the package
+            package_name = package.replace('-', '_')
+            __import__(package_name)
+            logger.info(f"Package {package} is already installed")
+        except ImportError:
+            # If import fails, install the package
+            logger.warning(f"Package {package} is missing. Installing...")
+            try:
+                run_command(f"pip install {package}", f"Installing {package}")
+                logger.info(f"Successfully installed {package}")
+            except Exception as e:
+                logger.error(f"Failed to install {package}: {e}")
+    
+    # Special case for psycopg2
+    try:
+        import psycopg2
+        logger.info("psycopg2 is already installed")
+    except ImportError:
+        try:
+            # Try to use binary version if regular fails
+            import psycopg2_binary
+            logger.info("psycopg2_binary is being used instead of psycopg2")
+        except ImportError:
+            logger.warning("psycopg2 is missing. Installing...")
+            try:
+                run_command("pip install psycopg2-binary", "Installing psycopg2-binary")
+                logger.info("Successfully installed psycopg2-binary")
+            except Exception as e:
+                logger.error(f"Failed to install psycopg2-binary: {e}")
+                
+    return True
 
 if __name__ == "__main__":
     # Set the limit on the number of open files for Windows
