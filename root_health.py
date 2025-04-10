@@ -1,4 +1,27 @@
-<!DOCTYPE html>
+#!/usr/bin/env python3
+"""
+Script to generate direct HTML files at the root for Railway
+"""
+import os
+import sys
+import logging
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler(),
+        logging.FileHandler('root_health.log')
+    ]
+)
+logger = logging.getLogger('root_health')
+
+def create_direct_html_files():
+    """Create direct HTML files at the root directory"""
+    try:
+        # HTML content for the homepage
+        homepage_html = """<!DOCTYPE html>
 <html lang="uk">
 <head>
     <meta charset="UTF-8">
@@ -129,4 +152,98 @@
     <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
 </body>
-</html>
+</html>"""
+
+        # Create index.html
+        with open('index.html', 'w') as f:
+            f.write(homepage_html)
+        logger.info("Created index.html")
+        
+        # Create a simpler version to be served by Railway's static serving
+        with open('static/index.html', 'w') as f:
+            f.write(homepage_html)
+        logger.info("Created static/index.html")
+        
+        # Create another copy in staticfiles directory
+        with open('staticfiles/index.html', 'w') as f:
+            f.write(homepage_html)
+        logger.info("Created staticfiles/index.html")
+        
+        # Also create a simple HTML health check file
+        health_html = """<!DOCTYPE html>
+<html>
+<head>
+    <title>Health Check</title>
+    <meta charset="UTF-8">
+</head>
+<body>
+    <h1>Health Check: OK</h1>
+    <p>The service is running correctly.</p>
+</body>
+</html>"""
+        
+        # Create health check files
+        for filename in ['health.html', 'healthz.html']:
+            with open(filename, 'w') as f:
+                f.write(health_html)
+            with open(f'static/{filename}', 'w') as f:
+                f.write(health_html)
+            with open(f'staticfiles/{filename}', 'w') as f:
+                f.write(health_html)
+        logger.info("Created health check HTML files")
+        
+        # Ensure correct permissions
+        for filename in ['index.html', 'health.html', 'healthz.html']:
+            try:
+                os.chmod(filename, 0o644)
+                logger.info(f"Set permissions for {filename}")
+            except Exception as e:
+                logger.warning(f"Failed to set permissions for {filename}: {e}")
+        
+        return True
+    except Exception as e:
+        logger.error(f"Error creating direct HTML files: {e}")
+        return False
+
+def ensure_directories_exist():
+    """Ensure static directories exist"""
+    try:
+        for directory in ['static', 'static/img', 'staticfiles', 'staticfiles/img']:
+            if not os.path.exists(directory):
+                os.makedirs(directory, exist_ok=True)
+                logger.info(f"Created directory: {directory}")
+        return True
+    except Exception as e:
+        logger.error(f"Error ensuring directories exist: {e}")
+        return False
+
+def main():
+    """Main function"""
+    logger.info("Starting root health generation")
+    
+    # Ensure directories exist
+    if not ensure_directories_exist():
+        logger.error("Failed to ensure directories exist")
+        return False
+    
+    # Create direct HTML files
+    if not create_direct_html_files():
+        logger.error("Failed to create direct HTML files")
+        return False
+    
+    logger.info("Root health generation completed successfully")
+    return True
+
+if __name__ == "__main__":
+    try:
+        success = main()
+        if success:
+            print("Root health generation completed successfully")
+            sys.exit(0)
+        else:
+            print("Root health generation failed")
+            sys.exit(1)
+    except Exception as e:
+        logger.error(f"Unhandled error: {e}")
+        print(f"Error: {e}")
+        sys.exit(1) 

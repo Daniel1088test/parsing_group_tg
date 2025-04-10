@@ -1,4 +1,38 @@
-<!DOCTYPE html>
+#!/usr/bin/env python3
+"""
+Direct fix script for Railway deployment - ensures the homepage works correctly
+"""
+import os
+import sys
+import logging
+import shutil
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler(),
+        logging.FileHandler('direct_railway_fix.log')
+    ]
+)
+logger = logging.getLogger('direct_railway_fix')
+
+def create_direct_view():
+    """Create a direct view function to serve HTML content"""
+    try:
+        # First check if we need to create the file
+        views_file = 'core/direct_views.py'
+        if os.path.exists(views_file):
+            logger.info(f"File {views_file} already exists, skipping creation")
+            return True
+        
+        with open(views_file, 'w') as f:
+            f.write("""from django.http import HttpResponse
+
+def direct_index_view(request):
+    \"\"\"Serve the index page directly as HTML content\"\"\"
+    html = \"\"\"<!DOCTYPE html>
 <html lang="uk">
 <head>
     <meta charset="UTF-8">
@@ -129,4 +163,96 @@
     <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
 </body>
-</html>
+</html>\"\"\"
+    return HttpResponse(html, content_type='text/html')
+""")
+        logger.info(f"Created direct view file: {views_file}")
+        return True
+    except Exception as e:
+        logger.error(f"Error creating direct view: {e}")
+        return False
+
+def update_urls_file():
+    """Update urls.py to use our direct view"""
+    try:
+        urls_file = 'core/urls.py'
+        
+        # Check if file exists
+        if not os.path.exists(urls_file):
+            logger.error(f"URLs file not found: {urls_file}")
+            return False
+        
+        # Read the file
+        with open(urls_file, 'r') as f:
+            content = f.read()
+        
+        # Check if we've already updated it
+        if 'direct_index_view' in content:
+            logger.info("URLs file already updated, skipping")
+            return True
+        
+        # Update imports
+        import_line = "from .direct_views import direct_index_view"
+        if import_line not in content:
+            # Find the imports section and add our import
+            import_section_end = content.find("# Ensure the views module is imported correctly")
+            if import_section_end > 0:
+                content = content[:import_section_end] + import_line + "\n\n" + content[import_section_end:]
+            else:
+                # Fallback to adding after the last import
+                last_import = content.rfind("import ")
+                last_import_end = content.find("\n", last_import)
+                if last_import_end > 0:
+                    content = content[:last_import_end+1] + "\n" + import_line + content[last_import_end+1:]
+        
+        # Update the root URL pattern to use our direct view
+        url_pattern_start = content.find("urlpatterns = [")
+        if url_pattern_start > 0:
+            url_pattern_end = content.find("path('',", url_pattern_start)
+            next_line_end = content.find("\n", url_pattern_end)
+            
+            if url_pattern_end > 0 and next_line_end > 0:
+                # Replace the existing index path with our direct view
+                new_pattern = "    path('', direct_index_view, name='index'),\n"
+                content = content[:url_pattern_end] + new_pattern + content[next_line_end+1:]
+        
+        # Write the updated content back to the file
+        with open(urls_file, 'w') as f:
+            f.write(content)
+        
+        logger.info(f"Updated URLs file: {urls_file}")
+        return True
+    except Exception as e:
+        logger.error(f"Error updating URLs file: {e}")
+        return False
+
+def main():
+    """Main function"""
+    logger.info("Starting direct Railway fix")
+    
+    # Create direct view function
+    if not create_direct_view():
+        logger.error("Failed to create direct view")
+        return False
+    
+    # Update URLs configuration
+    if not update_urls_file():
+        logger.error("Failed to update URLs configuration")
+        return False
+    
+    logger.info("Direct Railway fix completed successfully")
+    return True
+
+if __name__ == "__main__":
+    try:
+        success = main()
+        if success:
+            print("Direct Railway fix completed successfully")
+            sys.exit(0)
+        else:
+            print("Direct Railway fix failed")
+            sys.exit(1)
+    except Exception as e:
+        logger.error(f"Unhandled error: {e}")
+        print(f"Error: {e}")
+        sys.exit(1) 

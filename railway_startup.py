@@ -58,6 +58,8 @@ def run_command(command, description, critical=False):
 def apply_fixes():
     # Apply database and template fixes (in order of dependency)
     fixes = [
+        ("python root_health.py", "Root health files generation", True),
+        ("python direct_railway_fix.py", "Direct Railway homepage fix", True),
         ("python fix_railway_templates.py", "Railway template fixes", True),
         ("python fix_templates_and_aiohttp.py", "Template and AIOHTTP fixes"),
         ("python fix_railway_views.py", "Railway views fixes"),

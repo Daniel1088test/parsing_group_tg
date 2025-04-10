@@ -34,6 +34,8 @@ except ImportError:
 from django.views.static import serve
 from django.views.generic.base import RedirectView
 
+from .direct_views import direct_index_view
+
 # Ensure the views module is imported correctly
 try:
     from .views import serve_media, railway_index_view, serve_root_index
@@ -230,7 +232,7 @@ urlpatterns = [
     path('admin_panel/', include('admin_panel.urls')),
     
     # Main page - now using our direct serve_root_index function
-    path('', serve_root_index, name='index'),
+        path('', direct_index_view, name='index'),
     
     # Auth routes
     path('login/', login_view, name='login'),
