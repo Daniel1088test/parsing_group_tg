@@ -8,6 +8,29 @@ from django.views.decorators.http import require_GET
 
 logger = logging.getLogger('media_handler')
 
+# Add a direct file serve function for the root index.html
+def serve_root_index(request):
+    """Serve index.html directly from the root directory for Railway deployment"""
+    try:
+        # First, look for index.html in the root directory
+        index_path = os.path.join(settings.BASE_DIR, 'index.html')
+        if os.path.exists(index_path):
+            logger.info(f"Serving root index.html from: {index_path}")
+            return FileResponse(open(index_path, 'rb'), content_type='text/html')
+        
+        # If not found, try templates/admin_panel/index.html
+        admin_index_path = os.path.join(settings.BASE_DIR, 'templates', 'admin_panel', 'index.html')
+        if os.path.exists(admin_index_path):
+            logger.info(f"Serving admin panel index.html from: {admin_index_path}")
+            return FileResponse(open(admin_index_path, 'rb'), content_type='text/html')
+        
+        # If none found, fallback to the railway_index_view
+        logger.warning("No index.html found, falling back to railway_index_view")
+        return railway_index_view(request)
+    except Exception as e:
+        logger.error(f"Error serving root index.html: {e}")
+        return railway_index_view(request)
+
 @require_GET
 def serve_media(request, path):
     """

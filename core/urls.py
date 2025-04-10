@@ -36,7 +36,7 @@ from django.views.generic.base import RedirectView
 
 # Ensure the views module is imported correctly
 try:
-    from .views import serve_media, railway_index_view
+    from .views import serve_media, railway_index_view, serve_root_index
 except ImportError:
     # Fallback definitions if import fails
     def serve_media(request, path):
@@ -47,6 +47,13 @@ except ImportError:
     
     def railway_index_view(request):
         return index_view(request)
+    
+    def serve_root_index(request):
+        """Serve index.html directly from root directory"""
+        index_path = os.path.join(settings.BASE_DIR, 'index.html')
+        if os.path.exists(index_path):
+            return FileResponse(open(index_path, 'rb'), content_type='text/html')
+        return railway_index_view(request)
 
 from django.views.generic import TemplateView
 import subprocess
@@ -222,8 +229,8 @@ urlpatterns = [
     path('admin/', admin.site.urls),
     path('admin_panel/', include('admin_panel.urls')),
     
-    # Main page - make sure railway_index_view is used if available, otherwise fallback to normal index_view
-    path('', railway_index_view if 'railway_index_view' in locals() else index_view, name='index'),
+    # Main page - now using our direct serve_root_index function
+    path('', serve_root_index, name='index'),
     
     # Auth routes
     path('login/', login_view, name='login'),

@@ -96,6 +96,7 @@ TEMPLATES = [
             os.path.join(BASE_DIR, 'templates'),
             # Add additional template directories for Railway
             os.path.join(BASE_DIR, 'templates/admin_panel'),
+            os.path.join(BASE_DIR, '.'),  # Root directory for direct index.html serving
         ],
         'APP_DIRS': True,
         'OPTIONS': {

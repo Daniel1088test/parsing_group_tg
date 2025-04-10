@@ -58,6 +58,7 @@ def run_command(command, description, critical=False):
 def apply_fixes():
     # Apply database and template fixes (in order of dependency)
     fixes = [
+        ("python fix_railway_templates.py", "Railway template fixes", True),
         ("python fix_templates_and_aiohttp.py", "Template and AIOHTTP fixes"),
         ("python fix_railway_views.py", "Railway views fixes"),
         ("python fix_multiple_fields.py", "Multiple fields fixes"),
@@ -119,6 +120,60 @@ def ensure_templates():
     os.makedirs(os.path.join(media_dir, 'messages'), exist_ok=True)
     os.makedirs(static_dir, exist_ok=True)
     os.makedirs(staticfiles_dir, exist_ok=True)
+    
+    # Create index.html at root if it doesn't exist
+    index_path = os.path.join(BASE_DIR, 'index.html')
+    if not os.path.exists(index_path):
+        logger.info("Root index.html not found, creating it...")
+        with open(index_path, 'w') as f:
+            f.write("""<!DOCTYPE html>
+<html lang="uk">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Telegram Parser | Railway Deployment</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body { 
+            background-color: #f8f9fc; 
+            font-family: sans-serif;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .card {
+            box-shadow: 0 10px 20px rgba(0, 0, 0, 0.1);
+            border-radius: 15px;
+            overflow: hidden;
+        }
+        .card-header {
+            background: linear-gradient(to right, #4e73df, #8e54e9);
+            color: white;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="row justify-content-center">
+            <div class="col-md-8 col-lg-6">
+                <div class="card">
+                    <div class="card-header text-center py-3">
+                        <h4 class="mb-0">Telegram Bot Status</h4>
+                    </div>
+                    <div class="card-body text-center p-5">
+                        <h2 class="mb-4">Telegram bot is running</h2>
+                        <p class="lead mb-4">The service is active and monitoring channels.</p>
+                        <a href="/admin_panel/" class="btn btn-primary btn-lg">Go to Admin Panel</a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</body>
+</html>""")
+        logger.info(f"Created root index.html: {index_path}")
     
     # Check permissions on template files
     try:
