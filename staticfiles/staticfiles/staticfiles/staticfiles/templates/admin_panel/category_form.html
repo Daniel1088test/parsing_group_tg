@@ -1,0 +1,114 @@
+{% extends 'base.html' %}
+
+{% block title %}{% if category %}Editing{% else %}Creating{% endif %} category{% endblock %}
+
+{% block content %}
+<div class="card">
+    <div class="card-header bg-white py-3">
+        <h5 class="mb-0">
+            {% if category %}
+                <i class="fas fa-edit me-2"></i>Editing category
+            {% else %}
+                <i class="fas fa-plus me-2"></i>Creating new category
+            {% endif %}
+        </h5>
+    </div>
+    <div class="card-body">
+        <form method="post" class="needs-validation" novalidate>
+            {% csrf_token %}
+            
+            <div class="mb-4">
+                <label for="id_name" class="form-label">Category name</label>
+                <input type="text" name="name" id="id_name" 
+                       class="form-control {% if form.name.errors %}is-invalid{% endif %}" 
+                       value="{{ form.name.value|default:'' }}" required>
+                {% if form.name.errors %}
+                    <div class="invalid-feedback">
+                        {{ form.name.errors|join:", " }}
+                    </div>
+                {% endif %}
+                <div class="form-text">Category name, which will be displayed in the menu</div>
+            </div>
+
+            <div class="mb-4">
+                <label for="id_description" class="form-label">Description</label>
+                <textarea name="description" id="id_description" 
+                       class="form-control {% if form.description.errors %}is-invalid{% endif %}"
+                       rows="3">{{ form.description.value|default:'' }}</textarea>
+                {% if form.description.errors %}
+                    <div class="invalid-feedback">
+                        {{ form.description.errors|join:", " }}
+                    </div>
+                {% endif %}
+                <div class="form-text">Enter the category description (optional)</div>
+            </div>
+
+            <div class="mb-4 form-check">
+                <input type="checkbox" name="is_active" id="id_is_active"
+                       class="form-check-input {% if form.is_active.errors %}is-invalid{% endif %}"
+                       {% if form.is_active.value %}checked{% endif %}>
+                <label for="id_is_active" class="form-check-label">Active</label>
+                {% if form.is_active.errors %}
+                    <div class="invalid-feedback">
+                        {{ form.is_active.errors|join:", " }}
+                    </div>
+                {% endif %}
+                <div class="form-text">Check if the category should be active</div>
+            </div>
+
+            <div class="mb-4">
+                <label for="id_session" class="form-label">Telegram Session</label>
+                <select name="session" id="id_session" class="form-control {% if form.session.errors %}is-invalid{% endif %}">
+                    <option value="">-- No session (use default) --</option>
+                    {% for session in form.fields.session.queryset %}
+                        {% if category and category.session and session.id == category.session.id %}
+                            <option value="{{ session.id }}" selected>
+                                {{ session.phone }} {% if not session.is_active %}(Inactive){% endif %}
+                            </option>
+                        {% else %}
+                            <option value="{{ session.id }}">
+                                {{ session.phone }} {% if not session.is_active %}(Inactive){% endif %}
+                            </option>
+                        {% endif %}
+                    {% endfor %}
+                </select>
+                {% if form.session.errors %}
+                    <div class="invalid-feedback">
+                        {{ form.session.errors|join:", " }}
+                    </div>
+                {% endif %}
+                <div class="form-text">{{ form.session.help_text }}</div>
+            </div>
+            
+            <div class="mt-4 text-end">
+                <a href="{% url 'categories_list' %}" class="btn btn-secondary me-2">
+                    <i class="fas fa-times me-2"></i>Cancel
+                </a>
+                <button type="submit" class="btn btn-primary">
+                    <i class="fas fa-save me-2"></i>Save
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    // Form validation
+    (function () {
+        'use strict'
+        var forms = document.querySelectorAll('.needs-validation')
+        Array.prototype.slice.call(forms).forEach(function (form) {
+            form.addEventListener('submit', function (event) {
+                if (!form.checkValidity()) {
+                    event.preventDefault()
+                    event.stopPropagation()
+                }
+                form.classList.add('was-validated')
+            }, false)
+        })
+    })()
+
+</script>
+{% endblock %}

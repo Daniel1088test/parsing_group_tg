@@ -1,0 +1,73 @@
+{% extends 'base.html' %}
+
+{% block title %}Telegram Authentication Guide{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="row">
+        <div class="col-md-10 offset-md-1">
+            <div class="card">
+                <div class="card-header bg-primary text-white">
+                    <h5 class="card-title mb-0">Telegram Authentication Guide</h5>
+                </div>
+                <div class="card-body">
+                    <div class="alert alert-info">
+                        <p>This guide will help you authorize your Telegram account for channel parsing. No terminal commands are needed - everything can be done through the bot or web interface.</p>
+                    </div>
+                    
+                    <h3>How to Authenticate Telegram Sessions</h3>
+                    
+                    <div class="mt-4">
+                        <h5>Method 1: Via Website (Recommended)</h5>
+                        <p>This is the easiest way to authenticate a session:</p>
+                        <ol>
+                            <li>Go to the <a href="{% url 'sessions_list' %}">Sessions page</a></li>
+                            <li>Click the "Authorize" button next to the session that needs authentication</li>
+                            <li>Open the Telegram link provided on the next screen</li>
+                            <li>Our bot will guide you through the authentication process</li>
+                            <li>Enter your phone number and verification code when prompted</li>
+                            <li>If your account has two-factor authentication, enter your password when asked</li>
+                        </ol>
+                        
+                        <div class="alert alert-success">
+                            <strong>Advantage:</strong> This method lets you authorize directly from the web interface with just a few clicks.
+                        </div>
+                    </div>
+                    
+                    <div class="mt-4">
+                        <h5>Method 2: Directly Through the Bot</h5>
+                        <p>You can also authenticate by talking directly to our Telegram bot:</p>
+                        <ol>
+                            <li>Open our bot <a href="https://t.me/Channels_hunt_bot" target="_blank">@Channels_hunt_bot</a> on Telegram</li>
+                            <li>Send the command <code>/authorize</code> to the bot</li>
+                            <li>Share your phone number when prompted</li>
+                            <li>Enter the verification code sent by Telegram</li>
+                            <li>If your account has two-factor authentication, enter your password when prompted</li>
+                        </ol>
+                        
+                        <div class="alert alert-success">
+                            <strong>Advantage:</strong> Convenient if you're already using Telegram and don't want to switch between applications.
+                        </div>
+                    </div>
+                    
+                    <div class="mt-4">
+                        <h5>Important Notes</h5>
+                        <ul>
+                            <li>You <strong>must</strong> use a regular Telegram user account (not a bot account)</li>
+                            <li>The phone number must have access to Telegram</li>
+                            <li>Two-factor authentication (2FA) is fully supported through both methods</li>
+                            <li>If you encounter any issues, try refreshing the page or restarting the process</li>
+                        </ul>
+                    </div>
+                    
+                    <div class="mt-4">
+                        <a href="{% url 'sessions_list' %}" class="btn btn-primary">
+                            <i class="fas fa-arrow-left"></i> Return to Sessions List
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %} 
