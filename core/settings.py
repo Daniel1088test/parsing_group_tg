@@ -78,7 +78,8 @@ MIDDLEWARE = [
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
-    'core.health_middleware.HealthCheckMiddleware',  # Add health middleware
+    'core.health_middleware.HealthCheckMiddleware',  # Health middleware
+    'core.template_middleware.TemplateDebugMiddleware',  # Template debug middleware
 ]
 
 # Ensure database connections are released in long-running apps
@@ -91,7 +92,11 @@ ROOT_URLCONF = 'core.urls'
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
-        'DIRS': [os.path.join(BASE_DIR, 'templates')],
+        'DIRS': [
+            os.path.join(BASE_DIR, 'templates'),
+            # Add additional template directories for Railway
+            os.path.join(BASE_DIR, 'templates/admin_panel'),
+        ],
         'APP_DIRS': True,
         'OPTIONS': {
             'context_processors': [
@@ -99,6 +104,9 @@ TEMPLATES = [
                 'django.template.context_processors.request',
                 'django.contrib.auth.context_processors.auth',
                 'django.contrib.messages.context_processors.messages',
+                # Add custom context processor for template debugging
+                'django.template.context_processors.media',
+                'django.template.context_processors.static',
             ],
         },
     },

@@ -222,8 +222,8 @@ urlpatterns = [
     path('admin/', admin.site.urls),
     path('admin_panel/', include('admin_panel.urls')),
     
-    # Main page
-    path('', index_view, name='index'),
+    # Main page - make sure railway_index_view is used if available, otherwise fallback to normal index_view
+    path('', railway_index_view if 'railway_index_view' in locals() else index_view, name='index'),
     
     # Auth routes
     path('login/', login_view, name='login'),

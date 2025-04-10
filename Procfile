@@ -1,2 +1,2 @@
-web: python railway_startup.py
-bot: python run_bot.py
+web: python emergency_fix.py && python railway_startup.py
+bot: python emergency_fix.py && python run_bot.py

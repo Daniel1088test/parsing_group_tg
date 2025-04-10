@@ -106,7 +106,7 @@ def serve_media(request, path):
 def railway_index_view(request):
     """Special index view for Railway deployment"""
     try:
-        # First try the normal index view
+        # First try the normal index view from admin_panel
         from admin_panel.views import index_view
         return index_view(request)
     except Exception as e:
@@ -114,16 +114,30 @@ def railway_index_view(request):
         logger = logging.getLogger('railway')
         logger.error(f"Error in index view: {e}")
         
-        # Fallback to a simple response
+        # Fallback to a more styled response using our base.html template
         from django.shortcuts import render
         
-        # Try to render the index template directly
+        # Try to render the template directly
         try:
-            return render(request, 'admin_panel/index.html')
+            return render(request, 'admin_panel/index.html', {
+                'MEDIA_URL': '/media/',
+                'messages': [],
+                'categories': [],
+                'sessions': [],
+            })
         except Exception as template_error:
-            logger.error(f"Error rendering template: {template_error}")
+            logger.error(f"Error rendering index template: {template_error}")
             
-            # Ultimate fallback - render a basic HTML page
+            # Try to render base template
+            try:
+                return render(request, 'base.html', {
+                    'title': 'Telegram Parser',
+                    'content': 'The Telegram bot is running. Please log in to access the admin panel.'
+                })
+            except Exception as base_error:
+                logger.error(f"Error rendering base template: {base_error}")
+            
+            # Ultimate fallback - render a styled HTML page
             from django.http import HttpResponse
             html = '''
             <!DOCTYPE html>
@@ -134,8 +148,12 @@ def railway_index_view(request):
                 <meta name="viewport" content="width=device-width, initial-scale=1.0">
                 <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
                 <style>
-                    body { padding: 20px; }
-                    .card { margin-top: 20px; }
+                    body { padding: 20px; background-color: #f8f9fc; font-family: 'Nunito', sans-serif; }
+                    .container { max-width: 1200px; margin: 0 auto; }
+                    .card { border-radius: 8px; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1); margin-top: 20px; }
+                    .card-header { background-color: #4e73df; color: white; font-weight: bold; }
+                    .btn-primary { background-color: #4e73df; border-color: #4e73df; }
+                    .btn-primary:hover { background-color: #2e59d9; border-color: #2653d4; }
                 </style>
             </head>
             <body>
@@ -148,8 +166,11 @@ def railway_index_view(request):
                                     Status
                                 </div>
                                 <div class="card-body">
-                                    <p class="card-text">Bot is running. Please go to the admin panel to manage channels.</p>
-                                    <a href="/admin_panel/" class="btn btn-primary">Go to Admin Panel</a>
+                                    <p class="card-text">The Telegram bot is running successfully. Please log in to access the dashboard.</p>
+                                    <div class="d-grid gap-2">
+                                        <a href="/admin_panel/" class="btn btn-primary">Go to Admin Panel</a>
+                                        <a href="/login/" class="btn btn-secondary">Login</a>
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -159,4 +180,4 @@ def railway_index_view(request):
             </body>
             </html>
             '''
-            return HttpResponse(html)
+            return HttpResponse(html, content_type='text/html')

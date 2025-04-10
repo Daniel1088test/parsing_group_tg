@@ -5,6 +5,7 @@ import subprocess
 import time
 import logging
 import threading
+import shutil
 
 # Set up logging
 logging.basicConfig(
@@ -92,6 +93,47 @@ def start_parser():
     logger.info("Starting Telegram parser...")
     return subprocess.Popen(["python", "run_parser.py"])
 
+# Ensure templates are properly set up
+def ensure_templates():
+    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+    templates_dir = os.path.join(BASE_DIR, 'templates')
+    admin_panel_dir = os.path.join(templates_dir, 'admin_panel')
+    
+    # Ensure templates directory exists
+    os.makedirs(templates_dir, exist_ok=True)
+    os.makedirs(admin_panel_dir, exist_ok=True)
+    
+    # Log the template structure
+    logger.info(f"Templates directory: {templates_dir}")
+    if os.path.exists(templates_dir):
+        logger.info(f"Template files: {os.listdir(templates_dir)}")
+        if os.path.exists(admin_panel_dir):
+            logger.info(f"Admin panel template files: {os.listdir(admin_panel_dir)}")
+    
+    # Make sure media and static directories exist
+    media_dir = os.path.join(BASE_DIR, 'media')
+    static_dir = os.path.join(BASE_DIR, 'static')
+    staticfiles_dir = os.path.join(BASE_DIR, 'staticfiles')
+    
+    os.makedirs(media_dir, exist_ok=True)
+    os.makedirs(os.path.join(media_dir, 'messages'), exist_ok=True)
+    os.makedirs(static_dir, exist_ok=True)
+    os.makedirs(staticfiles_dir, exist_ok=True)
+    
+    # Check permissions on template files
+    try:
+        for root, dirs, files in os.walk(templates_dir):
+            for file in files:
+                file_path = os.path.join(root, file)
+                os.chmod(file_path, 0o644)  # Make readable
+                logger.info(f"Set permissions for {file_path}")
+            for directory in dirs:
+                dir_path = os.path.join(root, directory)
+                os.chmod(dir_path, 0o755)  # Make executable (for directories)
+                logger.info(f"Set permissions for directory {dir_path}")
+    except Exception as e:
+        logger.warning(f"Error setting permissions: {e}")
+
 # Main function to orchestrate startup
 def main():
     logger.info("Starting Railway deployment setup")
@@ -100,11 +142,23 @@ def main():
     port = os.environ.get('PORT', '8000')
     logger.info(f"Using PORT: {port}")
     
+    # Set important environment variables
+    os.environ['DJANGO_SETTINGS_MODULE'] = 'core.settings'
+    
+    # Ensure templates are properly set up
+    ensure_templates()
+    
     # Apply fixes
     apply_fixes()
     
     # Run migrations
     run_migrations()
+    
+    # Create health check files
+    logger.info("Creating health check files...")
+    for filename in ["health.txt", "health.html", "healthz.txt", "healthz.html"]:
+        with open(filename, "w") as f:
+            f.write("OK")
     
     # Start bot and parser processes as background processes
     bot_process = start_bot()
