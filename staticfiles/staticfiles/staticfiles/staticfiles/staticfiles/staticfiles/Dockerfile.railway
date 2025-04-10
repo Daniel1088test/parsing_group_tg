@@ -1,0 +1,64 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Set environment variables
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
+ENV PORT=8080
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    libpq-dev \
+    curl \
+    procps \
+    postgresql-client \
+    postgresql-client-common \
+    libjpeg-dev \
+    libpng-dev \
+    zlib1g-dev \
+    git \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy requirements files
+COPY requirements*.txt ./
+COPY fix_requirements.py ./
+
+# Install dependencies
+RUN pip install --upgrade pip setuptools wheel
+RUN pip install --no-cache-dir -r requirements.txt || \
+    pip install --no-cache-dir -r requirements-base.txt
+
+# Ensure psycopg2 is installed
+RUN pip install --no-cache-dir psycopg2-binary==2.9.9
+
+# Create health check files FIRST
+RUN mkdir -p /app/staticfiles
+RUN echo "OK" > /app/health.txt && \
+    echo "<html><body>OK</body></html>" > /app/health.html && \
+    echo "OK" > /app/healthz.txt && \
+    echo "<html><body>OK</body></html>" > /app/healthz.html
+
+# Copy project files
+COPY . .
+
+# Create required directories
+RUN mkdir -p staticfiles/img media/messages logs/bot data/sessions
+
+# Create placeholder images for static content
+RUN echo '<?xml version="1.0" encoding="UTF-8" standalone="no"?><svg width="300" height="200" xmlns="http://www.w3.org/2000/svg"><rect width="298" height="198" x="1" y="1" fill="#f0f0f0" stroke="#c8c8c8" stroke-width="2"/><text x="150" y="110" font-family="Arial" font-size="24" text-anchor="middle" fill="#646464">IMAGE</text></svg>' > staticfiles/img/placeholder-image.svg && \
+    echo '<?xml version="1.0" encoding="UTF-8" standalone="no"?><svg width="300" height="200" xmlns="http://www.w3.org/2000/svg"><rect width="298" height="198" x="1" y="1" fill="#f0f0f0" stroke="#c8c8c8" stroke-width="2"/><text x="150" y="110" font-family="Arial" font-size="24" text-anchor="middle" fill="#646464">VIDEO</text></svg>' > staticfiles/img/placeholder-video.svg
+
+# Make scripts executable
+RUN chmod +x railway_fix.sh railway_health.py
+
+# Set permissions
+RUN chmod -R 755 /app/staticfiles /app/media /app/logs /app/data
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:${PORT}/health.html || exit 1
+
+# Start command - run health check first, then the actual application
+CMD python railway_health.py & bash railway_fix.sh && gunicorn core.wsgi:application --bind 0.0.0.0:${PORT} --log-file - 

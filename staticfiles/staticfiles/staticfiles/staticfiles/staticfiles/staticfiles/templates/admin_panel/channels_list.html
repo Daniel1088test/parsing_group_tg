@@ -1,0 +1,126 @@
+{% extends 'base.html' %}
+
+{% block title %}Channels{% endblock %}
+
+{% block content %}
+<div class="card">
+    <div class="card-header bg-white py-3 d-flex justify-content-between align-items-center">
+        <h5 class="mb-0">
+            <i class="fas fa-question-circle me-2"></i>Channels
+        </h5>
+        <a href="{% url 'channel_create' %}" class="btn btn-primary btn-sm">
+            <i class="fas fa-plus me-2"></i>Create channel
+        </a>
+    </div>
+    <div class="card-body">
+        <table id="channelsTable" class="table table-striped table-hover">
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>Назва</th>
+                    <td>Посилання</td>
+                    <th>Категорія</th>
+                    <th>Створено</th>
+                    <th>Оновлено</th>
+                    <th style="width: 150px;">Дії</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for channel in channels %}
+                <tr>
+                    <td>{{ channel.id }}</td>
+                    <td>{{ channel.name }}</td>
+                    <td>{{ channel.url }}</td>
+                    <td>{{ channel.category.name }}</td>
+                    <td>{{ channel.created_at|date:"d.m.Y H:i" }}</td>
+                    <td>{{ channel.updated_at|date:"d.m.Y H:i" }}</td>
+                    <td>
+                        <div class="btn-group">
+                            <a href="{% url 'channel_detail' channel.id %}" class="btn btn-info btn-sm" data-bs-toggle="tooltip" title="Details">
+                                <i class="fas fa-eye"></i>
+                            </a>
+                            <a href="{% url 'channel_update' channel.id %}" class="btn btn-primary btn-sm" data-bs-toggle="tooltip" title="Edit">
+                                <i class="fas fa-edit"></i>
+                            </a>
+                            <button type="button" class="btn btn-danger btn-sm delete-channel" 
+                                    data-id="{{ channel.id }}" 
+                                    data-name="{{ channel.name }}"
+                                    data-bs-toggle="tooltip" 
+                                    title="Delete">
+                                <i class="fas fa-trash"></i>
+                            </button>
+                        </div>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- Єдине модальне вікно для всіх каналів -->
+<div class="modal fade" id="deleteChannelModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Confirm deletion</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p>Are you sure you want to delete this channel?</p>
+                <div class="alert alert-warning">
+                    <strong>Channel:</strong> <span id="channelName"></span>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <form id="deleteChannelForm" method="post" style="display: inline;">
+                    {% csrf_token %}
+                    <button type="submit" class="btn btn-danger">Delete</button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% block extra_js %}
+<script>
+    $(document).ready(function() {
+        // Initialize DataTable
+        $('#channelsTable').DataTable({
+            language: {
+                url: '//cdn.datatables.net/plug-ins/1.13.7/i18n/uk.json',
+            },
+            order: [[0, 'desc']],
+            responsive: true,
+            pageLength: 10,
+            lengthMenu: [[10, 25, 50, -1], [10, 25, 50, "All"]]
+        });
+
+        // Initialize tooltips
+        var tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'))
+        var tooltipList = tooltipTriggerList.map(function (tooltipTriggerEl) {
+            return new bootstrap.Tooltip(tooltipTriggerEl)
+        });
+
+        // Initialize delete modal
+        const deleteModal = new bootstrap.Modal(document.getElementById('deleteChannelModal'));
+        
+        // Click handler for delete button
+        $('.delete-channel').click(function() {
+            const channelId = $(this).data('id');
+            const channelName = $(this).data('name');
+            
+            // Update text in modal window
+            $('#channelName').text(channelName);
+            
+            // Update delete form with correct URL
+            $('#deleteChannelForm').attr('action', "{% url 'channel_delete' 0 %}".replace('0', channelId));
+            
+            // Show modal window
+            deleteModal.show();
+        });
+    });
+</script>
+{% endblock %}
+{% endblock %}

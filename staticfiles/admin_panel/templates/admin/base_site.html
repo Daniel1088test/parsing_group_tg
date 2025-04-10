@@ -1,0 +1,13 @@
+{% extends "admin/base_site.html" %}
+{% load i18n %}
+
+{% block welcome-msg %}
+    {{ block.super }}
+    <span class="separator">|</span>
+    <a href="{% url 'admin:check_services' %}" style="color: #fff; background-color: #28a745; padding: 5px 10px; border-radius: 4px; margin-left: 10px; font-weight: normal;">
+        {% trans 'Перевірити сервіси' %}
+    </a>
+    <a href="{% url 'admin:start_services' %}" style="color: #fff; background-color: #007bff; padding: 5px 10px; border-radius: 4px; margin-left: 10px; font-weight: normal;">
+        {% trans 'Запустити сервіси' %}
+    </a>
+{% endblock %} 

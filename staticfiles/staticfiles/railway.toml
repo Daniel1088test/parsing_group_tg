@@ -1,0 +1,43 @@
+[build]
+builder = "NIXPACKS"
+buildCommand = "pip install -r requirements.txt && pip install qrcode[pil] && python manage.py collectstatic --noinput"
+
+[deploy]
+startCommand = "python start_bot.py"
+healthcheckPath = "/health"
+healthcheckTimeout = 300
+restartPolicyType = "ALWAYS"
+
+[phases.setup]
+nixPkgs = ["python310", "gcc"]
+
+[metrics]
+port = 8080
+path = "/metrics"
+
+[settings]
+region = "eu-central-1" # виберіть найближчу до України
+
+# Змінні середовища
+[envs]
+PORT.default = "8080"
+BOT_TOKEN.default = "8102516142:AAFTsVXXujHHKoX2KZGqZXBHPBznfgh7kg0"
+BOT_USERNAME.default = "chan_parsing_mon_bot"
+API_ID.default = "19840544"
+API_HASH.default = "c839f28bad345082329ec086fca021fa"
+WORKER_COUNT.default = "1"
+DEBUG.default = "False"
+DJANGO_SECRET_KEY.default = "Myw0djF8ejNlKjU2ZHlxJcOBgcSBNSwbygVvYRUjPeIGGxIIl" # змініть на власний
+ADMIN_ID.default = "574349489"
+
+[[services]]
+name = "web"
+port = 8080
+protocol = "http"
+internal = false
+
+[[services]]
+name = "health"
+port = 3000
+protocol = "http"
+internal = false 

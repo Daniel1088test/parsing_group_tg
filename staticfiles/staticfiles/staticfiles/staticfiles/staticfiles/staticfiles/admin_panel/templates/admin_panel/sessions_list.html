@@ -1,0 +1,113 @@
+{% extends 'admin_panel/base.html' %}
+
+{% block title %}Telegram Sessions - Admin Panel{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    {% if schema_error %}
+    <div class="alert alert-danger">
+        <i class="fas fa-exclamation-triangle"></i> <strong>Database Schema Error:</strong> The database is missing required columns (session_name or is_bot).
+        <hr>
+        <p>Please fix the database schema with the button below:</p>
+        <form method="post" action="{% url 'sessions_list' %}">
+            {% csrf_token %}
+            <input type="hidden" name="action" value="fix_schema">
+            <button type="submit" class="btn btn-primary">Fix Database Schema</button>
+        </form>
+    </div>
+    {% endif %}
+    
+    <div class="row mb-4">
+        <div class="col">
+            <h1 class="h3 mb-2 text-gray-800">Telegram Sessions</h1>
+            <p class="mb-4">Manage your Telegram sessions for channel parsing</p>
+        </div>
+        <div class="col-auto">
+            <a href="{% url 'session_create' %}" class="btn btn-primary">
+                <i class="fas fa-plus-circle"></i> Add New Session
+            </a>
+            <a href="{% url 'auth_help' %}" class="btn btn-info">
+                <i class="fas fa-question-circle"></i> Auth Help
+            </a>
+        </div>
+    </div>
+
+    <div class="card shadow mb-4">
+        <div class="card-header py-3">
+            <h6 class="m-0 font-weight-bold text-primary">Sessions List</h6>
+        </div>
+        <div class="card-body">
+            {% if sessions %}
+                <div class="table-responsive">
+                    <table class="table table-bordered" id="dataTable" width="100%" cellspacing="0">
+                        <thead>
+                            <tr>
+                                <th>Phone</th>
+                                <th>Status</th>
+                                <th>Auth Status</th>
+                                <th>Session File</th>
+                                <th>Created</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for session in sessions %}
+                                <tr>
+                                    <td>{{ session.phone }}</td>
+                                    <td>
+                                        {% if session.is_active %}
+                                            <span class="badge bg-success">Active</span>
+                                        {% else %}
+                                            <span class="badge bg-secondary">Inactive</span>
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        {% if session.needs_auth %}
+                                            <span class="badge bg-warning">Needs Auth</span>
+                                        {% else %}
+                                            <span class="badge bg-success">Authorized</span>
+                                        {% endif %}
+                                    </td>
+                                    <td class="small">{{ session.session_file|default:"Not set" }}</td>
+                                    <td>{{ session.created_at|date:"Y-m-d H:i" }}</td>
+                                    <td>
+                                        <div class="btn-group" role="group">
+                                            <a href="{% url 'session_update' session.id %}" class="btn btn-sm btn-primary">
+                                                <i class="fas fa-edit"></i>
+                                            </a>
+                                            {% if session.needs_auth %}
+                                                <a href="{% url 'authorize_session' session.id %}" class="btn btn-sm btn-warning">
+                                                    <i class="fas fa-key"></i> Auth
+                                                </a>
+                                            {% endif %}
+                                            <a href="{% url 'session_delete' session.id %}" class="btn btn-sm btn-danger">
+                                                <i class="fas fa-trash"></i>
+                                            </a>
+                                        </div>
+                                    </td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            {% else %}
+                <div class="alert alert-info">
+                    <i class="fas fa-info-circle mr-2"></i> No Telegram sessions found. 
+                    <a href="{% url 'session_create' %}" class="alert-link">Add your first session</a>
+                </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    $(document).ready(function() {
+        $('#dataTable').DataTable({
+            order: [[4, 'desc']], // Order by creation date descending
+            pageLength: 10,
+        });
+    });
+</script>
+{% endblock %} 

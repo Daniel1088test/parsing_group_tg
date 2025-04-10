@@ -1,0 +1,20 @@
+# Мінімальний набір базових залежностей
+Django==4.2.10
+psycopg2-binary==2.9.9
+dj-database-url==2.1.0
+python-dotenv==1.0.0
+setuptools>=65.5.1  # Для pkg_resources
+wheel>=0.43.0  # Для правильної збірки пакетів
+requests>=2.0.0
+Pillow==10.1.0  # Для обробки зображень
+
+# Телеграм API
+Telethon==1.32.1
+aiofiles~=23.2.1  # Сумісність з aiogram
+aiogram==3.2.0
+pyaes==1.6.1  # Dependency required by Telethon
+aiohttp~=3.9.0  # Compatible with aiogram 3.2.0
+
+# Веб-сервер
+gunicorn==21.2.0
+whitenoise==6.6.0 

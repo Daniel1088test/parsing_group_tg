@@ -1,0 +1,75 @@
+{% extends 'admin_panel/base.html' %}
+
+{% block title %}Run Migrations - Admin Panel{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="row mb-4">
+        <div class="col">
+            <h1 class="h3 mb-2 text-gray-800">Database Migrations</h1>
+            <p class="mb-4">Apply database migrations to update schema with new fields</p>
+        </div>
+        <div class="col-auto">
+            <a href="{% url 'admin_panel' %}" class="btn btn-secondary">
+                <i class="fas fa-arrow-left"></i> Back to Dashboard
+            </a>
+        </div>
+    </div>
+
+    <div class="row">
+        <div class="col-lg-8">
+            <div class="card shadow mb-4">
+                <div class="card-header py-3">
+                    <h6 class="m-0 font-weight-bold text-primary">Run Database Migrations</h6>
+                </div>
+                <div class="card-body">
+                    <div class="alert alert-warning">
+                        <i class="fas fa-exclamation-triangle"></i> <strong>Warning:</strong> Running migrations will update the database structure. This may temporarily disrupt service.
+                    </div>
+                    
+                    <p>The following operations will be performed:</p>
+                    <ul>
+                        <li>Apply any pending database migrations</li>
+                        <li>Add missing columns to existing tables</li>
+                        <li>Update field definitions and constraints</li>
+                    </ul>
+                    
+                    <p>This operation is useful when:</p>
+                    <ul>
+                        <li>You see database errors related to missing columns</li>
+                        <li>New features aren't working properly</li>
+                        <li>After code has been updated with new models</li>
+                    </ul>
+                    
+                    <form method="post" onsubmit="return confirm('Are you sure you want to run database migrations?');">
+                        {% csrf_token %}
+                        <button type="submit" class="btn btn-primary">
+                            <i class="fas fa-database"></i> Run Migrations
+                        </button>
+                    </form>
+                </div>
+            </div>
+        </div>
+        
+        <div class="col-lg-4">
+            <div class="card shadow mb-4">
+                <div class="card-header py-3">
+                    <h6 class="m-0 font-weight-bold text-primary">Migration Information</h6>
+                </div>
+                <div class="card-body">
+                    <div class="text-center mb-4">
+                        <i class="fas fa-database fa-4x text-gray-300 mb-3"></i>
+                        <p>Migrations keep your database schema in sync with your models</p>
+                    </div>
+                    
+                    <div class="text-muted small">
+                        <p><strong>Automatic Migration:</strong> The system attempts to automatically apply migrations during startup.</p>
+                        <p><strong>Manual Trigger:</strong> Use this page to manually trigger migrations if needed.</p>
+                        <p><strong>Troubleshooting:</strong> If you encounter persistent database errors, try running migrations from this page.</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %} 

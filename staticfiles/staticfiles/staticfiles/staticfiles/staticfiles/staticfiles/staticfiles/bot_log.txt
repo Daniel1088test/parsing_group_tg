@@ -1,0 +1,21 @@
+2025-04-09 01:02:37 - bot_launcher - INFO - ╟ряєёъ Telegram сюЄр
+2025-04-09 01:02:37 - bot_launcher - INFO - ╤яЁюср чряєёъє сюЄр #1
+2025-04-09 01:02:37 - bot_launcher - INFO - ╟ряєёър║ью Telegram сюЄр...
+2025-04-09 01:02:37 - telegram_bot - INFO - Django setup successful
+2025-04-09 01:02:41 - telethon.crypto.libssl - INFO - Failed to load SSL library: <class 'OSError'> (no library called "ssl" found)
+2025-04-09 01:02:41 - telethon.crypto.aes - INFO - cryptg detected, it will be used for encryption
+2025-04-09 01:02:41 - telegram_bot - INFO - ┬шъюЁшёЄютє║ью BOT_TOKEN ч чь│ээшї ёхЁхфютш∙р
+2025-04-09 01:02:42 - telegram_bot - INFO - ====================================
+2025-04-09 01:02:42 - telegram_bot - INFO - Bot started: 2025-04-09 01:02:42
+2025-04-09 01:02:42 - telegram_bot - INFO - Bot ID: 7923260865
+2025-04-09 01:02:42 - telegram_bot - INFO - Bot name: Channels_hunt_bot
+2025-04-09 01:02:42 - telegram_bot - INFO - ====================================
+2025-04-09 01:02:42 - telegram_bot - INFO - Old messages deleted
+2025-04-09 01:02:42 - telegram_bot - INFO - Starting to receive updates...
+2025-04-09 01:02:42 - aiogram.dispatcher - INFO - Start polling
+2025-04-09 01:02:42 - aiogram.dispatcher - INFO - Run polling for bot @Channels_hunt_bot id=7923260865 - 'bot_channels_hunt'
+2025-04-09 01:02:46 - aiogram.dispatcher - ERROR - Failed to fetch updates - TelegramConflictError: Telegram server says - Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2025-04-09 01:02:46 - aiogram.dispatcher - WARNING - Sleep for 1.000000 seconds and try again... (tryings = 0, bot id = 7923260865)
+2025-04-09 01:02:52 - aiogram.dispatcher - ERROR - Failed to fetch updates - TelegramConflictError: Telegram server says - Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2025-04-09 01:02:52 - aiogram.dispatcher - WARNING - Sleep for 1.211202 seconds and try again... (tryings = 1, bot id = 7923260865)
+2025-04-09 01:02:53 - bot_launcher - INFO - ╬ЄЁшьрэю ёшуэры чртхЁ°хээ  ЁюсюЄш. ╟єяшэ ║ью сюЄр...
